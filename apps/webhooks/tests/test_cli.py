@@ -1,0 +1,153 @@
+"""The `webhook` management command (and its `sc webhook` front)."""
+
+from __future__ import annotations
+
+import json
+from datetime import timedelta
+from io import StringIO
+from unittest import mock
+
+import pytest
+from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.utils import timezone
+
+from apps.webhooks.models import WebhookDelivery, WebhookEndpoint
+
+pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture(autouse=True)
+def no_real_enqueue():
+    with mock.patch("apps.webhooks.services._enqueue_delivery") as m:
+        yield m
+
+
+def _run(*args) -> str:
+    out = StringIO()
+    call_command("webhook", *args, stdout=out)
+    return out.getvalue()
+
+
+def _endpoint(name="Zapier", enabled=True):
+    return WebhookEndpoint.objects.create(
+        name=name, target_url="https://hooks.example.com/x", event_filter=["*"], enabled=enabled
+    )
+
+
+def test_status_json_reports_counts():
+    ep = _endpoint()
+    WebhookDelivery.objects.create(endpoint=ep, event_type="t", payload={}, status="dead")
+    out = _run("status", "--json")
+    data = json.loads(out)
+    assert data["endpoints"] == {"active": 1, "total": 1}
+    assert data["deliveries"]["dead"] == 1
+
+
+def test_list_shows_endpoints():
+    _endpoint(name="Zapier")
+    out = _run("list")
+    assert "Zapier" in out
+    assert "[on ]" in out
+
+
+def test_test_subcommand_queues_delivery(no_real_enqueue):
+    ep = _endpoint()
+    out = _run("test", ep.name, "--json")
+    data = json.loads(out)
+    assert data["queued"] is True
+    d = WebhookDelivery.objects.get(pk=data["delivery_id"])
+    assert d.event_type == "webhooks.test.ping"
+    assert d.endpoint_id == ep.pk
+    no_real_enqueue.assert_called_once_with(d.pk)
+
+
+def test_test_subcommand_resolves_by_id(no_real_enqueue):
+    ep = _endpoint()
+    out = _run("test", str(ep.pk), "--json")
+    assert json.loads(out)["endpoint"] == ep.name
+
+
+def test_test_unknown_endpoint_errors():
+    with pytest.raises(CommandError, match="no endpoint"):
+        _run("test", "nope")
+
+
+def test_replay_clones_delivery(no_real_enqueue):
+    ep = _endpoint()
+    original = WebhookDelivery.objects.create(
+        endpoint=ep, event_type="a.b.created", payload={"k": 1}, status="dead"
+    )
+    out = _run("replay", str(original.pk), "--json")
+    data = json.loads(out)
+    replay = WebhookDelivery.objects.get(pk=data["delivery_id"])
+    assert replay.pk != original.pk
+    assert replay.event_type == "a.b.created"
+    assert replay.payload == {"k": 1}
+    assert replay.status == WebhookDelivery.Status.PENDING
+
+
+def test_replay_requires_numeric_id():
+    with pytest.raises(CommandError, match="delivery id"):
+        _run("replay", "abc")
+
+
+def test_deliveries_filters_by_status():
+    ep = _endpoint()
+    WebhookDelivery.objects.create(endpoint=ep, event_type="ok", payload={}, status="success")
+    WebhookDelivery.objects.create(endpoint=ep, event_type="bad", payload={}, status="dead")
+    out = _run("deliveries", "--status", "dead", "--json")
+    rows = json.loads(out)
+    assert len(rows) == 1
+    assert rows[0]["event_type"] == "bad"
+
+
+def test_tick_claims_due_retries(no_real_enqueue):
+    ep = _endpoint()
+    WebhookDelivery.objects.create(
+        endpoint=ep,
+        event_type="t",
+        payload={},
+        status=WebhookDelivery.Status.RETRYING,
+        next_attempt_at=timezone.now() - timedelta(minutes=1),
+    )
+    out = _run("tick", "--json")
+    assert json.loads(out)["claimed"] == 1
+
+
+def test_unknown_subcommand_errors():
+    with pytest.raises(CommandError, match="unknown subcommand"):
+        _run("bogus")
+
+
+def test_sc_webhook_fronts_command(no_real_enqueue):
+    """`sc webhook status` routes to the webhook command."""
+    _endpoint()
+    out = StringIO()
+    call_command("sc", "webhook", "status", "--json", stdout=out)
+    assert json.loads(out.getvalue())["endpoints"]["total"] == 1
+
+
+def test_create_via_sc_needs_explicit_enabled():
+    """Documents the gotcha: `sc new webhook` without --enabled=true yields a
+    DISABLED endpoint (Django BooleanField form default = unchecked). The endpoint
+    CRUDView is staff-gated, so a staff --user is required."""
+    from django.contrib.auth import get_user_model
+
+    staff = get_user_model().objects.create_user(
+        username="wh_staff", password="x", is_staff=True
+    )
+
+    call_command(
+        "sc", "new", "webhook",
+        "--name", "NoEnable", "--target_url", "https://hooks.example.com/y",
+        "--user", staff.username, "--json", stdout=StringIO(),
+    )
+    assert WebhookEndpoint.objects.get(name="NoEnable").enabled is False
+
+    call_command(
+        "sc", "new", "webhook",
+        "--name", "WithEnable", "--target_url", "https://hooks.example.com/z",
+        "--enabled=true", "--user", staff.username, "--json", stdout=StringIO(),
+    )
+    assert WebhookEndpoint.objects.get(name="WithEnable").enabled is True

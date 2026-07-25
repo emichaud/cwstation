@@ -17,8 +17,9 @@ Every command-line tool SmallStack provides — `manage.py` commands, Make targe
 | Auth | `manage.py create_api_token` | Mint a token for a user |
 | DB | `make backup` | SQLite backup with retention |
 | Search | `manage.py rebuild_search_index` / `search_doctor` | Rebuild FTS index / diagnose search |
+| Webhooks | `manage.py webhook` / `webhook_doctor` / `run_due_deliveries` | Webhook ops (status/test/replay) / diagnose / retry tick |
 | Visual | `manage.py screenshot_auth` + `shot-scraper` | Authenticated browser screenshots |
-| CLI | `manage.py sc` (`sc` shim) | Framework CLI: CRUD over any CRUDView (`ls/get/describe/new/set/rm`) + ops verbs (`doctor/backup/token/status/index/commands`) — see [`docs/skills/sc-cli.md`](../../../docs/skills/sc-cli.md) |
+| CLI | `manage.py sc` (`sc` shim) | Framework CLI: CRUD over any CRUDView (`ls/get/describe/new/set/rm`) + ops verbs (`doctor/backup/token/status/index/webhook/commands`) — see [`docs/skills/sc-cli.md`](../../../docs/skills/sc-cli.md) |
 | Deploy | `make deploy` / `make logs` | Kamal deploy + tail logs |
 
 ---
@@ -265,6 +266,46 @@ uv run python manage.py search_doctor --check-only   # CI gate
 | `--audit` | Access audit: every indexed CRUDView grouped by `search_access` level, plus a staff/auth/anonymous audience simulation. |
 
 See [`search.md`](../../../docs/skills/search.md).
+
+#### `webhook_doctor`
+
+Diagnose the webhook surface end-to-end — outbound registry (which models have `enable_webhooks`), endpoint URLs (SSRF/allowlist), stuck retries (is the delivery tick firing?), and inbound handler resolution. The webhook-side counterpart to `api_doctor` / `mcp_doctor` / `search_doctor`.
+
+```bash
+uv run python manage.py webhook_doctor              # full report
+uv run python manage.py webhook_doctor --json
+uv run python manage.py webhook_doctor --check-only # exit 1 on any FAIL (CI gate)
+uv run python manage.py webhook_doctor --explain    # every enable_webhooks model + every @webhook_handler
+```
+
+Also reachable as `sc doctor webhook` (and part of `sc doctor all`). See [`webhooks.md`](../../../docs/skills/webhooks.md).
+
+### Webhooks
+
+#### `webhook`
+
+Operational CLI for webhooks — the ops verbs the generic `sc` CRUD can't express. (Endpoint/receiver CRUD uses `sc ls/new/set/rm webhook`.) Also fronted by `sc webhook <sub>`.
+
+```bash
+uv run python manage.py webhook status                     # counts by delivery status + retry backlog
+uv run python manage.py webhook list                       # endpoints with health (last status, fail-streak)
+uv run python manage.py webhook test <endpoint-id|name>    # fire a signed test delivery
+uv run python manage.py webhook deliveries --status dead --limit 20
+uv run python manage.py webhook replay <delivery-id>       # re-send a past/dead delivery
+uv run python manage.py webhook tick                       # run the retry tick once (interactive)
+```
+
+All subcommands accept `--json`. `deliveries` accepts `--status` and `--limit`.
+
+#### `run_due_deliveries`
+
+The cron/systemd entry point for the webhook **retry tick** — re-enqueues deliveries whose backoff has elapsed. Pick exactly one trigger per deployment (this command, `POST /webhooks/tick/` on localhost, or fold `services.run_due_deliveries()` into the scheduler beat).
+
+```bash
+* * * * * cd /app && uv run python manage.py run_due_deliveries
+```
+
+See [`webhooks.md`](../../../docs/skills/webhooks.md).
 
 #### `sync_help_index`
 

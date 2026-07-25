@@ -1256,6 +1256,18 @@ class CRUDView:
     mcp_singular: str | None = None
     mcp_plural: str | None = None
 
+    # Webhook exposure — opt-in OUTBOUND eventing. When enable_webhooks=True, a
+    # create/update/delete of this model (via ANY surface — HTML/REST/MCP/sc/raw
+    # ORM) is observed by apps.webhooks.signals and fanned out to matching
+    # WebhookEndpoints as a signed HTTP POST. This is the inverse of enable_api /
+    # enable_mcp: instead of a client calling in, the app calls out on change.
+    # The payload reuses the same serialize() the REST API emits.
+    enable_webhooks = False
+    # Which lifecycle events emit. None => all three. Members are the strings
+    # "created" / "updated" / "deleted" (kept as bare strings to avoid importing
+    # webhook enums into the framework core).
+    webhook_events: list[str] | None = None
+
     # Related object tabs (reverse FK relations on detail page)
     related_tabs = None  # None=auto-discover, list=explicit accessor names, False=disabled
     related_tabs_exclude = []  # Accessor names to exclude from auto-discovery

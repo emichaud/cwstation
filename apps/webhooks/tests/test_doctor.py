@@ -1,0 +1,98 @@
+"""webhook_doctor — the PASS / WARN / FAIL health checks."""
+
+from __future__ import annotations
+
+import json
+from datetime import timedelta
+from io import StringIO
+
+import pytest
+from django.core.management import call_command
+from django.utils import timezone
+
+from apps.webhooks.models import WebhookDelivery, WebhookEndpoint, WebhookReceiver
+from apps.webhooks.views import WebhookReceiverCRUDView
+
+pytestmark = pytest.mark.django_db
+
+
+def _report(*args) -> list[dict]:
+    out = StringIO()
+    call_command("webhook_doctor", "--json", *args, stdout=out)
+    return json.loads(out.getvalue())
+
+
+def _status(report, name_contains):
+    for row in report:
+        if name_contains.lower() in row["name"].lower():
+            return row["status"]
+    return None
+
+
+def test_no_optin_warns_outbound_registry():
+    report = _report()
+    assert _status(report, "Outbound registry") == "WARN"
+
+
+def test_optin_model_passes_registry():
+    original = WebhookReceiverCRUDView.enable_webhooks
+    WebhookReceiverCRUDView.enable_webhooks = True
+    try:
+        report = _report()
+        assert _status(report, "Outbound registry") == "PASS"
+    finally:
+        WebhookReceiverCRUDView.enable_webhooks = original
+
+
+def test_bad_endpoint_url_fails(settings):
+    settings.SMALLSTACK_WEBHOOK_ALLOW_PRIVATE = False
+    WebhookEndpoint.objects.create(
+        name="loopback", target_url="http://127.0.0.1:9000/x", event_filter=["*"]
+    )
+    report = _report()
+    assert _status(report, "Endpoint URLs") == "FAIL"
+
+
+def test_empty_filter_warns():
+    WebhookEndpoint.objects.create(
+        name="inert", target_url="https://hooks.example.com/x", event_filter=[]
+    )
+    report = _report()
+    assert _status(report, "Endpoint filters") == "WARN"
+
+
+def test_stuck_retry_fails_delivery_tick(settings):
+    settings.SMALLSTACK_SCHEDULER_OVERDUE_GRACE_SECONDS = 60
+    ep = WebhookEndpoint.objects.create(name="e", target_url="https://hooks.example.com/x")
+    WebhookDelivery.objects.create(
+        endpoint=ep,
+        event_type="t",
+        payload={},
+        status=WebhookDelivery.Status.RETRYING,
+        next_attempt_at=timezone.now() - timedelta(hours=1),
+    )
+    report = _report()
+    assert _status(report, "Delivery tick") == "FAIL"
+
+
+def test_receiver_without_handler_fails():
+    WebhookReceiver.objects.create(name="Stripe", slug="stripe")  # no handler registered
+    report = _report()
+    assert _status(report, "Inbound handlers") == "FAIL"
+
+
+def test_check_only_exits_nonzero_on_fail(settings):
+    settings.SMALLSTACK_WEBHOOK_ALLOW_PRIVATE = False
+    WebhookEndpoint.objects.create(
+        name="loopback", target_url="http://127.0.0.1:9000/x", event_filter=["*"]
+    )
+    with pytest.raises(SystemExit):
+        call_command("webhook_doctor", "--check-only", stdout=StringIO())
+
+
+def test_explain_lists_handlers_and_models():
+    out = StringIO()
+    call_command("webhook_doctor", "--explain", "--json", stdout=out)
+    data = json.loads(out.getvalue())
+    assert "outbound_models" in data
+    assert "inbound_handlers" in data

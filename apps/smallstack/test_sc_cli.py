@@ -282,10 +282,10 @@ def _capture_calls(monkeypatch):
     return calls
 
 
-def test_doctor_all_runs_three(monkeypatch):
+def test_doctor_all_runs_every(monkeypatch):
     calls = _capture_calls(monkeypatch)
     run("doctor", "all")
-    assert [c[0] for c in calls] == ["api_doctor", "mcp_doctor", "search_doctor"]
+    assert [c[0] for c in calls] == ["api_doctor", "mcp_doctor", "search_doctor", "webhook_doctor"]
 
 
 def test_doctor_one_passes_flags(monkeypatch):
@@ -297,7 +297,7 @@ def test_doctor_one_passes_flags(monkeypatch):
 def test_doctor_bare_flag_means_all(monkeypatch):
     calls = _capture_calls(monkeypatch)
     run("doctor", "--json")
-    assert [c[0] for c in calls] == ["api_doctor", "mcp_doctor", "search_doctor"]
+    assert [c[0] for c in calls] == ["api_doctor", "mcp_doctor", "search_doctor", "webhook_doctor"]
 
 
 def test_doctor_unknown_errors(monkeypatch):

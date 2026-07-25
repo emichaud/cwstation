@@ -21,6 +21,8 @@ When the user asks you to do any of these, read the matching skill file BEFORE w
 | Open a maintenance window / SLA-exclude a deploy (`manage.py maintenance`, Kamal hooks) | `docs/skills/status-monitors.md` |
 | Test the task queue / heartbeat backend locally (worker + heartbeat harness) | `docs/skills/background-tasks.md` |
 | Schedule recurring work (`@scheduled`, cron/interval/once, the scheduler UI + tick) | `docs/skills/scheduler.md` |
+| Notify an external system when a model changes — **outbound webhooks** (`enable_webhooks = True`) | `docs/skills/webhooks.md` |
+| Receive an inbound webhook (Stripe/GitHub POSTs into the app, `@webhook_handler`) | `docs/skills/webhooks.md` |
 | Expose a model to AI clients via MCP | `docs/skills/mcp/build-mcp-solution.md` |
 | Add a custom REST endpoint (non-CRUD) | `docs/skills/custom-api-endpoints.md` |
 | Debug a "Swagger is empty" / "MCP can't see my tools" / "weird traffic" report | `docs/skills/api-doctor.md` or `docs/skills/mcp/debug-mcp-failure.md` |
@@ -37,8 +39,9 @@ A small-footprint Django foundation for shipping four kinds of apps from one cod
 - **Websites** — themed admin shell, dark mode, palettes, sidebar, breadcrumbs
 - **API servers** — REST emitted from CRUDViews; OpenAPI 3.0.3 schema; Swagger UI at `/api/docs/`; ReDoc at `/api/redoc/`
 - **MCP servers** — JSON-RPC + OAuth 2.0 + PKCE at `/mcp`; Claude Desktop and Claude.ai Connectors UI work without setup
+- **Webhooks** — outbound signed event delivery on model change (`enable_webhooks = True`) + inbound receivers (`@webhook_handler`, `/webhooks/in/<slug>/`); retry with backoff, `webhook_doctor`, `sc webhook`
 
-The headline pattern: **one `CRUDView` declaration produces HTML admin pages, REST endpoints, and MCP tools** from a single model. Flip `enable_api = True` / `enable_mcp = True` flags on a CRUDView subclass and the surfaces light up.
+The headline pattern: **one `CRUDView` declaration produces HTML admin pages, REST endpoints, and MCP tools** from a single model. Flip `enable_api = True` / `enable_mcp = True` / `enable_webhooks = True` flags on a CRUDView subclass and the surfaces light up.
 
 ## Quick start
 
@@ -65,6 +68,7 @@ All custom apps in `apps/`, registered as `apps.<name>`:
 - `apps/tasks/` — Background-task helpers
 - `apps/tokenmgr/` — Self-service API token UI at `/smallstack/tokens/`
 - `apps/usermanager/` — User CRUD at `/smallstack/manage/users/`
+- `apps/webhooks/` — Outbound event delivery (`enable_webhooks`) + inbound receivers (`@webhook_handler`) at `/smallstack/webhooks/`
 - `apps/website/` — Project-specific pages — **edit freely** (the others are framework-provided)
 
 Settings split in `config/settings/`:

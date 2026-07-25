@@ -17,7 +17,7 @@ Two tables: a **task → tool map** (the most common lookups) and a **tool → d
 | **set up SmallStack from scratch** | `make setup` (one-time) |
 | **inspect / query / edit any model from the shell** | `sc ls <model> -q …` · `sc get <model> <pk>` · `sc new/set/rm` (the `sc` CLI — audited + validated like REST/MCP; prefer over `manage.py shell` snippets). See [`sc-cli.md`](sc-cli.md) |
 | discover **what models / commands exist** | `sc ls` (models) · `sc commands` (management commands, grouped) |
-| **health-check the whole framework** at once | `sc doctor all` (api + mcp + search) |
+| **health-check the whole framework** at once | `sc doctor all` (api + mcp + search + webhook) |
 | start the dev server | `make run` (port 8005; `PORT=N make run` to change) |
 | run tests | `make test` (full) or `uv run pytest -k <name>` (one) |
 | lint | `make lint` (check) / `make lint-fix` (autofix) |
@@ -28,6 +28,11 @@ Two tables: a **task → tool map** (the most common lookups) and a **tool → d
 | check that **MCP is healthy** | `uv run python manage.py mcp_doctor` (or `make mcp-doctor`) |
 | see **what MCP tools Claude sees** | `uv run python manage.py mcp_doctor --explain` |
 | smoke-test MCP against a running server | `make mcp-test` (= `manage.py mcp_smoke`) |
+| check that **webhooks are healthy** | `uv run python manage.py webhook_doctor` (or `sc doctor webhook`) |
+| **report on webhook deliveries / get status** | `sc webhook status` · `sc webhook list` · `sc webhook deliveries [--status dead]` |
+| **create an outbound webhook endpoint** | `sc new webhook --name … --target_url … --event_filter '[…]' --enabled=true --user admin` |
+| **test / replay a webhook** | `sc webhook test <endpoint>` · `sc webhook replay <delivery_id>` |
+| **drive the webhook retry tick** (cron) | `uv run python manage.py run_due_deliveries` (or `POST /webhooks/tick/` on localhost) |
 | **mint an API token** (CLI / CI / deploy) | `uv run python manage.py create_api_token <user> --access-level <level>` |
 | mint a dev superuser | `make superuser` (= `manage.py create_dev_superuser`) |
 | **back up the SQLite database** | `make backup` (= `manage.py backup_db [--keep N]`) |
@@ -64,6 +69,9 @@ When the user reports a problem, **start at the matching doctor**.
 | "Suspicious traffic on `/api/*`" | Open `/smallstack/api/activity/` (Threat panel) | [`api-doctor.md`](api-doctor.md) |
 | "Suspicious MCP calls" | Open `/smallstack/mcp/activity/` | [`mcp/mcp-admin-pages.md`](mcp/mcp-admin-pages.md) |
 | "Server is up but `/status/` says down" | `manage.py heartbeat` | (Heartbeat docs) |
+| "My webhook isn't firing" | `webhook_doctor` → check `Outbound registry` (is `enable_webhooks` set?) + `Endpoint filters` (empty = inert) rows | [`webhooks.md`](webhooks.md) |
+| "Webhook deliveries are stuck retrying" | `webhook_doctor` → `Delivery tick` row (the retry tick isn't running) | [`webhooks.md`](webhooks.md) |
+| "Inbound webhook returns 401 / isn't handled" | `webhook_doctor` → `Inbound handlers` row; check the receiver's `secret` + `@webhook_handler` slug | [`webhooks.md`](webhooks.md) |
 | "Is the task queue actually draining locally?" | `make services ARGS="--smoke"` (watch the worker drain it) | [`background-tasks.md`](background-tasks.md) |
 | "Deploy downtime is counting against my SLA" | open a maintenance window (`manage.py maintenance`) or enable `MAINTENANCE_ON_DEPLOY` | [`status-monitors.md`](status-monitors.md) |
 | "DB file is huge" | `manage.py prune_activity`, then `make backup --keep 7` | — |

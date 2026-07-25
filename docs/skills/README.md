@@ -38,6 +38,7 @@ When an AI agent is asked to modify or extend this project, these files help it:
 | [timezones.md](timezones.md) | Timezone middleware, per-user timezone, localtime_tooltip tag |
 | [background-tasks.md](background-tasks.md) | Django Tasks framework with django-tasks-db backend |
 | [scheduler.md](scheduler.md) | **Recurring jobs** — the `@scheduled` decorator, the scheduler UI, cron/interval/once cadences, the tick, overlap/catch-up policies |
+| [webhooks.md](webhooks.md) | **Webhooks** — outbound event delivery (`enable_webhooks = True`), signed POSTs + retry, and inbound receivers (`@webhook_handler`, `/webhooks/in/<slug>/`) |
 | [activity-tracking.md](activity-tracking.md) | HTTP request logging middleware and configuration |
 | [logging-audit.md](logging-audit.md) | Logging configuration and audit trail |
 | [screenshot-workflow.md](screenshot-workflow.md) | Visual verification with shot-scraper and screenshot_auth |
@@ -152,6 +153,8 @@ Multi-skill recipes for the headline use cases. Each row is "pick this combinati
 | **Add a per-model dashboard widget** (a tile on the central `/smallstack/` dashboard that summarises your data) | `dashboard-widgets.md` → `crud-views.md` (for `get_list_queryset` if the widget should respect tenancy) |
 | **Monitor a subsystem's uptime/health** (a `Service` + `Monitor` on `/smallstack/status/`, or a new status chart) | `status-monitors.md` → `modern-dark-theme.md` (for visualization partial colors) |
 | **Recurring/scheduled job** (`@scheduled` decorator or the scheduler UI; cron/interval/once) | `scheduler.md` |
+| **Notify an external system when data changes** (outbound webhook — Slack/Zapier/a microservice on model create/update/delete) | `webhooks.md` → `crud-views.md` (for `enable_webhooks` alongside the other flags) |
+| **Receive events from an external system** (inbound webhook — Stripe/GitHub POST triggers app-side work) | `webhooks.md` (the `@webhook_handler` half) |
 
 If a goal isn't covered here yet, the canonical decision tree is in `mcp/build-mcp-solution.md` for AI-touching features, or `from-zero-to-running.md` for project-shape questions.
 

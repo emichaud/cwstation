@@ -64,6 +64,8 @@ urlpatterns = [
     path("runbook/", include("apps.runbook.urls")),
     # Scheduler — recurring background jobs (bare names, "scheduler/" prefix)
     path("", include("apps.scheduler.urls")),
+    # Webhooks — outbound endpoints + inbound receivers (bare names, "webhooks/" prefix)
+    path("", include("apps.webhooks.urls")),
     # Token manager (self-service + staff) — list, mint, reveal, revoke
     path("", include("apps.tokenmgr.urls")),
 ]

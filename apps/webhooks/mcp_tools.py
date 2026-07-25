@@ -1,0 +1,120 @@
+"""Custom MCP tools for webhooks — the verbs CRUD can't express.
+
+The four CRUDViews already emit list/get/create/update/delete tools for endpoints
+and receivers. These add the imperative + aggregate verbs an agent needs:
+trigger a test delivery, replay a past one, and summarize delivery health.
+
+Per build-mcp-solution.md: MCP is request/response — these trigger/inspect
+webhooks, they never hold a callback.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from asgiref.sync import sync_to_async
+
+from apps.mcp.server import tool
+
+
+@tool(
+    "summary_deliveries",
+    "Counts of outbound webhook deliveries by status (pending/retrying/success/"
+    "failed/dead). Use this instead of list_* when only the health totals matter.",
+    input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+    requires_access="staff",
+)
+async def summary_deliveries(args: dict[str, Any]) -> dict[str, Any]:
+    return await sync_to_async(_summary)()
+
+
+def _summary() -> dict[str, Any]:
+    from django.db.models import Count
+
+    from .models import WebhookDelivery, WebhookEndpoint
+
+    by_status = dict(
+        WebhookDelivery.objects.values_list("status")
+        .annotate(n=Count("id"))
+        .values_list("status", "n")
+    )
+    return {
+        "endpoints_active": WebhookEndpoint.objects.filter(enabled=True).count(),
+        "endpoints_total": WebhookEndpoint.objects.count(),
+        "deliveries": by_status,
+    }
+
+
+@tool(
+    "test_webhook",
+    "Send a sample signed test delivery to a webhook endpoint by id, so you can "
+    "confirm it is reachable. Returns the created delivery id.",
+    input_schema={
+        "type": "object",
+        "properties": {"endpoint_id": {"type": "integer"}},
+        "required": ["endpoint_id"],
+        "additionalProperties": False,
+    },
+    write=True,
+    requires_access="staff",
+)
+async def test_webhook(args: dict[str, Any]) -> dict[str, Any]:
+    return await sync_to_async(_test_webhook)(args["endpoint_id"])
+
+
+def _test_webhook(endpoint_id: int) -> dict[str, Any]:
+    from django.utils import timezone
+
+    from . import services
+    from .models import WebhookDelivery, WebhookEndpoint
+
+    endpoint = WebhookEndpoint.objects.filter(pk=endpoint_id).first()
+    if endpoint is None:
+        return {"error": f"endpoint {endpoint_id} not found"}
+    delivery = WebhookDelivery.objects.create(
+        endpoint=endpoint,
+        event_type="webhooks.test.ping",
+        payload={
+            "event": "webhooks.test.ping",
+            "action": "test",
+            "occurred_at": timezone.now().isoformat(),
+            "data": {"message": "Test delivery from SmallStack MCP."},
+        },
+        max_attempts=1,
+    )
+    services._enqueue_delivery(delivery.pk)
+    return {"queued": True, "delivery_id": delivery.pk, "endpoint": endpoint.name}
+
+
+@tool(
+    "replay_delivery",
+    "Re-send a past webhook delivery by id as a fresh attempt (useful for a "
+    "delivery that died). Returns the new delivery id.",
+    input_schema={
+        "type": "object",
+        "properties": {"delivery_id": {"type": "integer"}},
+        "required": ["delivery_id"],
+        "additionalProperties": False,
+    },
+    write=True,
+    requires_access="staff",
+)
+async def replay_delivery(args: dict[str, Any]) -> dict[str, Any]:
+    return await sync_to_async(_replay)(args["delivery_id"])
+
+
+def _replay(delivery_id: int) -> dict[str, Any]:
+    from . import services
+    from .models import WebhookDelivery
+
+    original = WebhookDelivery.objects.filter(pk=delivery_id).select_related("endpoint").first()
+    if original is None:
+        return {"error": f"delivery {delivery_id} not found"}
+    replay = WebhookDelivery.objects.create(
+        endpoint=original.endpoint,
+        event_type=original.event_type,
+        payload=original.payload,
+        max_attempts=original.max_attempts,
+    )
+    services._enqueue_delivery(replay.pk)
+    return {"queued": True, "delivery_id": replay.pk, "replayed_from": delivery_id}

@@ -34,11 +34,12 @@ prints the canonical token for each. A miss raises a "did you mean …" error.
 | `sc new <model> --f=v …` | Create through `form_class` validation + audit. Large fields via `--stdin-field` (stdin or `-f FILE`). | `--stdin-field`, `-f/--file`, `--user`, `--json` |
 | `sc set <model> <pk> --f=v` | PATCH-merge update through the form; respects `can_update`. | `--stdin-field`, `-f/--file`, `--user`, `--json` |
 | `sc rm <model> <pk> --force` | Delete; respects `can_delete`; `--force` required (no undo). | `--force`, `--user`, `--json` |
-| `sc doctor [api\|mcp\|search\|all]` | Health-check the surfaces (`all` aggregates the three). | passthrough (`--json`, `--check-only`) |
+| `sc doctor [api\|mcp\|search\|webhook\|all]` | Health-check the surfaces (`all` aggregates them). | passthrough (`--json`, `--check-only`) |
 | `sc backup` | SQLite backup (`backup_db`). | passthrough |
 | `sc token create\|list\|revoke` | API-token ops (`create` fronts `create_api_token`; `list`/`revoke` are queries). | `list`: `--user`, `--all`, `--json` |
 | `sc status [check\|maintenance …]` | Run monitors (`heartbeat`) or manage maintenance windows. | passthrough |
 | `sc index [rebuild\|sync]` | Rebuild the search index / sync the help index. | passthrough |
+| `sc webhook status\|list\|test\|replay\|deliveries\|tick` | Webhook **ops** (fronts `manage.py webhook`). Endpoint/receiver CRUD uses the generic verbs (`sc ls/new/set/rm webhook`). | `--status`, `--limit`, `--json` |
 | `sc commands` | Discover every framework management command, grouped by app. | `--json` |
 
 **Writable fields ⊆ shown fields.** `new`/`set` go through the model's **form** (exactly like the web UI
@@ -78,11 +79,25 @@ sc set monitoredendpoint 5 --enabled=false --user admin
 sc rm monitoredendpoint 5 --force --user admin
 
 # framework ops
-sc doctor all                           # api + mcp + search health
+sc doctor all                           # api + mcp + search + webhook health
 sc token list --all
 sc backup
 sc commands                             # discover everything else
+
+# webhooks — CRUD via generic verbs, ops via `sc webhook`
+sc new webhook --name Zapier --target_url https://hooks.zapier.com/... \
+   --event_filter '["support.ticket.*"]' --enabled=true --user admin
+sc webhook status                       # counts by delivery status + retry backlog
+sc webhook list                         # endpoints with health (last status, fail-streak)
+sc webhook test Zapier                  # fire a signed test delivery
+sc webhook deliveries --status dead --limit 20
+sc webhook replay 42                    # re-send a dead delivery
 ```
+
+> **Gotcha — creating an endpoint via CLI/REST:** `enabled` is a form `BooleanField`,
+> so a `sc new webhook` (or REST `POST`) **without `--enabled=true` creates a *disabled*
+> endpoint** (an unchecked checkbox = False). Pass `--enabled=true` to arm it, or flip it
+> later with `sc set webhook <pk> --enabled=true`.
 
 ## Piping + JSON
 

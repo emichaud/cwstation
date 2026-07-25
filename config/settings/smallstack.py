@@ -299,3 +299,58 @@ SMALLSTACK_SCHEDULER_FAILURE_EMAILS = config(
     default="",
     cast=lambda v: [a.strip() for a in v.split(",") if a.strip()],
 )
+
+# ---------------------------------------------------------------------------
+# Webhooks
+# ---------------------------------------------------------------------------
+# Master switch for the webhooks surface: the outbound change-signal receiver,
+# the delivery/retry tick, inbound receiver endpoints, and the nav item +
+# dashboard widget + status monitor. Off ⇒ nothing registers, no model change
+# fans out, and /webhooks/in/<slug>/ 404s. Harmless with zero endpoints, so on.
+SMALLSTACK_WEBHOOKS_ENABLED = config("SMALLSTACK_WEBHOOKS_ENABLED", default=True, cast=bool)
+
+# Independent toggles for each direction (both gated by the master switch above).
+SMALLSTACK_WEBHOOKS_OUTBOUND = config("SMALLSTACK_WEBHOOKS_OUTBOUND", default=True, cast=bool)
+SMALLSTACK_WEBHOOKS_INBOUND = config("SMALLSTACK_WEBHOOKS_INBOUND", default=True, cast=bool)
+
+# Delivery attempt ceiling before a WebhookDelivery is marked "dead". Includes
+# the first attempt, so 5 ⇒ 1 initial + 4 retries.
+SMALLSTACK_WEBHOOK_MAX_ATTEMPTS = config("SMALLSTACK_WEBHOOK_MAX_ATTEMPTS", default=5, cast=int)
+
+# Per-request HTTP timeout (seconds) when POSTing an outbound webhook.
+SMALLSTACK_WEBHOOK_TIMEOUT = config("SMALLSTACK_WEBHOOK_TIMEOUT", default=10, cast=int)
+
+# Consecutive delivery failures before an endpoint auto-disables itself (a proxy
+# for "this URL is dead"). 0 ⇒ never auto-disable.
+SMALLSTACK_WEBHOOK_AUTO_DISABLE_AFTER = config(
+    "SMALLSTACK_WEBHOOK_AUTO_DISABLE_AFTER", default=20, cast=int
+)
+
+# Backoff schedule (seconds) applied per retry attempt. Index = (attempt - 1),
+# clamped to the last entry. Comma-separated in env.
+SMALLSTACK_WEBHOOK_BACKOFF = config(
+    "SMALLSTACK_WEBHOOK_BACKOFF",
+    default="60,300,1800,7200,21600",
+    cast=lambda v: [int(x) for x in v.split(",") if x.strip()],
+)
+
+# SSRF guard. When non-empty, an outbound target URL's host must match one of
+# these suffixes (e.g. "example.com,hooks.internal"). Empty ⇒ allow any public
+# host; loopback/private ranges are still rejected unless SMALLSTACK_WEBHOOK_
+# ALLOW_PRIVATE is on (dev/testing against a local receiver).
+SMALLSTACK_WEBHOOK_ALLOWLIST = config(
+    "SMALLSTACK_WEBHOOK_ALLOWLIST",
+    default="",
+    cast=lambda v: [a.strip().lower() for a in v.split(",") if a.strip()],
+)
+SMALLSTACK_WEBHOOK_ALLOW_PRIVATE = config(
+    "SMALLSTACK_WEBHOOK_ALLOW_PRIVATE", default=False, cast=bool
+)
+
+# Recipients emailed when a delivery exhausts its retries (via send_email_task).
+# Empty ⇒ no emails. Comma-separated in env.
+SMALLSTACK_WEBHOOK_FAILURE_EMAILS = config(
+    "SMALLSTACK_WEBHOOK_FAILURE_EMAILS",
+    default="",
+    cast=lambda v: [a.strip() for a in v.split(",") if a.strip()],
+)

@@ -71,6 +71,7 @@ class Command(BaseCommand):
             "token": self._cmd_token,
             "status": self._cmd_status,
             "index": self._cmd_index,
+            "webhook": self._cmd_webhook,
             "commands": self._cmd_commands,
         }
         if sub is None:
@@ -655,13 +656,18 @@ class Command(BaseCommand):
         which = "all"
         if rest and not rest[0].startswith("-"):
             which = rest.pop(0)
-        mapping = {"api": "api_doctor", "mcp": "mcp_doctor", "search": "search_doctor"}
+        mapping = {
+            "api": "api_doctor",
+            "mcp": "mcp_doctor",
+            "search": "search_doctor",
+            "webhook": "webhook_doctor",
+        }
         if which == "all":
-            targets = ["api_doctor", "mcp_doctor", "search_doctor"]
+            targets = ["api_doctor", "mcp_doctor", "search_doctor", "webhook_doctor"]
         elif which in mapping:
             targets = [mapping[which]]
         else:
-            raise CommandError(f"unknown doctor {which!r}; use api | mcp | search | all")
+            raise CommandError(f"unknown doctor {which!r}; use api | mcp | search | webhook | all")
         for cmd in targets:
             if len(targets) > 1:
                 self.stdout.write(self.style.MIGRATE_HEADING(f"\n=== {cmd} ==="))
@@ -692,6 +698,14 @@ class Command(BaseCommand):
             self._run("sync_help_index", rest)
         else:
             raise CommandError("usage: sc index rebuild [model|--all] | sync")
+
+    def _cmd_webhook(self, argv: list[str]) -> None:
+        """sc webhook status|list|test|replay|deliveries|tick — webhook operations.
+
+        Fronts the `webhook` management command. Endpoint/receiver CRUD uses the
+        generic verbs (`sc ls/new/set/rm webhook`); this covers the ops verbs.
+        """
+        self._run("webhook", list(argv))
 
     def _cmd_token(self, argv: list[str]) -> None:
         """sc token create|list|revoke — API token operations."""

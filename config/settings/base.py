@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     "apps.search",  # Search: FTS5/PG-FTS + per-CRUDView opt-in + MCP search tools
     "apps.runbook",  # Runbook: versioned markdown documents (label: smallstack_runbook)
     "apps.scheduler",  # Scheduler: DB-backed recurring jobs over django.tasks
+    "apps.webhooks",  # Webhooks: outbound event delivery + inbound receivers
     # Django built-in apps
     "django.contrib.admin",
     "django.contrib.auth",
