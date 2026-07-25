@@ -9,6 +9,17 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.13.7] - 2026-07-25
+
+### Fixed
+- **CRUD list "N Records" count** — the record count lives in the toolbar, outside
+  the `#crud-list-content` htmx swap target, so a search/filter left it showing the
+  stale pre-filter total. The list-content response now emits an out-of-band copy
+  of the count span (`hx-swap-oob`) so it refreshes alongside the list — no extra
+  request, no JS. Guarded by `request.htmx` so a full-page load (which includes the
+  partial in-page) doesn't render a duplicate. The `tokenmgr` app, which overrides
+  the generic list-content partial, gets the same out-of-band refresh.
+
 ## [0.13.6] - 2026-07-21
 
 ### Added
@@ -282,7 +293,8 @@ Condensed highlights of the v0.11 series (see git history for per-patch detail):
 See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full record of the
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
-[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.13.2...HEAD
+[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.13.7...HEAD
+[0.13.7]: https://github.com/emichaud/django-smallstack/compare/v0.13.6...v0.13.7
 [0.13.2]: https://github.com/emichaud/django-smallstack/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/emichaud/django-smallstack/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/emichaud/django-smallstack/compare/v0.12.4...v0.13.0
