@@ -295,6 +295,10 @@ v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
 [Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.13.7...HEAD
 [0.13.7]: https://github.com/emichaud/django-smallstack/compare/v0.13.6...v0.13.7
+[0.13.6]: https://github.com/emichaud/django-smallstack/compare/v0.13.5...v0.13.6
+[0.13.5]: https://github.com/emichaud/django-smallstack/compare/v0.13.4...v0.13.5
+[0.13.4]: https://github.com/emichaud/django-smallstack/compare/v0.13.3...v0.13.4
+[0.13.3]: https://github.com/emichaud/django-smallstack/compare/v0.13.2...v0.13.3
 [0.13.2]: https://github.com/emichaud/django-smallstack/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/emichaud/django-smallstack/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/emichaud/django-smallstack/compare/v0.12.4...v0.13.0
