@@ -24,3 +24,20 @@
 {% if not display_template and is_paginated %}
 {% render_paginator page_obj "#crud-content" %}
 {% endif %}
+
+{% comment %}
+The record count lives in the toolbar, outside this swap target — so an htmx
+search/filter that swaps only #crud-list-content would leave it stale. Piggyback
+an out-of-band copy on the same response to refresh it (no extra request, no JS).
+
+Guarded by request.htmx: this partial is also included in-page on full loads
+(e.g. usermanager/user_list.html), where an OOB span would collide with the real
+toolbar count and render a visible duplicate. On a real htmx swap the toolbar copy
+is off-screen (only #crud-list-content is replaced), so there's no duplicate.
+{% endcomment %}
+{% if show_toolbar and request.htmx %}
+<span class="list-toolbar-count" id="list-toolbar-count" hx-swap-oob="true">
+    <span class="list-toolbar-count-value">{{ toolbar_total_count }}</span>
+    <span class="list-toolbar-count-label">Record{{ toolbar_total_count|pluralize }}</span>
+</span>
+{% endif %}
