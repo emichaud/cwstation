@@ -128,10 +128,11 @@ def test_sc_webhook_fronts_command(no_real_enqueue):
     assert json.loads(out.getvalue())["endpoints"]["total"] == 1
 
 
-def test_create_via_sc_needs_explicit_enabled():
-    """Documents the gotcha: `sc new webhook` without --enabled=true yields a
-    DISABLED endpoint (Django BooleanField form default = unchecked). The endpoint
-    CRUDView is staff-gated, so a staff --user is required."""
+def test_create_via_sc_defaults_enabled():
+    """[F-003] Scripted creates use model defaults for omitted fields: `sc new
+    webhook` without --enabled yields an ENABLED endpoint (model default True),
+    matching what the ORM and the web form's pre-checked checkbox produce. An
+    explicit --enabled=false still wins."""
     from django.contrib.auth import get_user_model
 
     staff = get_user_model().objects.create_user(
@@ -143,11 +144,13 @@ def test_create_via_sc_needs_explicit_enabled():
         "--name", "NoEnable", "--target_url", "https://hooks.example.com/y",
         "--user", staff.username, "--json", stdout=StringIO(),
     )
-    assert WebhookEndpoint.objects.get(name="NoEnable").enabled is False
+    created = WebhookEndpoint.objects.get(name="NoEnable")
+    assert created.enabled is True
+    assert created.event_filter == []  # JSONField default survives the form path
 
     call_command(
         "sc", "new", "webhook",
-        "--name", "WithEnable", "--target_url", "https://hooks.example.com/z",
-        "--enabled=true", "--user", staff.username, "--json", stdout=StringIO(),
+        "--name", "Disabled", "--target_url", "https://hooks.example.com/z",
+        "--enabled=false", "--user", staff.username, "--json", stdout=StringIO(),
     )
-    assert WebhookEndpoint.objects.get(name="WithEnable").enabled is True
+    assert WebhookEndpoint.objects.get(name="Disabled").enabled is False
