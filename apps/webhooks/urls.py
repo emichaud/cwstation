@@ -15,7 +15,9 @@ from .views import (
     WebhookReceiverCRUDView,
     WebhooksDashboardView,
     replay_delivery,
+    reveal_receiver_secret,
     reveal_secret,
+    rotate_receiver_secret,
     rotate_secret,
     test_endpoint,
 )
@@ -26,6 +28,8 @@ urlpatterns = [
     path("webhooks/endpoints/<int:pk>/reveal/", reveal_secret, name="webhooks_reveal_secret"),
     path("webhooks/endpoints/<int:pk>/rotate/", rotate_secret, name="webhooks_rotate_secret"),
     path("webhooks/deliveries/<int:pk>/replay/", replay_delivery, name="webhooks_replay_delivery"),
+    path("webhooks/receivers/<int:pk>/reveal/", reveal_receiver_secret, name="webhooks_reveal_receiver_secret"),
+    path("webhooks/receivers/<int:pk>/rotate/", rotate_receiver_secret, name="webhooks_rotate_receiver_secret"),
     *WebhookEndpointCRUDView.get_urls(),
     *WebhookDeliveryCRUDView.get_urls(),
     *WebhookReceiverCRUDView.get_urls(),

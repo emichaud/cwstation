@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any
 
+from django import forms
 from django.conf import settings
 from django.contrib import messages
 from django.db.models import F
@@ -23,6 +24,43 @@ from . import services
 from .models import WebhookDelivery, WebhookEndpoint, WebhookReceipt, WebhookReceiver
 
 LOCALHOST_IPS = {"127.0.0.1", "::1"}
+
+
+def _with_write_only_secret(base_form_class):
+    """Add a write-only ``secret`` field to a generated CRUD form.
+
+    The secret must be *settable* (a provider hands you Stripe's ``whsec_…``;
+    an operator wants a known signing key) but never *readable* — it stays out
+    of every serialized surface and is only recoverable via the staff-gated
+    reveal action. Blank means "keep the current secret" on update and
+    "auto-generate" on create, so the field is always safe to omit.
+    """
+
+    class SecretForm(base_form_class):
+        secret = forms.CharField(
+            required=False,
+            widget=forms.PasswordInput(
+                render_value=False,
+                attrs={"class": "vTextField", "autocomplete": "new-password"},
+            ),
+            help_text=(
+                "Write-only. Leave blank to keep the current secret "
+                "(a new one is generated on create)."
+            ),
+        )
+
+        def save(self, commit=True):
+            obj = super().save(commit=False)
+            value = self.cleaned_data.get("secret")
+            if value:
+                obj.secret = value
+            if commit:
+                obj.save()
+                self.save_m2m()
+            return obj
+
+    SecretForm.__name__ = f"{base_form_class.__name__}WithSecret"
+    return SecretForm
 
 
 def _status_color(value: str | None) -> str:
@@ -168,6 +206,16 @@ class WebhookReceiverCRUDView(CRUDView):
     mcp_plural = "webhook_receivers"
 
 
+# Write-only secret on both config models (create/update via any surface;
+# reads still go through the staff-gated reveal actions only).
+WebhookEndpointCRUDView.form_class = _with_write_only_secret(
+    WebhookEndpointCRUDView._make_form_class()
+)
+WebhookReceiverCRUDView.form_class = _with_write_only_secret(
+    WebhookReceiverCRUDView._make_form_class()
+)
+
+
 class WebhookReceiptCRUDView(CRUDView):
     """Read-only inbound receipt history."""
 
@@ -252,6 +300,12 @@ def test_endpoint(request: HttpRequest, pk: int) -> HttpResponse:
     )
     services._enqueue_delivery(delivery.pk)
     messages.success(request, f"Test delivery queued for “{endpoint.name}”.")
+    if not endpoint.enabled:
+        messages.warning(
+            request,
+            f"“{endpoint.name}” is disabled — test/replay sends still go out, "
+            "but signal events will not deliver until it is re-enabled.",
+        )
     return redirect("webhooks/endpoints-detail", pk=pk)
 
 
@@ -269,6 +323,12 @@ def replay_delivery(request: HttpRequest, pk: int) -> HttpResponse:
     )
     services._enqueue_delivery(replay.pk)
     messages.success(request, f"Replayed delivery #{original.pk} as #{replay.pk}.")
+    if not original.endpoint.enabled:
+        messages.warning(
+            request,
+            f"“{original.endpoint.name}” is disabled — the replay still goes out, "
+            "but signal events will not deliver until it is re-enabled.",
+        )
     return redirect("webhooks/deliveries-detail", pk=replay.pk)
 
 
@@ -293,6 +353,30 @@ def rotate_secret(request: HttpRequest, pk: int) -> HttpResponse:
     endpoint.save(update_fields=["secret", "updated_at"])
     messages.success(request, f"Signing secret rotated for “{endpoint.name}”.")
     return redirect("webhooks/endpoints-detail", pk=pk)
+
+
+@require_POST
+def reveal_receiver_secret(request: HttpRequest, pk: int) -> JsonResponse:
+    """Return a receiver's full verifying secret (staff-only, on demand) —
+    parity with the endpoint reveal."""
+    if not (request.user.is_authenticated and request.user.is_staff):
+        return JsonResponse({"error": "forbidden"}, status=403)
+    receiver = get_object_or_404(WebhookReceiver, pk=pk)
+    return JsonResponse({"secret": receiver.secret})
+
+
+@require_POST
+def rotate_receiver_secret(request: HttpRequest, pk: int) -> HttpResponse:
+    """Generate a new verifying secret for a receiver (senders must re-sync)."""
+    if not (request.user.is_authenticated and request.user.is_staff):
+        return HttpResponse(status=403)
+    from .models import generate_secret
+
+    receiver = get_object_or_404(WebhookReceiver, pk=pk)
+    receiver.secret = generate_secret()
+    receiver.save(update_fields=["secret", "updated_at"])
+    messages.success(request, f"Verifying secret rotated for “{receiver.name}”.")
+    return redirect("webhooks/receivers-detail", pk=pk)
 
 
 # ---------------------------------------------------------------------------
