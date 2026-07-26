@@ -127,6 +127,12 @@ class Command(BaseCommand):
 
         self._emit(rows, options["json"], render)
 
+    def _disabled_note(self, endpoint: WebhookEndpoint) -> str:
+        return (
+            f'note: endpoint "{endpoint.name}" is disabled — signal events will not '
+            f"deliver (sc set webhook {endpoint.pk} --enabled=true)"
+        )
+
     def _test(self, options: dict[str, Any]) -> None:
         from django.utils import timezone
 
@@ -140,13 +146,18 @@ class Command(BaseCommand):
                 "occurred_at": timezone.now().isoformat(),
                 "data": {"message": "Test delivery from the webhook CLI."},
             },
-            max_attempts=1,
+            max_attempts=1,  # tests don't retry: a failure goes straight to dead
         )
         services._enqueue_delivery(delivery.pk)
-        data = {"queued": True, "delivery_id": delivery.pk, "endpoint": ep.name}
-        self._emit(data, options["json"], lambda d: self.stdout.write(
-            f"Queued test delivery #{d['delivery_id']} to “{d['endpoint']}”."
-        ))
+        data = {"queued": True, "delivery_id": delivery.pk, "endpoint": ep.name,
+                "endpoint_enabled": ep.enabled}
+
+        def render(d: dict[str, Any]) -> None:
+            self.stdout.write(f"Queued test delivery #{d['delivery_id']} to “{d['endpoint']}”.")
+            if not d["endpoint_enabled"]:
+                self.stdout.write(self._disabled_note(ep))
+
+        self._emit(data, options["json"], render)
 
     def _replay(self, options: dict[str, Any]) -> None:
         target = options.get("target")
@@ -162,10 +173,15 @@ class Command(BaseCommand):
             max_attempts=original.max_attempts,
         )
         services._enqueue_delivery(replay.pk)
-        data = {"queued": True, "delivery_id": replay.pk, "replayed_from": original.pk}
-        self._emit(data, options["json"], lambda d: self.stdout.write(
-            f"Replayed delivery #{d['replayed_from']} as #{d['delivery_id']}."
-        ))
+        data = {"queued": True, "delivery_id": replay.pk, "replayed_from": original.pk,
+                "endpoint_enabled": original.endpoint.enabled}
+
+        def render(d: dict[str, Any]) -> None:
+            self.stdout.write(f"Replayed delivery #{d['replayed_from']} as #{d['delivery_id']}.")
+            if not d["endpoint_enabled"]:
+                self.stdout.write(self._disabled_note(original.endpoint))
+
+        self._emit(data, options["json"], render)
 
     def _deliveries(self, options: dict[str, Any]) -> None:
         qs = WebhookDelivery.objects.select_related("endpoint").order_by("-created_at")

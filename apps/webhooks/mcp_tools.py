@@ -80,10 +80,17 @@ def _test_webhook(endpoint_id: int) -> dict[str, Any]:
             "occurred_at": timezone.now().isoformat(),
             "data": {"message": "Test delivery from SmallStack MCP."},
         },
-        max_attempts=1,
+        max_attempts=1,  # tests don't retry: a failure goes straight to dead
     )
     services._enqueue_delivery(delivery.pk)
-    return {"queued": True, "delivery_id": delivery.pk, "endpoint": endpoint.name}
+    result = {"queued": True, "delivery_id": delivery.pk, "endpoint": endpoint.name}
+    if not endpoint.enabled:
+        result["note"] = (
+            f'endpoint "{endpoint.name}" is disabled — test/replay sends go out, '
+            "but signal events will not deliver until it is re-enabled "
+            "(update_webhook with enabled=true)"
+        )
+    return result
 
 
 @tool(
@@ -117,4 +124,11 @@ def _replay(delivery_id: int) -> dict[str, Any]:
         max_attempts=original.max_attempts,
     )
     services._enqueue_delivery(replay.pk)
-    return {"queued": True, "delivery_id": replay.pk, "replayed_from": delivery_id}
+    result = {"queued": True, "delivery_id": replay.pk, "replayed_from": delivery_id}
+    if not original.endpoint.enabled:
+        result["note"] = (
+            f'endpoint "{original.endpoint.name}" is disabled — the replay goes out, '
+            "but signal events will not deliver until it is re-enabled "
+            "(update_webhook with enabled=true)"
+        )
+    return result

@@ -311,6 +311,7 @@ class Command(BaseCommand):
                 "api": bool(getattr(view, "enable_api", False)),
                 "mcp": bool(getattr(view, "enable_mcp", False)),
                 "search": bool(getattr(view, "enable_search", False)),
+                "webhooks": bool(getattr(view, "enable_webhooks", False)),
                 "explorer": self._is_explorer(view),
             }
             if counts:
@@ -325,7 +326,10 @@ class Command(BaseCommand):
             return
 
         def flags(e):
-            return "".join(c if e[k] else "-" for c, k in (("a", "api"), ("m", "mcp"), ("s", "search")))
+            return "".join(
+                c if e[k] else "-"
+                for c, k in (("a", "api"), ("m", "mcp"), ("s", "search"), ("w", "webhooks"))
+            )
 
         headers = ["MODEL", "FLAGS", "NAME"] + (["ROWS"] if counts else [])
         rows = []
@@ -335,7 +339,9 @@ class Command(BaseCommand):
                 row.append(str(e["rows"]))
             rows.append(row)
         self.stdout.write(table(rows, headers))
-        self.stdout.write("\nflags: a=api  m=mcp  s=search   ·   'sc describe <model>' for detail")
+        self.stdout.write(
+            "\nflags: a=api  m=mcp  s=search  w=webhooks   ·   'sc describe <model>' for detail"
+        )
 
     # -- get ------------------------------------------------------------------
 
@@ -387,6 +393,7 @@ class Command(BaseCommand):
             "api": bool(getattr(view, "enable_api", False)),
             "mcp": bool(getattr(view, "enable_mcp", False)),
             "search": bool(getattr(view, "enable_search", False)),
+            "webhooks": bool(getattr(view, "enable_webhooks", False)),
             "actions": [a.value for a in getattr(view, "actions", []) or []],
             "list_fields": list(view._get_list_fields()),
             "detail_fields": list(view._get_detail_fields()),
@@ -407,6 +414,7 @@ class Command(BaseCommand):
         self.stdout.write(f"{info['model']}  ({info['label']}) — {info['verbose_name']}")
         self.stdout.write(f"  url_base   : {info['url_base']}")
         badges = [b for b, on in (("api", info["api"]), ("mcp", info["mcp"]), ("search", info["search"]),
+                                  ("webhooks", info["webhooks"]),
                                   ("staff-only", info["staff_only"]),
                                   ("explorer", info["explorer_synthesized"])) if on]
         self.stdout.write(f"  flags      : {', '.join(badges) or '(none)'}")

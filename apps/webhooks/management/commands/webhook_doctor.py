@@ -161,6 +161,20 @@ class Command(BaseCommand):
                 "detail": f"{len(receivers)} active receiver(s), {len(handlers)} handler(s) registered.",
             })
 
+        # Fails-open check: an enabled receiver that doesn't require a valid
+        # signature accepts unsigned/bad-signature POSTs and still runs its
+        # handler. Fine while onboarding a sender, dangerous to leave on.
+        unsigned = [r.name for r in receivers if not r.require_signature]
+        if unsigned:
+            report.append({
+                "name": "Inbound signatures",
+                "status": "WARN",
+                "detail": (
+                    f"require_signature=False (accepts unsigned POSTs): {', '.join(unsigned)}. "
+                    "Re-enable with: sc set webhookreceiver <pk> --require_signature=true"
+                ),
+            })
+
     # -- output -------------------------------------------------------------
 
     def _explain(self, *, as_json: bool) -> None:

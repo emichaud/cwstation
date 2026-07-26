@@ -154,3 +154,42 @@ def test_create_via_sc_defaults_enabled():
         "--enabled=false", "--user", staff.username, "--json", stdout=StringIO(),
     )
     assert WebhookEndpoint.objects.get(name="Disabled").enabled is False
+
+
+def test_replay_to_disabled_endpoint_prints_note(no_real_enqueue):
+    """[F-011] A successful replay/test against a disabled endpoint says so —
+    otherwise signal events silently don't deliver after an auto-disable."""
+    ep = _endpoint(name="Off", enabled=False)
+    d = WebhookDelivery.objects.create(
+        endpoint=ep, event_type="t", payload={}, status="dead"
+    )
+    out = _run("replay", str(d.pk))
+    assert "disabled" in out
+    assert f"sc set webhook {ep.pk} --enabled=true" in out
+
+    out = _run("test", ep.name)
+    assert "disabled" in out
+
+    # machine-readable form carries the flag
+    data = json.loads(_run("test", ep.name, "--json"))
+    assert data["endpoint_enabled"] is False
+
+
+def test_enabled_endpoint_no_disabled_note(no_real_enqueue):
+    ep = _endpoint(name="On", enabled=True)
+    out = _run("test", ep.name)
+    assert "disabled" not in out
+
+
+def test_monitor_inventory_lists_endpoints_and_receivers():
+    """[F-010] The status-card drill-down mirrors the api/mcp/search peers."""
+    from apps.webhooks.models import WebhookReceiver
+    from apps.webhooks.monitors import WebhooksMonitor
+
+    _endpoint(name="Catcher")
+    WebhookReceiver.objects.create(name="Stripe", slug="stripe-inventory")
+    inv = WebhooksMonitor().inventory()
+    assert inv["summary"] == "1 endpoint · 1 receiver"
+    labels = {i["label"] for i in inv["items"]}
+    assert labels == {"Catcher", "Stripe"}
+    assert all(i["url"] for i in inv["items"])

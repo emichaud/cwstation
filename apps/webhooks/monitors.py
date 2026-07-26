@@ -66,3 +66,39 @@ class WebhooksMonitor(Monitor):
 
         active = WebhookEndpoint.objects.filter(enabled=True).count()
         return CheckResult.up(note=f"{active} active endpoint(s)")
+
+    def inventory(self) -> dict:
+        """Live: the endpoints + receivers behind the webhooks surface (cheap
+        counts + links, mirroring the api/mcp/search drill-downs)."""
+        from django.urls import NoReverseMatch, reverse
+
+        from .models import WebhookEndpoint, WebhookReceiver
+
+        def _url(name: str, pk: int) -> str | None:
+            try:
+                return reverse(name, kwargs={"pk": pk})
+            except NoReverseMatch:
+                return None
+
+        items = [
+            {
+                "label": e.name,
+                "meta": f"endpoint · {'on' if e.enabled else 'off'}",
+                "url": _url("webhooks/endpoints-detail", e.pk),
+            }
+            for e in WebhookEndpoint.objects.only("id", "name", "enabled")
+        ] + [
+            {
+                "label": r.name,
+                "meta": f"receiver · {'on' if r.enabled else 'off'}",
+                "url": _url("webhooks/receivers-detail", r.pk),
+            }
+            for r in WebhookReceiver.objects.only("id", "name", "enabled")
+        ]
+        n_end = WebhookEndpoint.objects.count()
+        n_rec = WebhookReceiver.objects.count()
+        summary = (
+            f"{n_end} endpoint{'' if n_end == 1 else 's'} · "
+            f"{n_rec} receiver{'' if n_rec == 1 else 's'}"
+        )
+        return {"ok": bool(getattr(settings, "SMALLSTACK_WEBHOOKS_ENABLED", True)), "summary": summary, "items": items}
