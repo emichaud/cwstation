@@ -29,7 +29,7 @@ from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist
 from django.db import IntegrityError
 from django.db.models import ProtectedError, QuerySet, RestrictedError
-from django.http import Http404, HttpRequest, HttpResponse, QueryDict
+from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import redirect as _redirect
 from django.urls import path, reverse
 from django.views.generic import (

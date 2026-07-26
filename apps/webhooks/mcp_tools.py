@@ -17,13 +17,6 @@ from asgiref.sync import sync_to_async
 from apps.mcp.server import tool
 
 
-@tool(
-    "summary_deliveries",
-    "Counts of outbound webhook deliveries by status (pending/retrying/success/"
-    "failed/dead). Use this instead of list_* when only the health totals matter.",
-    input_schema={"type": "object", "properties": {}, "additionalProperties": False},
-    requires_access="staff",
-)
 async def summary_deliveries(args: dict[str, Any]) -> dict[str, Any]:
     return await sync_to_async(_summary)()
 
@@ -45,19 +38,6 @@ def _summary() -> dict[str, Any]:
     }
 
 
-@tool(
-    "test_webhook",
-    "Send a sample signed test delivery to a webhook endpoint by id, so you can "
-    "confirm it is reachable. Returns the created delivery id.",
-    input_schema={
-        "type": "object",
-        "properties": {"endpoint_id": {"type": "integer"}},
-        "required": ["endpoint_id"],
-        "additionalProperties": False,
-    },
-    write=True,
-    requires_access="staff",
-)
 async def test_webhook(args: dict[str, Any]) -> dict[str, Any]:
     return await sync_to_async(_test_webhook)(args["endpoint_id"])
 
@@ -93,19 +73,6 @@ def _test_webhook(endpoint_id: int) -> dict[str, Any]:
     return result
 
 
-@tool(
-    "replay_delivery",
-    "Re-send a past webhook delivery by id as a fresh attempt (useful for a "
-    "delivery that died). Returns the new delivery id.",
-    input_schema={
-        "type": "object",
-        "properties": {"delivery_id": {"type": "integer"}},
-        "required": ["delivery_id"],
-        "additionalProperties": False,
-    },
-    write=True,
-    requires_access="staff",
-)
 async def replay_delivery(args: dict[str, Any]) -> dict[str, Any]:
     return await sync_to_async(_replay)(args["delivery_id"])
 
@@ -132,3 +99,49 @@ def _replay(delivery_id: int) -> dict[str, Any]:
             "(update_webhook with enabled=true)"
         )
     return result
+
+
+def register_webhook_tools() -> None:
+    """Register the custom webhook MCP tools.
+
+    Idempotent — ``apps.mcp.server.tool`` dedups by name — so it's safe to
+    call at import time (for startup) and again from the test suite after
+    ``clear_registry_for_tests()`` wipes the shared MCP registry. Mirrors
+    ``register_runbook_tools`` / ``register_search_tools``.
+    """
+    tool(
+        "summary_deliveries",
+        "Counts of outbound webhook deliveries by status (pending/retrying/success/"
+        "failed/dead). Use this instead of list_* when only the health totals matter.",
+        input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        requires_access="staff",
+    )(summary_deliveries)
+    tool(
+        "test_webhook",
+        "Send a sample signed test delivery to a webhook endpoint by id, so you can "
+        "confirm it is reachable. Returns the created delivery id.",
+        input_schema={
+            "type": "object",
+            "properties": {"endpoint_id": {"type": "integer"}},
+            "required": ["endpoint_id"],
+            "additionalProperties": False,
+        },
+        write=True,
+        requires_access="staff",
+    )(test_webhook)
+    tool(
+        "replay_delivery",
+        "Re-send a past webhook delivery by id as a fresh attempt (useful for a "
+        "delivery that died). Returns the new delivery id.",
+        input_schema={
+            "type": "object",
+            "properties": {"delivery_id": {"type": "integer"}},
+            "required": ["delivery_id"],
+            "additionalProperties": False,
+        },
+        write=True,
+        requires_access="staff",
+    )(replay_delivery)
+
+
+register_webhook_tools()
