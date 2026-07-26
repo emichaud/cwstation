@@ -458,6 +458,10 @@ The User Manager demonstrates this — its edit form has three tabs (Account, Pr
 | `related_tabs_exclude` | list | `[]` | Accessor names to exclude from auto-discovery |
 | `related_tabs_paginate_by` | int | `10` | Rows per tab in related object tabs |
 | `enable_api` | bool | `False` | Generate REST API endpoints |
+| `enable_mcp` | bool | `False` | Register MCP tools (`list_X`, `get_X`, `create_X`, …) — see `docs/skills/mcp/build-mcp-solution.md` |
+| `enable_search` | bool | `False` | Keyword search + `search_X` MCP tool — see `docs/skills/search.md` |
+| `enable_webhooks` | bool | `False` | Fire outbound webhook events on create/update/delete — see `docs/skills/webhooks.md` |
+| `webhook_events` | list | `["created", "updated", "deleted"]` | Which model events fan out when `enable_webhooks` is on |
 | `search_fields` | list | `[]` | API search fields (falls back to `admin_class.search_fields`) |
 | `export_formats` | list | `[]` | API export formats: `["csv", "json"]` |
 

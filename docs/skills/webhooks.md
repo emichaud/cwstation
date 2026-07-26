@@ -41,16 +41,19 @@ That's it for the *source*. A create/update/delete of `Ticket` through **any** s
 ### 2. Register an endpoint (the destination)
 
 Endpoints are just data — create them in the UI at `/smallstack/webhooks/endpoints/`,
-via REST/MCP (`create_webhook`), or in the shell:
+via REST (`POST /smallstack/api/webhooks/endpoints/`), MCP (`create_webhook`), or the CLI:
 
-```python
-from apps.webhooks.models import WebhookEndpoint
-WebhookEndpoint.objects.create(
-    name="Zapier",
-    target_url="https://hooks.zapier.com/...",
-    event_filter=["support.ticket.*", "*.created"],  # fnmatch patterns; [] = inert
-)
+```bash
+sc new webhook --name Zapier --target_url https://hooks.zapier.com/... \
+   --event_filter '["support.ticket.*", "*.created"]' --user admin
 ```
+
+`event_filter` holds fnmatch patterns (`[]` = inert). JSON fields accept native JSON on
+every surface (a real array in REST/MCP payloads, a quoted JSON string on the CLI).
+Omitted fields use the model defaults — a new endpoint is **enabled** with an
+auto-generated signing secret. Pass `--secret <value>` (or `"secret"` in REST/MCP
+payloads) to set a known secret; the field is **write-only** — it is never returned by
+any read, only by the staff-gated Reveal action on the endpoint detail page.
 
 Every enabled endpoint whose `event_filter` matches gets one `WebhookDelivery`, POSTed
 with an HMAC-SHA256 signature the receiver verifies:
@@ -78,11 +81,17 @@ auto-disables. Replay a dead delivery from its detail page or the `replay_delive
 
 ### 1. Register a receiver
 
-```python
-from apps.webhooks.models import WebhookReceiver
-WebhookReceiver.objects.create(name="Stripe", slug="stripe", secret="whsec_...")
+```bash
+sc new webhookreceiver --name Stripe --slug stripe --secret "whsec_..." --user admin
 # → external systems POST to /webhooks/in/stripe/
 ```
+
+(Or the UI at `/smallstack/webhooks/receivers/`, REST, or the `create_webhook_receiver`
+MCP tool — same fields everywhere.) Omitted fields use the model defaults:
+`require_signature=True`, `signature_header="X-Signature"`, `enabled=True`, and an
+auto-generated `secret`. Set `--secret` when the provider hands you one (Stripe's
+`whsec_…`); read a generated one back with the Reveal button on the receiver detail
+page (staff-only, POST).
 
 The view verifies the signature (constant-time) against `secret`, using the header named
 by `signature_header` (default `X-Signature`), records a `WebhookReceipt`, and returns
@@ -112,8 +121,8 @@ webhook-specific **ops** live under `sc webhook` (fronting `manage.py webhook`):
 ```bash
 # create / manage endpoints (generic CRUD — audited + validated like the web UI)
 sc new webhook --name Zapier --target_url https://hooks.zapier.com/... \
-   --event_filter '["support.ticket.*"]' --enabled=true --user admin
-sc ls webhook                              # list endpoints
+   --event_filter '["support.ticket.*"]' --user admin      # enabled by default
+sc ls webhook                              # list endpoints ('sc ls' flags column: w = enable_webhooks)
 sc set webhook 3 --enabled=false --user admin
 sc rm  webhook 3 --force --user admin
 
@@ -127,6 +136,14 @@ sc webhook tick                            # run the retry tick once (interactiv
 ```
 
 `sc webhook …` == `manage.py webhook …`; every subcommand takes `--json`.
+
+**Test deliveries don't retry.** Every test path (`sc webhook test`, the detail-page
+button, the `test_webhook` MCP tool) creates the delivery with `max_attempts=1`, so a
+failed test goes **straight to `dead`** — it's a reachability probe, not a retry demo.
+To watch retry/backoff, fire a real signal-driven event (save a model with
+`enable_webhooks = True`) while the destination is down. Test and replay both print a
+note when the target endpoint is disabled (test/replay sends still go out; signal
+events don't).
 
 ## Validate
 
@@ -142,17 +159,25 @@ sc doctor webhook                          # same, via the framework CLI (also p
    nothing — set `["*"]` deliberately for catch-all.
 2. **The signing secret is stored recoverably, not hashed.** Unlike `APIToken`, an HMAC
    secret must be read back to sign every payload. Reveal/rotate it from the endpoint
-   detail page; it's never exposed via REST/MCP.
+   or receiver detail page (staff-only POST actions); set a known one at create/update
+   time via the write-only `secret` field. It's never *returned* by REST/MCP/`sc` reads.
 3. **SSRF guard.** Outbound targets can't be loopback/private IPs unless
    `SMALLSTACK_WEBHOOK_ALLOW_PRIVATE=true` (dev), and `SMALLSTACK_WEBHOOK_ALLOWLIST`
    restricts hosts. Checked at save time *and* send time.
 4. **No opt-in ⇒ no fan-out.** A model without `enable_webhooks = True` fires nothing,
    even with a `["*"]` endpoint.
-5. **Creating an endpoint via CLI/REST is disabled by default.** `enabled` is a form
-   `BooleanField`, so `sc new webhook` / a REST `POST` **without `enabled=true` yields a
-   disabled endpoint** (unchecked checkbox = False). Pass `--enabled=true`, or flip it
-   after with `sc set webhook <pk> --enabled=true`. The web create form has a checkbox,
-   so this only bites the scripted paths.
+5. **Scripted creates honor model defaults.** `sc new` / REST `POST` / MCP `create_*`
+   fill omitted fields from the model defaults, exactly like an ORM `.create()` —
+   so a new endpoint/receiver is **enabled**, and a receiver keeps
+   `require_signature=True` and `signature_header="X-Signature"` unless you say
+   otherwise. Pass `--enabled=false` to create something switched off.
+6. **`require_signature=False` fails open.** An enabled receiver with signature
+   verification off accepts unsigned/bad-signature POSTs and still runs its handler —
+   useful while onboarding a sender that doesn't sign yet, dangerous to leave on.
+   `webhook_doctor` WARNs about every such receiver.
+7. **REST lives under `/smallstack/api/`.** The generated endpoints are
+   `/smallstack/api/webhooks/endpoints/`, `…/deliveries/`, `…/receivers/`,
+   `…/receipts/` (browse them in Swagger at `/api/docs/`).
 
 ## Settings (config/settings/smallstack.py)
 
