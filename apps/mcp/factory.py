@@ -16,7 +16,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from django.forms.models import model_to_dict
 from django.http import HttpRequest, QueryDict
 
 from apps.smallstack.api import (
@@ -28,6 +27,7 @@ from apps.smallstack.api import (
 )
 from apps.smallstack.audit import ADDITION, CHANGE, DELETION, log_write
 from apps.smallstack.crud import Action
+from apps.smallstack.form_bridge import merge_form_payload
 from apps.smallstack.mixins import StaffRequiredMixin
 
 from .server import TOOL_REGISTRY, ToolDef, current_context, tool
@@ -53,21 +53,6 @@ def _fake_request(user) -> HttpRequest:
     req.GET = QueryDict("", mutable=False)
     req.META = {}
     return req
-
-
-def _args_to_querydict(args: dict[str, Any]) -> QueryDict:
-    """Convert an MCP tool args dict to a QueryDict for ModelForm consumption."""
-    qd = QueryDict(mutable=True)
-    for key, value in args.items():
-        if value is None:
-            qd[key] = ""
-        elif isinstance(value, list):
-            qd.setlist(key, [str(v) for v in value])
-        elif isinstance(value, bool):
-            qd[key] = "true" if value else "false"
-        else:
-            qd[key] = str(value)
-    return qd
 
 
 def _has_staff_mixin(view_cls) -> bool:
@@ -147,6 +132,46 @@ def _build_list_input_schema(view_cls) -> dict[str, Any]:
     return {"type": "object", "properties": props, "additionalProperties": False}
 
 
+# field_to_schema emits SmallStack-internal type names ("text", "fk", "datetime",
+# "choice", …). MCP clients validate inputs against real JSON Schema, so each
+# internal name maps to a valid JSON-Schema type here.
+_JSON_SCHEMA_TYPES: dict[str, Any] = {
+    "string": "string",
+    "text": "string",
+    "email": "string",
+    "url": "string",
+    "date": "string",
+    "datetime": "string",
+    "time": "string",
+    "choice": "string",
+    "file": "string",
+    "integer": "integer",
+    "fk": "integer",
+    "float": "number",
+    "decimal": "number",
+    "boolean": "boolean",
+    # JSONField accepts any JSON value — native arrays/objects or a JSON-encoded string.
+    "json": ["array", "object", "string"],
+}
+
+
+def _to_json_schema_prop(schema: dict[str, Any]) -> dict[str, Any]:
+    """Convert one field_to_schema dict to a valid JSON-Schema property."""
+    internal = schema.get("type", "string")
+    prop: dict[str, Any] = {"type": _JSON_SCHEMA_TYPES.get(internal, "string")}
+    if internal == "choice" and schema.get("choices"):
+        prop["enum"] = [c[0] for c in schema["choices"]]
+    if internal == "fk" and schema.get("related_model"):
+        prop["description"] = f"Primary key of the related {schema['related_model']}."
+    if schema.get("max_length") is not None:
+        prop["maxLength"] = schema["max_length"]
+    if schema.get("min_value") is not None:
+        prop["minimum"] = schema["min_value"]
+    if schema.get("max_value") is not None:
+        prop["maximum"] = schema["max_value"]
+    return prop
+
+
 def _build_form_input_schema(view_cls, *, include_pk: bool = False) -> dict[str, Any]:
     """JSON Schema for create/update inputs, derived from form_class or fields."""
     form_class = view_cls.form_class or (
@@ -164,7 +189,7 @@ def _build_form_input_schema(view_cls, *, include_pk: bool = False) -> dict[str,
             form_instance = form_class()
             for fname, ffield in form_instance.fields.items():
                 schema = field_to_schema(fname, ffield, view_cls.model)
-                props[fname] = {k: v for k, v in schema.items() if k not in ("required",)}
+                props[fname] = _to_json_schema_prop(schema)
                 if schema.get("required") and not include_pk:
                     required.append(fname)
         except Exception:
@@ -280,7 +305,9 @@ def _build_create_tool(view_cls, *, singular: str):
         )
         if form_class is None:
             return {"error": "no form_class available"}
-        form = form_class(_args_to_querydict(args))
+        # Native JSON args pass straight through (arrays/objects stay native);
+        # omitted fields fall back to model defaults, mirroring REST create.
+        form = form_class(merge_form_payload(form_class, args, fill_defaults=True))
         if not form.is_valid():
             return {"errors": form.errors}
         obj = form.save()
@@ -319,20 +346,14 @@ def _build_update_tool(view_cls, *, singular: str):
 
         form_class = view_cls.form_class or view_cls._make_form_class()
 
-        # Mirror api.py's PATCH merge: existing fields overlaid with incoming args.
-        existing = model_to_dict(obj, fields=view_cls.fields or view_cls._get_detail_fields())
-        merged = QueryDict(mutable=True)
-        for key, value in existing.items():
-            if value is None:
-                merged[key] = ""
-            elif isinstance(value, list):
-                merged.setlist(key, [str(v) for v in value])
-            else:
-                merged[key] = str(value)
-        incoming = _args_to_querydict({k: v for k, v in args.items() if k != "pk"})
-        for key in incoming:
-            if incoming.getlist(key):
-                merged.setlist(key, incoming.getlist(key))
+        # Mirror api.py's PATCH merge: existing fields (native values) overlaid
+        # with incoming args — a populated JSONField round-trips unchanged.
+        merged = merge_form_payload(
+            form_class,
+            {k: v for k, v in args.items() if k != "pk"},
+            instance=obj,
+            instance_fields=view_cls.fields or view_cls._get_detail_fields(),
+        )
 
         form = form_class(merged, instance=obj)
         if not form.is_valid():

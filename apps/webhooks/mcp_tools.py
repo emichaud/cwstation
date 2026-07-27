@@ -17,13 +17,6 @@ from asgiref.sync import sync_to_async
 from apps.mcp.server import tool
 
 
-@tool(
-    "summary_deliveries",
-    "Counts of outbound webhook deliveries by status (pending/retrying/success/"
-    "failed/dead). Use this instead of list_* when only the health totals matter.",
-    input_schema={"type": "object", "properties": {}, "additionalProperties": False},
-    requires_access="staff",
-)
 async def summary_deliveries(args: dict[str, Any]) -> dict[str, Any]:
     return await sync_to_async(_summary)()
 
@@ -45,19 +38,6 @@ def _summary() -> dict[str, Any]:
     }
 
 
-@tool(
-    "test_webhook",
-    "Send a sample signed test delivery to a webhook endpoint by id, so you can "
-    "confirm it is reachable. Returns the created delivery id.",
-    input_schema={
-        "type": "object",
-        "properties": {"endpoint_id": {"type": "integer"}},
-        "required": ["endpoint_id"],
-        "additionalProperties": False,
-    },
-    write=True,
-    requires_access="staff",
-)
 async def test_webhook(args: dict[str, Any]) -> dict[str, Any]:
     return await sync_to_async(_test_webhook)(args["endpoint_id"])
 
@@ -80,25 +60,19 @@ def _test_webhook(endpoint_id: int) -> dict[str, Any]:
             "occurred_at": timezone.now().isoformat(),
             "data": {"message": "Test delivery from SmallStack MCP."},
         },
-        max_attempts=1,
+        max_attempts=1,  # tests don't retry: a failure goes straight to dead
     )
     services._enqueue_delivery(delivery.pk)
-    return {"queued": True, "delivery_id": delivery.pk, "endpoint": endpoint.name}
+    result = {"queued": True, "delivery_id": delivery.pk, "endpoint": endpoint.name}
+    if not endpoint.enabled:
+        result["note"] = (
+            f'endpoint "{endpoint.name}" is disabled — test/replay sends go out, '
+            "but signal events will not deliver until it is re-enabled "
+            "(update_webhook with enabled=true)"
+        )
+    return result
 
 
-@tool(
-    "replay_delivery",
-    "Re-send a past webhook delivery by id as a fresh attempt (useful for a "
-    "delivery that died). Returns the new delivery id.",
-    input_schema={
-        "type": "object",
-        "properties": {"delivery_id": {"type": "integer"}},
-        "required": ["delivery_id"],
-        "additionalProperties": False,
-    },
-    write=True,
-    requires_access="staff",
-)
 async def replay_delivery(args: dict[str, Any]) -> dict[str, Any]:
     return await sync_to_async(_replay)(args["delivery_id"])
 
@@ -110,11 +84,89 @@ def _replay(delivery_id: int) -> dict[str, Any]:
     original = WebhookDelivery.objects.filter(pk=delivery_id).select_related("endpoint").first()
     if original is None:
         return {"error": f"delivery {delivery_id} not found"}
-    replay = WebhookDelivery.objects.create(
-        endpoint=original.endpoint,
-        event_type=original.event_type,
-        payload=original.payload,
-        max_attempts=original.max_attempts,
+    replay = services.replay_delivery(original)
+    result = {"queued": True, "delivery_id": replay.pk, "replayed_from": delivery_id}
+    if not original.endpoint.enabled:
+        result["note"] = (
+            f'endpoint "{original.endpoint.name}" is disabled — the replay goes out, '
+            "but signal events will not deliver until it is re-enabled "
+            "(update_webhook with enabled=true)"
+        )
+    return result
+
+
+async def replay_dead_deliveries(args: dict[str, Any]) -> dict[str, Any]:
+    return await sync_to_async(_replay_dead)(
+        args.get("endpoint_id"), args.get("limit", 100)
     )
-    services._enqueue_delivery(replay.pk)
-    return {"queued": True, "delivery_id": replay.pk, "replayed_from": delivery_id}
+
+
+def _replay_dead(endpoint_id: int | None, limit: int) -> dict[str, Any]:
+    """Bulk-replay dead deliveries (F-023), reusing each event_id."""
+    from . import services
+
+    new_ids = services.replay_dead(endpoint_id=endpoint_id, limit=int(limit))
+    return {"queued": len(new_ids), "delivery_ids": new_ids}
+
+
+def register_webhook_tools() -> None:
+    """Register the custom webhook MCP tools.
+
+    Idempotent — ``apps.mcp.server.tool`` dedups by name — so it's safe to
+    call at import time (for startup) and again from the test suite after
+    ``clear_registry_for_tests()`` wipes the shared MCP registry. Mirrors
+    ``register_runbook_tools`` / ``register_search_tools``.
+    """
+    tool(
+        "summary_deliveries",
+        "Counts of outbound webhook deliveries by status (pending/retrying/success/"
+        "failed/dead). Use this instead of list_* when only the health totals matter.",
+        input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        requires_access="staff",
+    )(summary_deliveries)
+    tool(
+        "test_webhook",
+        "Send a sample signed test delivery to a webhook endpoint by id, so you can "
+        "confirm it is reachable. Returns the created delivery id.",
+        input_schema={
+            "type": "object",
+            "properties": {"endpoint_id": {"type": "integer"}},
+            "required": ["endpoint_id"],
+            "additionalProperties": False,
+        },
+        write=True,
+        requires_access="staff",
+    )(test_webhook)
+    tool(
+        "replay_delivery",
+        "Re-send a past webhook delivery by id as a fresh attempt (useful for a "
+        "delivery that died). Reuses the original event_id so consumers dedupe. "
+        "Returns the new delivery id.",
+        input_schema={
+            "type": "object",
+            "properties": {"delivery_id": {"type": "integer"}},
+            "required": ["delivery_id"],
+            "additionalProperties": False,
+        },
+        write=True,
+        requires_access="staff",
+    )(replay_delivery)
+    tool(
+        "replay_dead_deliveries",
+        "Bulk-replay every DEAD webhook delivery (optionally scoped to one endpoint) as "
+        "fresh attempts, reusing each event_id. The dead-letter recovery verb after an "
+        "outage. Returns the count and new delivery ids.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "endpoint_id": {"type": "integer"},
+                "limit": {"type": "integer", "default": 100},
+            },
+            "additionalProperties": False,
+        },
+        write=True,
+        requires_access="staff",
+    )(replay_dead_deliveries)
+
+
+register_webhook_tools()

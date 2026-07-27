@@ -25,17 +25,26 @@ from django.db.models import Count
 from apps.webhooks import services
 from apps.webhooks.models import WebhookDelivery, WebhookEndpoint, WebhookReceiver
 
-SUBCOMMANDS = ("status", "list", "test", "replay", "deliveries", "tick")
+SUBCOMMANDS = ("status", "list", "test", "replay", "deliveries", "tick", "pair")
 
 
 class Command(BaseCommand):
-    help = "Operational CLI for webhooks: status | list | test | replay | deliveries | tick."
+    help = (
+        "Operational CLI for webhooks: status | list | test | "
+        "replay <id> | replay --status dead (bulk) | deliveries | tick | pair --target <url>."
+    )
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("subcommand", nargs="?", help=" | ".join(SUBCOMMANDS))
         parser.add_argument("target", nargs="?", help="Endpoint (id/name) or delivery id, per subcommand.")
-        parser.add_argument("--status", help="Filter deliveries by status.")
-        parser.add_argument("--limit", type=int, default=20, help="Row cap for deliveries.")
+        parser.add_argument("--status", help="Filter deliveries by status (or 'replay --status dead' for bulk).")
+        parser.add_argument("--endpoint", help="Endpoint (id/name) filter for bulk replay.")
+        parser.add_argument("--since", help="ISO timestamp: only replay dead deliveries created after this.")
+        parser.add_argument("--limit", type=int, default=20, help="Row cap for deliveries / bulk replay.")
+        parser.add_argument("--target", dest="pair_target", help="Peer SmallStack URL for 'pair'.")
+        parser.add_argument("--events", help="JSON list of event patterns for 'pair' (default [\"*\"]).")
+        parser.add_argument("--slug", help="Receiver slug for 'pair' (default derived from target).")
+        parser.add_argument("--secret", dest="pair_secret", help="Shared secret for 'pair' (default generated).")
         parser.add_argument("--json", action="store_true", help="Machine-readable output.")
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -127,6 +136,12 @@ class Command(BaseCommand):
 
         self._emit(rows, options["json"], render)
 
+    def _disabled_note(self, endpoint: WebhookEndpoint) -> str:
+        return (
+            f'note: endpoint "{endpoint.name}" is disabled — signal events will not '
+            f"deliver (sc set webhook {endpoint.pk} --enabled=true)"
+        )
+
     def _test(self, options: dict[str, Any]) -> None:
         from django.utils import timezone
 
@@ -140,32 +155,63 @@ class Command(BaseCommand):
                 "occurred_at": timezone.now().isoformat(),
                 "data": {"message": "Test delivery from the webhook CLI."},
             },
-            max_attempts=1,
+            max_attempts=1,  # tests don't retry: a failure goes straight to dead
         )
         services._enqueue_delivery(delivery.pk)
-        data = {"queued": True, "delivery_id": delivery.pk, "endpoint": ep.name}
-        self._emit(data, options["json"], lambda d: self.stdout.write(
-            f"Queued test delivery #{d['delivery_id']} to “{d['endpoint']}”."
-        ))
+        data = {"queued": True, "delivery_id": delivery.pk, "endpoint": ep.name,
+                "endpoint_enabled": ep.enabled}
+
+        def render(d: dict[str, Any]) -> None:
+            self.stdout.write(f"Queued test delivery #{d['delivery_id']} to “{d['endpoint']}”.")
+            if not d["endpoint_enabled"]:
+                self.stdout.write(self._disabled_note(ep))
+
+        self._emit(data, options["json"], render)
 
     def _replay(self, options: dict[str, Any]) -> None:
+        # Bulk dead-letter replay (F-023): `sc webhook replay --status dead [...]`.
+        if options.get("status"):
+            self._replay_bulk(options)
+            return
         target = options.get("target")
         if not target or not target.isdigit():
-            raise CommandError("replay needs a delivery id.")
+            raise CommandError("replay needs a delivery id, or --status dead for bulk.")
         original = WebhookDelivery.objects.filter(pk=int(target)).select_related("endpoint").first()
         if original is None:
             raise CommandError(f"no delivery #{target}.")
-        replay = WebhookDelivery.objects.create(
-            endpoint=original.endpoint,
-            event_type=original.event_type,
-            payload=original.payload,
-            max_attempts=original.max_attempts,
+        replay = services.replay_delivery(original)
+        data = {"queued": True, "delivery_id": replay.pk, "replayed_from": original.pk,
+                "endpoint_enabled": original.endpoint.enabled}
+
+        def render(d: dict[str, Any]) -> None:
+            self.stdout.write(f"Replayed delivery #{d['replayed_from']} as #{d['delivery_id']}.")
+            if not d["endpoint_enabled"]:
+                self.stdout.write(self._disabled_note(original.endpoint))
+
+        self._emit(data, options["json"], render)
+
+    def _replay_bulk(self, options: dict[str, Any]) -> None:
+        if options["status"] != "dead":
+            raise CommandError("bulk replay only supports --status dead.")
+        endpoint_id = None
+        if options.get("endpoint"):
+            endpoint_id = self._resolve_endpoint(options["endpoint"]).pk
+        since = None
+        if options.get("since"):
+            from django.utils.dateparse import parse_datetime
+
+            since = parse_datetime(options["since"])
+            if since is None:
+                raise CommandError(f"could not parse --since {options['since']!r} (use ISO 8601).")
+        new_ids = services.replay_dead(
+            endpoint_id=endpoint_id, since=since, limit=options["limit"]
         )
-        services._enqueue_delivery(replay.pk)
-        data = {"queued": True, "delivery_id": replay.pk, "replayed_from": original.pk}
-        self._emit(data, options["json"], lambda d: self.stdout.write(
-            f"Replayed delivery #{d['replayed_from']} as #{d['delivery_id']}."
-        ))
+        data = {"queued": len(new_ids), "delivery_ids": new_ids}
+
+        def render(d: dict[str, Any]) -> None:
+            self.stdout.write(f"Replayed {d['queued']} dead delivery(ies): {d['delivery_ids'] or '—'}")
+
+        self._emit(data, options["json"], render)
 
     def _deliveries(self, options: dict[str, Any]) -> None:
         qs = WebhookDelivery.objects.select_related("endpoint").order_by("-created_at")
@@ -207,3 +253,38 @@ class Command(BaseCommand):
             options["json"],
             lambda d: self.stdout.write(f"Claimed {d['claimed']} delivery(ies) for retry."),
         )
+
+    def _pair(self, options: dict[str, Any]) -> None:
+        """One-step SmallStack↔SmallStack pairing (F-027): creates a loop-safe
+        endpoint+receiver here sharing a secret, and prints what to mirror on the peer."""
+        target = options.get("pair_target") or options.get("target")
+        if not target:
+            raise CommandError("pair needs --target <peer SmallStack URL>.")
+        events = ["*"]
+        if options.get("events"):
+            try:
+                events = jsonlib.loads(options["events"])
+            except ValueError as exc:
+                raise CommandError(f"--events must be a JSON list: {exc}") from exc
+            if not isinstance(events, list):
+                raise CommandError("--events must be a JSON list of patterns.")
+        result = services.pair_smallstack(
+            target_url=target,
+            events=events,
+            slug=options.get("slug"),
+            secret=options.get("pair_secret"),
+        )
+
+        def render(d: dict[str, Any]) -> None:
+            self.stdout.write("Paired with " + target)
+            self.stdout.write(f"  outbound endpoint #{d['endpoint_id']} → {target}")
+            self.stdout.write(f"  inbound receiver #{d['receiver_id']} at {d['inbound_url']}")
+            self.stdout.write(f"  shared secret : {d['secret']}")
+            self.stdout.write(f"  our origin    : {d['origin']}")
+            self.stdout.write(
+                "\nMirror on the peer: create the reciprocal endpoint (→ our inbound URL) "
+                "and receiver with the SAME secret; set its ignore_origin to the peer's own "
+                "origin. Loop guard + ignore_origin keep the two-way link from echoing."
+            )
+
+        self._emit(result, options["json"], render)

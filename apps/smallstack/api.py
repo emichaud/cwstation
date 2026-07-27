@@ -355,23 +355,6 @@ def _load_json_body(request, *, require_object: bool = True):
     return data, None
 
 
-def _parse_json_body(request):
-    """Parse JSON body into a QueryDict for ModelForm compatibility."""
-    data, err = _load_json_body(request)
-    if err:
-        return None, err
-
-    q = QueryDict(mutable=True)
-    for key, value in data.items():
-        if isinstance(value, list):
-            q.setlist(key, [str(v) for v in value])
-        elif value is None:
-            q[key] = ""
-        else:
-            q[key] = str(value)
-    return q, None
-
-
 # ---------------------------------------------------------------------------
 # Pagination helpers
 # ---------------------------------------------------------------------------
@@ -733,6 +716,10 @@ def _field_to_schema(name: str, form_field: forms.Field, model: type) -> dict:
         info["type"] = "url"
         if form_field.max_length is not None:
             info["max_length"] = form_field.max_length
+    elif isinstance(form_field, forms.JSONField):
+        # Must precede CharField: forms.JSONField subclasses it (Textarea widget)
+        # and would otherwise report "text".
+        info["type"] = "json"
     elif isinstance(form_field, forms.CharField):
         # Check widget for textarea
         if isinstance(widget, forms.Textarea):
@@ -1001,12 +988,16 @@ def _api_list(request, crud_config):
 
 def _api_create(request, crud_config):
     """Handle POST on list endpoint: create a new object."""
-    data, err = _parse_json_body(request)
+    from .form_bridge import merge_form_payload
+
+    raw, err = _load_json_body(request)
     if err:
         return err
 
     form_class = crud_config.form_class or crud_config._make_form_class()
-    form = form_class(data)
+    # Native JSON values pass straight through (JSONField arrays/objects stay
+    # native); omitted fields fall back to model defaults, mirroring .create().
+    form = form_class(merge_form_payload(form_class, raw, fill_defaults=True))
     if form.is_valid():
         obj = form.save()
         crud_config.on_form_valid(request, form, obj, is_create=True)
@@ -1022,32 +1013,26 @@ def _api_create(request, crud_config):
 
 def _api_update(request, obj, crud_config):
     """Handle PUT/PATCH on detail endpoint."""
-    data, err = _parse_json_body(request)
+    from .form_bridge import merge_form_payload
+
+    raw, err = _load_json_body(request)
     if err:
         return err
 
     form_class = crud_config.form_class or crud_config._make_form_class()
 
     if request.method == "PATCH":
-        # Merge existing object data with incoming partial data
-        from django.forms.models import model_to_dict
-
-        existing = model_to_dict(obj, fields=crud_config.fields or crud_config._get_detail_fields())
-        merged = QueryDict(mutable=True)
-        for key, value in existing.items():
-            if value is None:
-                merged[key] = ""
-            elif isinstance(value, list):
-                merged.setlist(key, [str(v) for v in value])
-            else:
-                merged[key] = str(value)
-        # Override with incoming data
-        for key in data:
-            if data.getlist(key):
-                merged.setlist(key, data.getlist(key))
-            else:
-                merged[key] = data[key]
-        data = merged
+        # Partial update: unspecified fields keep their current values (native
+        # Python values — a populated JSONField round-trips instead of failing
+        # "Enter a valid JSON." on its str() repr).
+        data = merge_form_payload(
+            form_class,
+            raw,
+            instance=obj,
+            instance_fields=crud_config.fields or crud_config._get_detail_fields(),
+        )
+    else:
+        data = merge_form_payload(form_class, raw)
 
     form = form_class(data, instance=obj)
     if form.is_valid():

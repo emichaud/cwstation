@@ -6,6 +6,19 @@ calls into the app. Webhooks add the **outbound** half (the app POSTs out when d
 changes) and a matching **inbound** receiver (external systems POST in to trigger a
 handler). Lives in `apps/webhooks/`.
 
+SmallStack ships a *solid, foundational* webhook engine that specific integrations are
+built **on top of**. Two things make it more than a raw POST-out:
+
+1. **SmallStack↔SmallStack is first-class** — [one-step pairing](#smallstacksmallstack-first-class),
+   loop-safe by default, dedupe-able on a stable `event_id`, envelope round-trips.
+2. **It's extensible** — [four documented seams](#the-four-extension-seams) let a
+   Zapier/n8n/Azure/AWS integration be a small plug-in, not a core fork.
+
+> **Integration-platform framing (F-013).** Think of webhooks as *plumbing*: the engine
+> reliably signs, delivers, retries, dead-letters, and monitors. Shaping a payload for a
+> picky destination or verifying a provider's bespoke signature is done at a **seam**
+> (below) — either in your own code or via a reference adapter — not by forking core.
+
 ## When to use which
 
 | The user wants… | Use |
@@ -35,22 +48,35 @@ That's it for the *source*. A create/update/delete of `Ticket` through **any** s
 ```json
 { "event": "support.ticket.created", "action": "created",
   "model": "support.ticket", "id": 42, "occurred_at": "...",
+  "event_id": "5f3b…-uuid",                         // stable, survives replay (dedupe on it)
+  "origin": "https://your-site.example.com",        // who sent it (loop-guard filter)
+  "resource": { "type": "support.ticket", "id": 42,
+                "url": "https://your-site.example.com/smallstack/api/support/tickets/42/" },
   "data": { "id": 42, "title": "...", ... } }
 ```
+
+The `event_id`, `origin`, and `resource` keys were **added** in the foundation reshape
+(the original keys are unchanged, so existing consumers keep working). `resource.url` is
+**absolute** so a consumer can act on the record without reconstructing the path — set
+`SMALLSTACK_WEBHOOK_ORIGIN` (or `SITE_URL`) so it's a real base URL rather than a hostname.
+Outbound FK **names** (not just ids) appear when the CRUDView sets `api_expand_fields`.
 
 ### 2. Register an endpoint (the destination)
 
 Endpoints are just data — create them in the UI at `/smallstack/webhooks/endpoints/`,
-via REST/MCP (`create_webhook`), or in the shell:
+via REST (`POST /smallstack/api/webhooks/endpoints/`), MCP (`create_webhook`), or the CLI:
 
-```python
-from apps.webhooks.models import WebhookEndpoint
-WebhookEndpoint.objects.create(
-    name="Zapier",
-    target_url="https://hooks.zapier.com/...",
-    event_filter=["support.ticket.*", "*.created"],  # fnmatch patterns; [] = inert
-)
+```bash
+sc new webhook --name Zapier --target_url https://hooks.zapier.com/... \
+   --event_filter '["support.ticket.*", "*.created"]' --user admin
 ```
+
+`event_filter` holds fnmatch patterns (`[]` = inert). JSON fields accept native JSON on
+every surface (a real array in REST/MCP payloads, a quoted JSON string on the CLI).
+Omitted fields use the model defaults — a new endpoint is **enabled** with an
+auto-generated signing secret. Pass `--secret <value>` (or `"secret"` in REST/MCP
+payloads) to set a known secret; the field is **write-only** — it is never returned by
+any read, only by the staff-gated Reveal action on the endpoint detail page.
 
 Every enabled endpoint whose `event_filter` matches gets one `WebhookDelivery`, POSTed
 with an HMAC-SHA256 signature the receiver verifies:
@@ -71,18 +97,39 @@ one trigger per deployment (same choices as the scheduler):
 - localhost POST inside gunicorn: `POST /webhooks/tick/`
 - fold `services.run_due_deliveries()` into your existing scheduler beat
 
+Delivery honors a **`Retry-After`** header on a `429`/`503` (delta-seconds or HTTP-date),
+overriding the backoff table for that attempt, clamped to `SMALLSTACK_WEBHOOK_MAX_BACKOFF`
+(F-022) — so a real rate-limiter isn't hammered.
+
 After N consecutive failures (`SMALLSTACK_WEBHOOK_AUTO_DISABLE_AFTER`) an endpoint
-auto-disables. Replay a dead delivery from its detail page or the `replay_delivery` MCP tool.
+auto-disables. Replay a dead delivery from its detail page or the `replay_delivery` MCP
+tool; replay **all** dead deliveries after an outage with the “Replay all dead” dashboard
+action, `sc webhook replay --status dead`, or the `replay_dead_deliveries` MCP tool (each
+reuses the original `event_id` so a consumer dedupes — F-023).
+
+> **Delivery ordering / head-of-line (F-024).** Deliveries are **at-least-once** with a
+> stable `X-SmallStack-Delivery` per attempt and a stable `X-SmallStack-Event-Id` per event
+> (survives replay). One `db_worker` processes deliveries **serially**, so a slow/timing-out
+> endpoint delays other pending deliveries behind it (up to `SMALLSTACK_WEBHOOK_TIMEOUT`
+> each). The timeout bounds the stall; for high throughput run multiple workers or a
+> dedicated queue. Ordering across retries is **not** guaranteed — consumers must be
+> idempotent (dedupe on `event_id`).
 
 ## Inbound — 2 steps
 
 ### 1. Register a receiver
 
-```python
-from apps.webhooks.models import WebhookReceiver
-WebhookReceiver.objects.create(name="Stripe", slug="stripe", secret="whsec_...")
+```bash
+sc new webhookreceiver --name Stripe --slug stripe --secret "whsec_..." --user admin
 # → external systems POST to /webhooks/in/stripe/
 ```
+
+(Or the UI at `/smallstack/webhooks/receivers/`, REST, or the `create_webhook_receiver`
+MCP tool — same fields everywhere.) Omitted fields use the model defaults:
+`require_signature=True`, `signature_header="X-Signature"`, `enabled=True`, and an
+auto-generated `secret`. Set `--secret` when the provider hands you one (Stripe's
+`whsec_…`); read a generated one back with the Reveal button on the receiver detail
+page (staff-only, POST).
 
 The view verifies the signature (constant-time) against `secret`, using the header named
 by `signature_header` (default `X-Signature`), records a `WebhookReceipt`, and returns
@@ -104,6 +151,134 @@ def on_stripe(receipt):
 
 Raising inside a handler marks the receipt `failed` (recorded, not fatal).
 
+**Loop-safe by default (F-020).** A handler runs inside `suppress_webhooks()` — a write it
+makes into an `enable_webhooks` model emits **no** outbound event, so a write-back can't
+run away. If a handler genuinely *should* re-fire events, opt out:
+`@webhook_handler("slug", cascade=True)` (you own the loop safety then).
+
+## The loop guard (F-020)
+
+The outbound observer fires on every write, so an inbound handler (or a paired SmallStack)
+writing back could re-trigger the event and run away. Three primitives stop it:
+
+- **`suppress_webhooks()`** — a context manager (public: `from apps.webhooks import
+  suppress_webhooks`). Writes inside it emit no outbound events. Wrap an import, a backfill,
+  or a handler write-back:
+  ```python
+  from apps.webhooks import suppress_webhooks
+  with suppress_webhooks():
+      ticket.status = "closed"; ticket.save()     # fires no webhook
+  ```
+  Inbound dispatch applies it automatically (above).
+- **`X-SmallStack-Origin`** — every delivery is stamped with this deployment's origin
+  (`SMALLSTACK_WEBHOOK_ORIGIN`, default from `SITE_URL`/hostname). Recorded on the receipt.
+- **`WebhookReceiver.ignore_origin`** — set it to your own origin and a self-originated
+  event echoed back by a peer is dropped (receipt status `ignored`), not dispatched.
+
+## SmallStack↔SmallStack, first-class
+
+> **Prerequisite: set an origin.** S2S/pairing needs `SITE_URL` (or
+> `SMALLSTACK_WEBHOOK_ORIGIN`) set to this deployment's absolute base URL. Without it the
+> origin falls back to the bare hostname, so `resource.url` degrades to `null` and the
+> `origin`-based loop-guard **dedupe** loses its base. `webhook_doctor` WARNs when the
+> origin is unresolved.
+
+**One-step pairing** stands up a loop-safe two-way link — an outbound endpoint **and** an
+inbound receiver here, sharing a generated secret, `transform="smallstack"`, loop guard on:
+
+```bash
+sc webhook pair --target https://peer.example.com/webhooks/in/paired/ --events '["*"]'
+# prints: outbound endpoint id, inbound receiver slug/URL, the shared secret, our origin
+```
+
+(Or the **“Connect a SmallStack”** action on the webhooks dashboard.) Mirror the printed
+secret + inbound URL on the peer to complete the link. Because both sides run the loop
+guard and set `ignore_origin`, an event one side originates can't echo back and re-fire.
+The upgraded envelope (`event_id`, absolute `resource.url`) means the receiving side can
+dedupe and act without a second fetch.
+
+## The four extension seams
+
+All four are **named-registry** hooks, discovered from an app's `webhook_*.py` at
+`ready()` (like `@webhook_handler` / `mcp_tools.py`). Each ships a built-in default so core
+behavior is unchanged; you select one per endpoint/receiver by name. An unknown name falls
+back to the default (logged), never a dropped delivery. `webhook_doctor --explain` lists
+every registered seam.
+
+| Seam | Decorator (module) | Model field (default) | Replaces / enables |
+|---|---|---|---|
+| Outbound transform (F-019) | `@webhook_transform` (`webhook_transforms.py`) | `endpoint.transform` (`smallstack`) | Slack `{text}`, CloudEvents, Event Grid schema |
+| Outbound auth (F-025) | `@webhook_auth` (`webhook_auths.py`) | `endpoint.auth_scheme` (`hmac`) | Azure SAS key, SigV4, OIDC bearer |
+| Inbound verifier (F-016) | `@webhook_verifier` (`webhook_verifiers.py`) | `receiver.verifier` (`hmac`) | Stripe `t.body`, GitHub `sha256=`, SNS RSA |
+| Inbound challenge (F-026) | `@webhook_challenge` (`webhook_challenges.py`) | `receiver.challenge` (none) | Event Grid validation, SNS SubscribeURL |
+
+```python
+# apps/myapp/webhook_transforms.py — reshape the outbound body for Slack
+from apps.webhooks import webhook_transform, Transformed
+import json
+
+@webhook_transform("slack")
+def to_slack(event):                       # event = the envelope dict
+    return Transformed(body=json.dumps({"text": f"{event['event']} fired"}).encode())
+```
+
+```python
+# apps/myapp/webhook_verifiers.py — Stripe's t.body scheme (constant-time inside)
+from apps.webhooks import webhook_verifier
+import hmac, hashlib
+
+@webhook_verifier("stripe")
+def verify_stripe(body, headers, receiver):
+    parts = dict(p.split("=", 1) for p in headers.get("Stripe-Signature", "").split(",") if "=" in p)
+    t, v1 = parts.get("t", ""), parts.get("v1", "")
+    expected = hmac.new(receiver.secret.encode(), f"{t}.".encode() + body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, v1)
+```
+
+Then select it: `sc set webhookreceiver <pk> --verifier=stripe`. This is the **first-class
+replacement** for the old `require_signature=False` escape hatch — a Stripe receiver is now
+*verifying* (with a different scheme), not *failing open*.
+
+### Verifier vs. `require_signature=False` (F-017)
+
+- **`receiver.verifier`** picks *how* the signature is checked. Default `hmac` is the raw-body
+  HMAC over `signature_header` (GitHub-compatible, accepts the `sha256=` prefix). A custom
+  verifier expresses any other scheme.
+- **`require_signature=False`** still means *fail open* — accept unsigned/bad-signature
+  POSTs. Use it only while onboarding a sender that doesn't sign yet. For a provider that
+  signs *differently*, write a `@webhook_verifier` instead — don't fail open.
+- `webhook_doctor` now distinguishes the two: a custom-verifier receiver reports PASS
+  (“verified, not fail-open”); only default-verifier + `require_signature=False` WARNs.
+
+### Reference adapter: Azure Event Grid
+
+`apps/webhooks/contrib/eventgrid.py` is a complete two-way Event Grid integration built
+**purely on the four seams, with zero core edits** — proof the seams are enough. It maps
+the envelope to the Event Grid schema (`@webhook_transform`), adds the `aeg-sas-key`
+(`@webhook_auth`), answers the subscription-validation handshake (`@webhook_challenge`),
+and verifies the key (`@webhook_verifier`). Copy its decorators into your app's
+`webhook_*.py` (or call `eventgrid.register()` from `ready()`), then set
+`transform="eventgrid"`, `auth_scheme="eventgrid-sas"`, `verifier="eventgrid"`,
+`challenge="eventgrid"` on the relevant endpoint/receiver.
+
+### Recipes per service
+
+Which seam(s)/setting to reach for per destination, and the one gotcha each. Only
+**Azure Event Grid** ships an adapter (`contrib/eventgrid.py`) — it's the **copy-me
+template** for the others. AWS SNS and Google Pub/Sub are **pattern-only** (no shipped
+adapter): write the seam yourself following the Event Grid file.
+
+| Service | Direction | Use | The one gotcha |
+|---|---|---|---|
+| **Zapier** | outbound | Endpoint, default `smallstack` transform (or a small `@webhook_transform` to flatten `data.*` to the top level) | Zapier's Catch Hook **ignores** the signature and 200s everything — the `X-SmallStack-Signature` header is harmless; map off the (upgraded) envelope keys or a flatten transform. |
+| **n8n** | both (S2S pattern) | Outbound endpoint → n8n; n8n calls back into `/smallstack/api/…` with a Bearer token | The write-back is an ORM/API write into a webhooks-enabled model — rely on the **loop guard** (`suppress_webhooks()` around the write, or a paired receiver with `ignore_origin`) so it doesn't re-fire. This is the [S2S pattern](#smallstacksmallstack-first-class). |
+| **Slack / Discord** | outbound | `@webhook_transform` → `{"text": …}` (or a Slack blocks object); set `endpoint.transform` to it | The destination **rejects the raw envelope** (`400 invalid_payload`) — it accepts only its own shape, so the transform is mandatory, not optional. |
+| **Stripe** | inbound | `@webhook_verifier("stripe")` for the compound `Stripe-Signature: t=…,v1=…` (HMAC over `"<t>.<body>"`); set `receiver.verifier` | The signed content is **`timestamp + "." + body`**, not the raw body — the default `hmac` verifier can't express it. **Don't** reach for `require_signature=False` (that's fail-open); write the verifier. |
+| **GitHub** | inbound | Default `hmac` verifier works as-is; set `receiver.signature_header = "X-Hub-Signature-256"` | GitHub sends `sha256=<hex>` — the default verifier already **accepts the `sha256=` prefix** and hashes the raw body, which is exactly GitHub's scheme. Zero custom code. |
+| **Azure Event Grid** | both | The shipped `contrib/eventgrid.py` adapter — all four seams (`transform=eventgrid`, `auth_scheme=eventgrid-sas`, `verifier=eventgrid`, `challenge=eventgrid`) | Event Grid opens with a `SubscriptionValidationEvent` handshake — the `@webhook_challenge` echoes the `validationCode` **before** verify/dispatch, so it must run unsigned. |
+| **AWS SNS** *(pattern-only)* | inbound | `@webhook_challenge` to confirm the `SubscribeURL` on `SubscriptionConfirmation` + `@webhook_verifier` for the **X.509/RSA** message signature (fetch the cert, verify the canonical string) | Not HMAC — SNS signs with RSA over a canonicalized field list; the challenge must GET the `SubscribeURL` to activate the subscription. Follow the Event Grid template. |
+| **Google Pub/Sub** *(pattern-only)* | inbound | `@webhook_verifier` for the **OIDC bearer JWT** (verify against Google's public keys + audience), then base64-decode `message.data` in the handler | The event body wraps the payload as base64 in `message.data` — verify the JWT at the verifier seam, unwrap the data in the `@webhook_handler`. Follow the Event Grid template. |
+
 ## CLI
 
 CRUD on endpoints/receivers uses the **generic** `sc` verbs (they're CRUDViews);
@@ -112,21 +287,32 @@ webhook-specific **ops** live under `sc webhook` (fronting `manage.py webhook`):
 ```bash
 # create / manage endpoints (generic CRUD — audited + validated like the web UI)
 sc new webhook --name Zapier --target_url https://hooks.zapier.com/... \
-   --event_filter '["support.ticket.*"]' --enabled=true --user admin
-sc ls webhook                              # list endpoints
+   --event_filter '["support.ticket.*"]' --user admin      # enabled by default
+sc ls webhook                              # list endpoints ('sc ls' flags column: w = enable_webhooks)
 sc set webhook 3 --enabled=false --user admin
 sc rm  webhook 3 --force --user admin
 
-# ops (report / test / replay / retry)
+# ops (report / test / replay / retry / pair)
 sc webhook status                          # counts by delivery status + retry backlog
 sc webhook list                            # endpoints with health (last status, fail-streak)
 sc webhook test Zapier                     # fire a signed test delivery
 sc webhook deliveries --status dead --limit 20
-sc webhook replay 42                       # re-send a dead delivery
+sc webhook replay 42                       # re-send one dead delivery (reuses its event_id)
+sc webhook replay --status dead            # BULK re-send every dead delivery (F-023)
+sc webhook replay --status dead --endpoint Zapier --since 2026-07-01T00:00:00
+sc webhook pair --target https://peer/webhooks/in/x/ --events '["*"]'  # S2S link (F-027)
 sc webhook tick                            # run the retry tick once (interactive)
 ```
 
 `sc webhook …` == `manage.py webhook …`; every subcommand takes `--json`.
+
+**Test deliveries don't retry.** Every test path (`sc webhook test`, the detail-page
+button, the `test_webhook` MCP tool) creates the delivery with `max_attempts=1`, so a
+failed test goes **straight to `dead`** — it's a reachability probe, not a retry demo.
+To watch retry/backoff, fire a real signal-driven event (save a model with
+`enable_webhooks = True`) while the destination is down. Test and replay both print a
+note when the target endpoint is disabled (test/replay sends still go out; signal
+events don't).
 
 ## Validate
 
@@ -142,20 +328,34 @@ sc doctor webhook                          # same, via the framework CLI (also p
    nothing — set `["*"]` deliberately for catch-all.
 2. **The signing secret is stored recoverably, not hashed.** Unlike `APIToken`, an HMAC
    secret must be read back to sign every payload. Reveal/rotate it from the endpoint
-   detail page; it's never exposed via REST/MCP.
+   or receiver detail page (staff-only POST actions); set a known one at create/update
+   time via the write-only `secret` field. It's never *returned* by REST/MCP/`sc` reads.
 3. **SSRF guard.** Outbound targets can't be loopback/private IPs unless
    `SMALLSTACK_WEBHOOK_ALLOW_PRIVATE=true` (dev), and `SMALLSTACK_WEBHOOK_ALLOWLIST`
    restricts hosts. Checked at save time *and* send time.
 4. **No opt-in ⇒ no fan-out.** A model without `enable_webhooks = True` fires nothing,
    even with a `["*"]` endpoint.
-5. **Creating an endpoint via CLI/REST is disabled by default.** `enabled` is a form
-   `BooleanField`, so `sc new webhook` / a REST `POST` **without `enabled=true` yields a
-   disabled endpoint** (unchecked checkbox = False). Pass `--enabled=true`, or flip it
-   after with `sc set webhook <pk> --enabled=true`. The web create form has a checkbox,
-   so this only bites the scripted paths.
+5. **Scripted creates honor model defaults.** `sc new` / REST `POST` / MCP `create_*`
+   fill omitted fields from the model defaults, exactly like an ORM `.create()` —
+   so a new endpoint/receiver is **enabled**, and a receiver keeps
+   `require_signature=True` and `signature_header="X-Signature"` unless you say
+   otherwise. Pass `--enabled=false` to create something switched off.
+6. **`require_signature=False` fails open — prefer a verifier.** An enabled receiver with
+   signature verification off accepts unsigned/bad-signature POSTs. For a provider that
+   signs *differently* (Stripe, Event Grid) write a `@webhook_verifier` instead; that's
+   *verifying*, not failing open. `webhook_doctor` WARNs only on the fail-open case.
+7. **REST lives under `/smallstack/api/`.** The generated endpoints are
+   `/smallstack/api/webhooks/endpoints/`, `…/deliveries/`, `…/receivers/`,
+   `…/receipts/` (browse them in Swagger at `/api/docs/`).
+8. **Handlers/seams are autodiscovered at process start, not hot-reloaded (F-018).** Add a
+   `webhook_handlers.py` / `webhook_*.py` and you must **restart `db_worker`** (and the dev
+   server) for it to register — otherwise dispatch records “no handler registered”.
+   `webhook_doctor` calls this out when a receiver has no handler. The dev server's
+   autoreload picks up file *changes*; a brand-new module still needs a restart.
 
 ## Settings (config/settings/smallstack.py)
 
 `SMALLSTACK_WEBHOOKS_ENABLED` / `_OUTBOUND` / `_INBOUND`, `SMALLSTACK_WEBHOOK_MAX_ATTEMPTS`,
-`SMALLSTACK_WEBHOOK_TIMEOUT`, `SMALLSTACK_WEBHOOK_BACKOFF`, `SMALLSTACK_WEBHOOK_AUTO_DISABLE_AFTER`,
+`SMALLSTACK_WEBHOOK_TIMEOUT`, `SMALLSTACK_WEBHOOK_BACKOFF`, `SMALLSTACK_WEBHOOK_MAX_BACKOFF`,
+`SMALLSTACK_WEBHOOK_ORIGIN`, `SMALLSTACK_WEBHOOK_AUTO_DISABLE_AFTER`,
 `SMALLSTACK_WEBHOOK_ALLOWLIST`, `SMALLSTACK_WEBHOOK_ALLOW_PRIVATE`, `SMALLSTACK_WEBHOOK_FAILURE_EMAILS`.

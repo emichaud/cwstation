@@ -96,3 +96,48 @@ def test_explain_lists_handlers_and_models():
     data = json.loads(out.getvalue())
     assert "outbound_models" in data
     assert "inbound_handlers" in data
+
+
+def test_unsigned_receiver_warns():
+    """[F-003] An enabled receiver with require_signature=False fails open —
+    the doctor must call it out."""
+    from apps.webhooks.registry import webhook_handler
+
+    @webhook_handler("unsigned-doctor")
+    def _handler(receipt):  # pragma: no cover — never dispatched here
+        pass
+
+    WebhookReceiver.objects.create(
+        name="Unsigned", slug="unsigned-doctor", require_signature=False
+    )
+    report = _report()
+    assert _status(report, "Inbound signatures") == "WARN"
+
+
+def test_signed_receivers_no_signature_warning():
+    from apps.webhooks.registry import webhook_handler
+
+    @webhook_handler("signed-doctor")
+    def _handler(receipt):  # pragma: no cover
+        pass
+
+    WebhookReceiver.objects.create(name="Signed", slug="signed-doctor")
+    report = _report()
+    assert _status(report, "Inbound signatures") is None
+
+
+def test_unresolved_origin_warns(settings):
+    """[F-029] With neither SMALLSTACK_WEBHOOK_ORIGIN nor a URL-shaped SITE_URL set, the
+    origin falls back to a bare hostname and resource.url degrades to null — WARN."""
+    settings.SMALLSTACK_WEBHOOK_ORIGIN = ""
+    settings.SITE_URL = ""
+    report = _report()
+    row = next(r for r in report if "webhook origin" in r["name"].lower())
+    assert row["status"] == "WARN"
+    assert "SITE_URL" in row["detail"] and "SMALLSTACK_WEBHOOK_ORIGIN" in row["detail"]
+
+
+def test_configured_origin_passes(settings):
+    settings.SMALLSTACK_WEBHOOK_ORIGIN = "https://mysite.example.com"
+    report = _report()
+    assert _status(report, "Webhook origin") == "PASS"

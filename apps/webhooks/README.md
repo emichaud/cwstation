@@ -22,10 +22,31 @@ verifies the HMAC signature, records a `WebhookReceipt`, and dispatches to a han
 registered with `@webhook_handler("<slug>")` (in any app's `webhook_handlers.py`,
 autodiscovered). `WebhookReceipt` is the append-only log.
 
+## Foundation reshape (loop guard, seams, S2S, reliability)
+
+- **Loop guard** (`context.py`): `suppress_webhooks()` thread-local context manager; inbound
+  dispatch runs handlers inside it by default (`@webhook_handler(slug, cascade=True)` opts
+  out); `X-SmallStack-Origin` on every delivery; `WebhookReceiver.ignore_origin` drops
+  self-events.
+- **Four extension seams** (`hooks.py`): `@webhook_transform` / `@webhook_auth` /
+  `@webhook_verifier` / `@webhook_challenge`, named registries autodiscovered from
+  `webhook_*.py`, each with a built-in default reproducing today's behavior. Selected by
+  `endpoint.transform`/`auth_scheme` and `receiver.verifier`/`challenge`.
+- **S2S pairing** (`services.pair_smallstack` + `sc webhook pair` + dashboard action):
+  one-step loop-safe two-way link.
+- **Reliability**: stable `event_id` (minted on signal, reused by replay, sent as
+  `X-SmallStack-Event-Id`); `Retry-After` honored on 429/503; bulk dead-letter replay
+  (`services.replay_dead`).
+- **Envelope upgrade**: `event_id` + `origin` + `resource{type,id,url}` (absolute url),
+  backward-compatible (original keys kept).
+- **Reference adapter**: `contrib/eventgrid.py` — Azure Event Grid on all four seams, zero
+  core edits.
+
 ## Surfaces
 
 Four CRUDViews give admin + REST + MCP + `sc` for free; custom MCP tools add
-`test_webhook`, `replay_delivery`, `summary_deliveries`. Dashboard at `/smallstack/webhooks/`,
+`test_webhook`, `replay_delivery`, `replay_dead_deliveries`, `summary_deliveries`. Dashboard
+at `/smallstack/webhooks/` (with “Connect a SmallStack” + “Replay all dead” actions),
 a status monitor, `webhook_doctor` (wired into `sc doctor`).
 
 **CLI:** endpoint/receiver CRUD via the generic verbs (`sc ls/new/set/rm webhook`); ops via
@@ -34,9 +55,11 @@ fronted as `sc webhook <sub>`. The retry tick's cron entry point is `manage.py r
 
 ## Files
 
-`models.py` · `signals.py` (outbound event source) · `services.py` (sign / SSRF guard /
-fan-out / retry tick) · `tasks.py` (HTTP send + inbound dispatch) · `registry.py`
-(`@webhook_handler`) · `views.py` (CRUDViews + receiver + actions) · `mcp_tools.py` ·
-`monitors.py` · `dashboard_widgets.py` · `management/commands/{webhook,run_due_deliveries,webhook_doctor}.py`
+`models.py` · `context.py` (loop guard) · `hooks.py` (four seams) · `signals.py` (outbound
+event source) · `services.py` (sign / SSRF guard / fan-out / retry tick / replay / pair) ·
+`tasks.py` (HTTP send + inbound dispatch) · `registry.py` (`@webhook_handler`) · `views.py`
+(CRUDViews + receiver + actions + event-filter picker) · `contrib/eventgrid.py` (reference
+adapter) · `mcp_tools.py` · `monitors.py` · `dashboard_widgets.py` ·
+`management/commands/{webhook,run_due_deliveries,webhook_doctor}.py`
 
 See `docs/skills/webhooks.md` for the how-to.

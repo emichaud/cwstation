@@ -10,7 +10,6 @@ Uses urllib from the stdlib for the POST so the app adds no new dependency.
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 import urllib.error
@@ -53,18 +52,45 @@ def deliver_webhook(delivery_id: int) -> dict[str, Any]:
     if delivery.is_terminal:
         return {"skipped": "already terminal", "status": delivery.status}
 
+    from urllib.parse import urlencode, urlsplit, urlunsplit
+
+    from . import hooks
+    from .context import current_origin
+
     endpoint = delivery.endpoint
     attempt = delivery.attempt + 1
-    body = json.dumps(delivery.payload, default=str).encode()
+
+    # 1. Transform seam — the wire body + content type (default: current envelope).
+    transform = hooks.get_transform(endpoint.transform)
+    transformed = transform(delivery.payload)
+    body = transformed.body
 
     headers = {
-        "Content-Type": "application/json",
+        "Content-Type": transformed.content_type,
         services.EVENT_HEADER: delivery.event_type,
         services.DELIVERY_HEADER: str(delivery.pk),
-        services.SIGNATURE_HEADER: services.signature_header_value(endpoint.secret, body),
+        services.ORIGIN_HEADER: current_origin(),
         "User-Agent": "SmallStack-Webhooks/1.0",
     }
-    # Endpoint-supplied static headers, but never let them clobber our signing.
+    if delivery.event_id:
+        headers[services.EVENT_ID_HEADER] = str(delivery.event_id)
+
+    # 2. Auth seam — credentials for the destination (default: HMAC signature header).
+    auth = hooks.get_auth(endpoint.auth_scheme)
+    auth_result = auth(
+        hooks.OutgoingRequest(
+            url=endpoint.target_url, body=body, headers=dict(headers), event_type=delivery.event_type
+        ),
+        endpoint,
+    )
+    headers.update(auth_result.headers)
+    target_url = endpoint.target_url
+    if auth_result.params:
+        parts = urlsplit(target_url)
+        query = "&".join(filter(None, [parts.query, urlencode(auth_result.params)]))
+        target_url = urlunsplit(parts._replace(query=query))
+
+    # Endpoint-supplied static headers, but never let them clobber our signing/auth.
     for k, v in (endpoint.headers or {}).items():
         if k not in headers:
             headers[k] = str(v)
@@ -73,19 +99,23 @@ def deliver_webhook(delivery_id: int) -> dict[str, Any]:
     started = time.monotonic()
     status_code: int | None = None
     error = ""
+    retry_after: int | None = None
 
     # Re-check the target against the SSRF guard at send time (config may have
     # tightened since the endpoint was created).
-    ok, reason = services.url_is_allowed(endpoint.target_url)
+    ok, reason = services.url_is_allowed(target_url)
     if not ok:
         error = f"blocked by SSRF guard: {reason}"
     else:
-        req = urllib.request.Request(endpoint.target_url, data=body, headers=headers, method="POST")
+        req = urllib.request.Request(target_url, data=body, headers=headers, method="POST")
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 — scheme checked
                 status_code = resp.status
         except urllib.error.HTTPError as exc:
             status_code = exc.code
+            # Honor Retry-After on rate-limit / unavailable responses (F-022).
+            if exc.code in (429, 503):
+                retry_after = services.parse_retry_after(exc.headers.get("Retry-After"))
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             error = str(getattr(exc, "reason", exc))
         except Exception as exc:  # noqa: BLE001
@@ -93,7 +123,7 @@ def deliver_webhook(delivery_id: int) -> dict[str, Any]:
 
     elapsed_ms = int((time.monotonic() - started) * 1000)
     succeeded = status_code is not None and 200 <= status_code < 300
-    _record_attempt(delivery, attempt, status_code, elapsed_ms, error, succeeded)
+    _record_attempt(delivery, attempt, status_code, elapsed_ms, error, succeeded, retry_after)
     return {
         "delivery": delivery.pk,
         "attempt": attempt,
@@ -109,8 +139,13 @@ def _record_attempt(
     elapsed_ms: int,
     error: str,
     succeeded: bool,
+    retry_after: int | None = None,
 ) -> None:
-    """Persist the attempt outcome and schedule a retry (or retire) on failure."""
+    """Persist the attempt outcome and schedule a retry (or retire) on failure.
+
+    ``retry_after`` (parsed from a 429/503 ``Retry-After`` header) overrides the backoff
+    table for this attempt, clamped to ``SMALLSTACK_WEBHOOK_MAX_BACKOFF`` (F-022).
+    """
     now = timezone.now()
     delivery.attempt = attempt
     delivery.response_status = status_code
@@ -132,11 +167,15 @@ def _record_attempt(
         _notify_dead(delivery)
         return
 
-    # Schedule the next retry.
+    # Schedule the next retry — Retry-After wins over the backoff table when present.
     from datetime import timedelta
 
+    if retry_after is not None:
+        wait = services.clamp_backoff(retry_after)
+    else:
+        wait = services.backoff_seconds(attempt)
     delivery.status = WebhookDelivery.Status.RETRYING
-    delivery.next_attempt_at = now + timedelta(seconds=services.backoff_seconds(attempt))
+    delivery.next_attempt_at = now + timedelta(seconds=wait)
     delivery.save(update_fields=_ATTEMPT_FIELDS)
     _bump_endpoint(delivery, ok=False)
 
@@ -210,22 +249,32 @@ def dispatch_incoming(receipt_id: int) -> dict[str, Any]:
     except WebhookReceipt.DoesNotExist:
         return {"error": f"receipt {receipt_id} not found"}
 
-    from .registry import get_handler
+    import contextlib
 
-    handler = get_handler(receipt.receiver.handler_name)
+    from .context import suppress_webhooks
+    from .registry import get_handler, handler_cascades
+
+    handler_name = receipt.receiver.handler_name
+    handler = get_handler(handler_name)
     if handler is None:
         receipt.status = WebhookReceipt.Status.FAILED
-        receipt.error = f"no handler registered for {receipt.receiver.handler_name!r}"
+        receipt.error = f"no handler registered for {handler_name!r}"
         receipt.save(update_fields=["status", "error"])
         return {"error": receipt.error}
 
+    # Loop-safe by default: run the handler inside suppress_webhooks() so a write-back
+    # emits no outbound event (F-020). A handler that wants to cascade opts out with
+    # @webhook_handler("slug", cascade=True).
+    guard = contextlib.nullcontext() if handler_cascades(handler_name) else suppress_webhooks()
+
     try:
-        handler(receipt)
+        with guard:
+            handler(receipt)
     except Exception as exc:  # noqa: BLE001 — a handler error is recorded, not fatal
         receipt.status = WebhookReceipt.Status.FAILED
         receipt.error = repr(exc)[:2000]
         receipt.save(update_fields=["status", "error"])
-        logger.exception("webhooks: handler %s failed", receipt.receiver.handler_name)
+        logger.exception("webhooks: handler %s failed", handler_name)
         return {"error": receipt.error}
 
     receipt.status = WebhookReceipt.Status.PROCESSED

@@ -36,10 +36,51 @@
   {% stat_card value=active_receivers label="Receivers" %}
 </div>
 
+<!-- Connect a SmallStack (one-step S2S pairing) -->
+<details class="card" style="margin-bottom: 24px;">
+  <summary class="card-header" style="cursor: pointer; list-style: revert;">
+    <h2 style="display: inline;">Connect a SmallStack</h2>
+    <span style="font-size: 0.8rem; color: var(--body-quiet-color); margin-left: 0.5rem;">one-step, loop-safe two-way link</span>
+  </summary>
+  <div class="card-body">
+    <form method="post" action="{% url 'webhooks_pair' %}">
+      {% csrf_token %}
+      <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
+        Enter the peer's inbound URL (e.g. <code>https://peer.example.com/webhooks/in/paired/</code>).
+        We create a matching endpoint + receiver here sharing a secret, with the loop guard on.
+        You'll get the shared secret and our inbound URL to mirror on the peer.
+      </p>
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end;">
+        <label style="flex: 2 1 320px;">
+          <span style="display: block; font-size: 0.8rem;">Peer inbound URL</span>
+          <input type="url" name="target_url" required class="vTextField" style="width: 100%;"
+                 placeholder="https://peer.example.com/webhooks/in/paired/">
+        </label>
+        <label style="flex: 1 1 160px;">
+          <span style="display: block; font-size: 0.8rem;">Events (JSON)</span>
+          <input type="text" name="events" class="vTextField" style="width: 100%;" value='["*"]'>
+        </label>
+        <button type="submit" class="button button-primary">Pair</button>
+      </div>
+    </form>
+  </div>
+</details>
+
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
   <!-- Recent deliveries -->
   <div class="card">
-    <div class="card-header"><h2>Recent deliveries</h2></div>
+    <div class="card-header" style="display: flex; align-items: center; justify-content: space-between;">
+      <h2>Recent deliveries</h2>
+      {% if dead_total %}
+      <form method="post" action="{% url 'webhooks_replay_dead' %}" style="margin: 0;"
+            onsubmit="return confirm('Replay all {{ dead_total }} dead delivery(ies)?');">
+        {% csrf_token %}
+        <button type="submit" class="button button-secondary" style="font-size: 0.8rem;">
+          Replay all dead ({{ dead_total }})
+        </button>
+      </form>
+      {% endif %}
+    </div>
     <div class="card-body" style="padding: 0;">
       {% if recent_deliveries %}
       <table class="table-plain" style="width: 100%; border-collapse: collapse;">

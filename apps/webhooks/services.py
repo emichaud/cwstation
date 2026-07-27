@@ -27,6 +27,13 @@ logger = logging.getLogger("smallstack.webhooks")
 SIGNATURE_HEADER = "X-SmallStack-Signature"
 EVENT_HEADER = "X-SmallStack-Event"
 DELIVERY_HEADER = "X-SmallStack-Delivery"
+# Stable per-event idempotency key (survives replay) — consumers dedupe on it (F-021).
+EVENT_ID_HEADER = "X-SmallStack-Event-Id"
+# The delivering SmallStack's origin — a receiver can drop self-originated events (F-020).
+ORIGIN_HEADER = "X-SmallStack-Origin"
+
+# Default ceiling for a single retry wait when no explicit setting is configured.
+DEFAULT_MAX_BACKOFF = 21600  # 6h — matches the last default backoff step
 
 
 # ---------------------------------------------------------------------------
@@ -106,10 +113,14 @@ def url_is_allowed(url: str) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 
-def fan_out(event_type: str, payload: dict[str, Any]) -> int:
+def fan_out(event_type: str, payload: dict[str, Any], *, event_id: str | None = None) -> int:
     """Create one WebhookDelivery per enabled endpoint whose filter matches, and
     enqueue each. Returns the number of deliveries created. Never raises — a
-    fan-out failure must not break the originating model save."""
+    fan-out failure must not break the originating model save.
+
+    ``event_id`` (F-021) is the stable per-event idempotency key, shared by every
+    delivery for this event and reused by replay.
+    """
     if not getattr(settings, "SMALLSTACK_WEBHOOKS_ENABLED", True):
         return 0
     if not getattr(settings, "SMALLSTACK_WEBHOOKS_OUTBOUND", True):
@@ -126,6 +137,7 @@ def fan_out(event_type: str, payload: dict[str, Any]) -> int:
                 endpoint=ep,
                 event_type=event_type,
                 payload=payload,
+                event_id=event_id,
                 status=WebhookDelivery.Status.PENDING,
                 max_attempts=max_attempts,
             )
@@ -160,6 +172,42 @@ def backoff_seconds(attempt: int) -> int:
     return int(schedule[idx])
 
 
+def max_backoff() -> int:
+    """The ceiling for any single retry wait (clamps a hostile ``Retry-After``)."""
+    return int(getattr(settings, "SMALLSTACK_WEBHOOK_MAX_BACKOFF", DEFAULT_MAX_BACKOFF))
+
+
+def clamp_backoff(seconds: int) -> int:
+    """Clamp a wait to [0, max_backoff]."""
+    return max(0, min(int(seconds), max_backoff()))
+
+
+def parse_retry_after(value: str | None) -> int | None:
+    """Parse a ``Retry-After`` header into delta-seconds. Accepts delta-seconds
+    (``"5"``) or an HTTP-date (``"Wed, 21 Oct 2015 07:28:00 GMT"``). Returns None if
+    absent/unparseable; a past date clamps to 0. Not clamped to max here — the caller
+    clamps when scheduling."""
+    if not value:
+        return None
+    value = value.strip()
+    if value.isdigit():
+        return int(value)
+    try:
+        from email.utils import parsedate_to_datetime
+
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if when is None:
+        return None
+    if when.tzinfo is None:
+        from datetime import timezone as _tz
+
+        when = when.replace(tzinfo=_tz.utc)
+    delta = (when - timezone.now()).total_seconds()
+    return max(0, int(delta))
+
+
 def run_due_deliveries(*, now: datetime | None = None, limit: int = 200) -> int:
     """Re-enqueue every delivery whose retry cursor is due. Returns the count
     claimed. Uses the scheduler's atomic conditional claim so concurrent ticks
@@ -182,3 +230,135 @@ def run_due_deliveries(*, now: datetime | None = None, limit: int = 200) -> int:
             _enqueue_delivery(delivery.pk)
             claimed += 1
     return claimed
+
+
+# ---------------------------------------------------------------------------
+# Replay (single + bulk dead-letter) — one code path for every surface
+# ---------------------------------------------------------------------------
+
+
+def replay_delivery(original: WebhookDelivery) -> WebhookDelivery:
+    """Re-send a past delivery as a fresh attempt, reusing its payload AND ``event_id``
+    (F-021) so a consumer can dedupe an operator replay against the original event."""
+    replay = WebhookDelivery.objects.create(
+        endpoint=original.endpoint,
+        event_type=original.event_type,
+        payload=original.payload,
+        event_id=original.event_id,
+        max_attempts=original.max_attempts,
+    )
+    _enqueue_delivery(replay.pk)
+    return replay
+
+
+def replay_dead(
+    *,
+    endpoint_id: int | None = None,
+    since: datetime | None = None,
+    limit: int = 100,
+) -> list[int]:
+    """Bulk-replay dead deliveries (F-023). Returns the new delivery ids. The single
+    most-requested ops verb for a dead-letter queue: after an outage yields N dead
+    deliveries, replay them all instead of one id at a time."""
+    qs = WebhookDelivery.objects.filter(status=WebhookDelivery.Status.DEAD).select_related(
+        "endpoint"
+    )
+    if endpoint_id is not None:
+        qs = qs.filter(endpoint_id=endpoint_id)
+    if since is not None:
+        qs = qs.filter(created_at__gte=since)
+    qs = qs.order_by("created_at")[:limit]
+    return [replay_delivery(d).pk for d in qs]
+
+
+# ---------------------------------------------------------------------------
+# SmallStack ↔ SmallStack pairing (F-027)
+# ---------------------------------------------------------------------------
+
+
+def available_events() -> list[str]:
+    """Every concrete event type a model with ``enable_webhooks`` can emit, plus the
+    common wildcards — the option list for the event-filter picker (F-015)."""
+    try:
+        from apps.smallstack.crud import CRUDView
+    except Exception:  # noqa: BLE001
+        return ["*"]
+    all_actions = ("created", "updated", "deleted")
+    events: list[str] = []
+    for view in CRUDView._registry.values():
+        if not getattr(view, "enable_webhooks", False):
+            continue
+        model = getattr(view, "model", None)
+        if model is None:
+            continue
+        label = f"{model._meta.app_label}.{model._meta.model_name}"
+        actions = getattr(view, "webhook_events", None) or all_actions
+        events.append(f"{label}.*")
+        for action in actions:
+            events.append(f"{label}.{action}")
+    # Handy wildcards first.
+    return ["*", "*.created", "*.updated", "*.deleted", *sorted(set(events))]
+
+
+def pair_smallstack(
+    *,
+    target_url: str,
+    events: list[str] | None = None,
+    name: str | None = None,
+    slug: str | None = None,
+    secret: str | None = None,
+    owner: Any | None = None,
+) -> dict[str, Any]:
+    """Stand up a loop-safe two-way SmallStack↔SmallStack link in one step (F-027).
+
+    Creates, on **this** SmallStack, sharing one generated secret:
+
+    * an **endpoint** → ``target_url`` (``transform="smallstack"``, matching ``events``)
+      so our events flow to the peer, and
+    * a **receiver** (``verifier="hmac"``, ``ignore_origin`` = our own origin) so the
+      peer's events flow to us — and any event we originated that the peer echoes back is
+      dropped, closing the loop.
+
+    Returns the created ids plus the shared ``secret``, receiver ``slug`` and our
+    ``origin`` — the three things the operator mirrors on the peer (create the reciprocal
+    endpoint+receiver there with the same secret). Idempotent-friendly: the caller picks
+    a stable ``slug``/``name`` to re-run safely.
+    """
+    from .context import current_origin
+    from .models import WebhookReceiver, generate_secret
+
+    events = events or ["*"]
+    shared_secret = secret or generate_secret()
+    origin = current_origin()
+    base = name or f"SmallStack {target_url}"
+    receiver_slug = slug or f"paired-{abs(hash(target_url)) % 10_000_000}"
+
+    endpoint = WebhookEndpoint.objects.create(
+        name=f"{base} (out)",
+        target_url=target_url,
+        secret=shared_secret,
+        event_filter=events,
+        transform="smallstack",
+        auth_scheme="hmac",
+        enabled=True,
+        owner=owner,
+    )
+    receiver = WebhookReceiver.objects.create(
+        name=f"{base} (in)",
+        slug=receiver_slug,
+        secret=shared_secret,
+        verifier="hmac",
+        require_signature=True,
+        ignore_origin=origin,  # drop our own events echoed back — the loop guard
+        enabled=True,
+        owner=owner,
+    )
+    return {
+        "endpoint_id": endpoint.pk,
+        "receiver_id": receiver.pk,
+        "receiver_slug": receiver.slug,
+        "inbound_url": f"/webhooks/in/{receiver.slug}/",
+        "secret": shared_secret,
+        "origin": origin,
+        "events": events,
+    }

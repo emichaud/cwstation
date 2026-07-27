@@ -92,6 +92,44 @@ def test_replay_requires_numeric_id():
         _run("replay", "abc")
 
 
+def test_bulk_replay_dead(no_real_enqueue):
+    """[F-023] `sc webhook replay --status dead` replays every dead delivery, reusing
+    its event_id."""
+    import uuid
+
+    ep = _endpoint()
+    for _ in range(3):
+        WebhookDelivery.objects.create(
+            endpoint=ep, event_type="a.b.created", payload={"k": 1},
+            event_id=uuid.uuid4(), status="dead",
+        )
+    WebhookDelivery.objects.create(endpoint=ep, event_type="ok", payload={}, status="success")
+    out = _run("replay", "--status", "dead", "--json")
+    data = json.loads(out)
+    assert data["queued"] == 3
+    # Every replay carries an event_id (reused from its original).
+    replays = WebhookDelivery.objects.filter(pk__in=data["delivery_ids"])
+    assert replays.exclude(event_id__isnull=True).count() == 3
+
+
+def test_bulk_replay_rejects_non_dead_status():
+    with pytest.raises(CommandError, match="only supports --status dead"):
+        _run("replay", "--status", "retrying")
+
+
+def test_help_lists_pair_and_bulk_replay():
+    """[F-030] The one-line help must surface `pair` and `replay --status dead` so they're
+    discoverable, not just in the Subcommands list."""
+    from apps.webhooks.management.commands.webhook import Command
+
+    help_text = Command().help
+    assert "pair" in help_text
+    assert "--status dead" in help_text
+    # And running with no subcommand prints that help.
+    out = _run()
+    assert "pair" in out and "--status dead" in out
+
+
 def test_deliveries_filters_by_status():
     ep = _endpoint()
     WebhookDelivery.objects.create(endpoint=ep, event_type="ok", payload={}, status="success")
@@ -128,10 +166,11 @@ def test_sc_webhook_fronts_command(no_real_enqueue):
     assert json.loads(out.getvalue())["endpoints"]["total"] == 1
 
 
-def test_create_via_sc_needs_explicit_enabled():
-    """Documents the gotcha: `sc new webhook` without --enabled=true yields a
-    DISABLED endpoint (Django BooleanField form default = unchecked). The endpoint
-    CRUDView is staff-gated, so a staff --user is required."""
+def test_create_via_sc_defaults_enabled():
+    """[F-003] Scripted creates use model defaults for omitted fields: `sc new
+    webhook` without --enabled yields an ENABLED endpoint (model default True),
+    matching what the ORM and the web form's pre-checked checkbox produce. An
+    explicit --enabled=false still wins."""
     from django.contrib.auth import get_user_model
 
     staff = get_user_model().objects.create_user(
@@ -143,11 +182,52 @@ def test_create_via_sc_needs_explicit_enabled():
         "--name", "NoEnable", "--target_url", "https://hooks.example.com/y",
         "--user", staff.username, "--json", stdout=StringIO(),
     )
-    assert WebhookEndpoint.objects.get(name="NoEnable").enabled is False
+    created = WebhookEndpoint.objects.get(name="NoEnable")
+    assert created.enabled is True
+    assert created.event_filter == []  # JSONField default survives the form path
 
     call_command(
         "sc", "new", "webhook",
-        "--name", "WithEnable", "--target_url", "https://hooks.example.com/z",
-        "--enabled=true", "--user", staff.username, "--json", stdout=StringIO(),
+        "--name", "Disabled", "--target_url", "https://hooks.example.com/z",
+        "--enabled=false", "--user", staff.username, "--json", stdout=StringIO(),
     )
-    assert WebhookEndpoint.objects.get(name="WithEnable").enabled is True
+    assert WebhookEndpoint.objects.get(name="Disabled").enabled is False
+
+
+def test_replay_to_disabled_endpoint_prints_note(no_real_enqueue):
+    """[F-011] A successful replay/test against a disabled endpoint says so —
+    otherwise signal events silently don't deliver after an auto-disable."""
+    ep = _endpoint(name="Off", enabled=False)
+    d = WebhookDelivery.objects.create(
+        endpoint=ep, event_type="t", payload={}, status="dead"
+    )
+    out = _run("replay", str(d.pk))
+    assert "disabled" in out
+    assert f"sc set webhook {ep.pk} --enabled=true" in out
+
+    out = _run("test", ep.name)
+    assert "disabled" in out
+
+    # machine-readable form carries the flag
+    data = json.loads(_run("test", ep.name, "--json"))
+    assert data["endpoint_enabled"] is False
+
+
+def test_enabled_endpoint_no_disabled_note(no_real_enqueue):
+    ep = _endpoint(name="On", enabled=True)
+    out = _run("test", ep.name)
+    assert "disabled" not in out
+
+
+def test_monitor_inventory_lists_endpoints_and_receivers():
+    """[F-010] The status-card drill-down mirrors the api/mcp/search peers."""
+    from apps.webhooks.models import WebhookReceiver
+    from apps.webhooks.monitors import WebhooksMonitor
+
+    _endpoint(name="Catcher")
+    WebhookReceiver.objects.create(name="Stripe", slug="stripe-inventory")
+    inv = WebhooksMonitor().inventory()
+    assert inv["summary"] == "1 endpoint · 1 receiver"
+    labels = {i["label"] for i in inv["items"]}
+    assert labels == {"Catcher", "Stripe"}
+    assert all(i["url"] for i in inv["items"])

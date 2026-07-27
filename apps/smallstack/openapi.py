@@ -25,6 +25,9 @@ _TYPE_MAP: dict[str, dict[str, str]] = {
     "url": {"type": "string", "format": "uri"},
     "fk": {"type": "integer"},
     "file": {"type": "string", "format": "binary"},
+    # JSONField: any JSON value (array/object/scalar). An empty schema means
+    # "any type" in OpenAPI 3.0.3, which is exactly right.
+    "json": {},
 }
 
 

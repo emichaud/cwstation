@@ -29,7 +29,7 @@ from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist
 from django.db import IntegrityError
 from django.db.models import ProtectedError, QuerySet, RestrictedError
-from django.http import Http404, HttpRequest, HttpResponse, QueryDict
+from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import redirect as _redirect
 from django.urls import path, reverse
 from django.views.generic import (
@@ -863,21 +863,15 @@ class _CRUDBulkActionView:
                         continue
 
                     # Build PATCH-style form: merge existing values with new fields
-                    from django.forms.models import model_to_dict
-
-                    existing = model_to_dict(obj, fields=cfg.fields or [])
-                    merged = QueryDict(mutable=True)
-                    for key, value in existing.items():
-                        if value is None:
-                            merged[key] = ""
-                        elif isinstance(value, list):
-                            merged.setlist(key, [str(v) for v in value])
-                        else:
-                            merged[key] = str(value)
-                    for key, value in fields_data.items():
-                        merged[key] = str(value) if value is not None else ""
+                    from .form_bridge import merge_form_payload
 
                     form_class = cfg.form_class or cfg._make_form_class()
+                    merged = merge_form_payload(
+                        form_class,
+                        fields_data,
+                        instance=obj,
+                        instance_fields=cfg.fields or [],
+                    )
                     form = form_class(merged, instance=obj)
                     if form.is_valid():
                         obj = form.save()

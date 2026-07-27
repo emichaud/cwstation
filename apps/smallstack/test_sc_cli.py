@@ -44,7 +44,13 @@ def test_ls_models_json_carries_flags():
     assert isinstance(data, list)
     user = next(e for e in data if e["model"] == "user")
     assert user["search"] is True          # UserCRUDView enable_search=True
-    assert set(user) >= {"model", "label", "name", "api", "mcp", "search", "explorer"}
+    assert set(user) >= {"model", "label", "name", "api", "mcp", "search", "webhooks", "explorer"}
+
+
+def test_ls_flags_legend_includes_webhooks():
+    """[F-008] The webhooks opt-in is discoverable like a/m/s."""
+    out = run("ls")
+    assert "w=webhooks" in out
 
 
 # -- ls <model> (rows) --------------------------------------------------------
