@@ -9,6 +9,33 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.13.8] - 2026-07-26
+
+### Added
+- **Webhooks (`apps/webhooks/`)** — outbound event delivery and inbound receivers,
+  built on the CRUDView pipeline. A model opts into **outbound** with
+  `enable_webhooks = True` (like `enable_search`); a global `post_save`/`post_delete`
+  observer fans every change — across HTML, REST, MCP, `sc`, and raw ORM — out to
+  matching `WebhookEndpoint`s as an HMAC-SHA256-signed POST, delivered through the
+  `django.tasks` queue with exponential backoff, **`Retry-After`** support,
+  auto-disable, a dead-letter state, and **bulk replay**. **Inbound**: a
+  `WebhookReceiver` + a `@webhook_handler` verify the signature (constant-time) and
+  dispatch. Ships an SSRF guard, staff-only secret reveal/rotate, a
+  `/smallstack/webhooks/` dashboard, a status monitor, `webhook_doctor`, `sc webhook`
+  ops, and MCP tools.
+- **Webhook extension seams** — four named-registry hooks (`@webhook_transform`,
+  `@webhook_auth`, `@webhook_verifier`, `@webhook_challenge`), autodiscovered from an
+  app's `webhook_*.py` and each defaulting to the built-in behavior, so a specific
+  integration (Slack payloads, Stripe/GitHub/SNS signatures, SAS/OIDC auth, Event Grid
+  validation) is a small plug-in rather than a core change. A complete **Azure Event
+  Grid** reference adapter (`apps/webhooks/contrib/eventgrid.py`) is built purely on
+  the seams with zero core edits.
+- **SmallStack↔SmallStack pairing** — `sc webhook pair` stands up a loop-safe two-way
+  link in one command (paired endpoint + receiver with per-direction secrets, a
+  `suppress_webhooks()` loop guard, and an `X-SmallStack-Origin` header so write-backs
+  can't run away). A stable `X-SmallStack-Event-Id` lets consumers dedupe across
+  retries and operator replay.
+
 ## [0.13.7] - 2026-07-25
 
 ### Fixed
@@ -293,7 +320,8 @@ Condensed highlights of the v0.11 series (see git history for per-patch detail):
 See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full record of the
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
-[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.13.7...HEAD
+[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.13.8...HEAD
+[0.13.8]: https://github.com/emichaud/django-smallstack/compare/v0.13.7...v0.13.8
 [0.13.7]: https://github.com/emichaud/django-smallstack/compare/v0.13.6...v0.13.7
 [0.13.6]: https://github.com/emichaud/django-smallstack/compare/v0.13.5...v0.13.6
 [0.13.5]: https://github.com/emichaud/django-smallstack/compare/v0.13.4...v0.13.5
