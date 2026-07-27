@@ -300,65 +300,166 @@ def available_events() -> list[str]:
     return ["*", "*.created", "*.updated", "*.deleted", *sorted(set(events))]
 
 
+def pairing_slug(target_url: str) -> str:
+    """A **stable** default receiver slug for a pairing to ``target_url``.
+
+    Uses a SHA-256 digest (not Python's per-process-salted ``hash()``) so re-running
+    ``pair`` with the same target yields the **same** slug every time — the precondition
+    for idempotent re-runs (F-031)."""
+    digest = hashlib.sha256(target_url.encode()).hexdigest()[:8]
+    return f"paired-{digest}"
+
+
 def pair_smallstack(
     *,
     target_url: str,
     events: list[str] | None = None,
     name: str | None = None,
     slug: str | None = None,
+    send_secret: str | None = None,
+    recv_secret: str | None = None,
     secret: str | None = None,
+    one_way: bool = False,
     owner: Any | None = None,
 ) -> dict[str, Any]:
-    """Stand up a loop-safe two-way SmallStack↔SmallStack link in one step (F-027).
+    """Configure **this** SmallStack's half of a loop-safe SmallStack↔SmallStack link (F-027/F-031).
 
-    Creates, on **this** SmallStack, sharing one generated secret:
+    This only ever touches the local instance — it does **not** reach the peer. It creates
+    (or updates, idempotently, keyed on a stable ``slug``):
 
-    * an **endpoint** → ``target_url`` (``transform="smallstack"``, matching ``events``)
-      so our events flow to the peer, and
-    * a **receiver** (``verifier="hmac"``, ``ignore_origin`` = our own origin) so the
-      peer's events flow to us — and any event we originated that the peer echoes back is
-      dropped, closing the loop.
+    * an **endpoint** → ``target_url`` (``transform="smallstack"``, matching ``events``),
+      signing outbound A→B with the **send secret**, and
+    * unless ``one_way``, a **receiver** verifying inbound B→A with the **recv secret**
+      (``verifier="hmac"``, ``ignore_origin`` = our own origin so an echoed event is dropped).
 
-    Returns the created ids plus the shared ``secret``, receiver ``slug`` and our
-    ``origin`` — the three things the operator mirrors on the peer (create the reciprocal
-    endpoint+receiver there with the same secret). Idempotent-friendly: the caller picks
-    a stable ``slug``/``name`` to re-run safely.
+    **Two secrets, not one** (F-031): the direction we send and the direction we receive use
+    independent secrets, so a compromise of one direction doesn't expose the other. ``secret``
+    is a convenience alias that sets both to the same value; ``send_secret`` / ``recv_secret``
+    set them independently. Any omitted secret is generated.
+
+    **Idempotent:** re-running with the same target (hence the same stable ``slug``) updates
+    the existing endpoint+receiver in place rather than minting duplicates. Existing secrets
+    are preserved unless explicitly supplied.
+
+    Returns the ids, both secrets, our origin + inbound URL, and — crucially — the exact
+    **mirror command** the operator runs on the peer, with the secrets already SWAPPED
+    (the peer's send = our recv, the peer's recv = our send).
     """
     from .context import current_origin
     from .models import WebhookReceiver, generate_secret
 
     events = events or ["*"]
-    shared_secret = secret or generate_secret()
     origin = current_origin()
     base = name or f"SmallStack {target_url}"
-    receiver_slug = slug or f"paired-{abs(hash(target_url)) % 10_000_000}"
+    receiver_slug = slug or pairing_slug(target_url)
 
-    endpoint = WebhookEndpoint.objects.create(
-        name=f"{base} (out)",
+    # Resolve the two secrets. `secret` aliases both; otherwise each defaults independently.
+    resolved_send = send_secret or secret
+    resolved_recv = recv_secret or secret
+
+    # --- outbound endpoint (A→B), idempotent on (target_url + our transform) -------------
+    endpoint_defaults = {
+        "name": f"{base} (out)",
+        "event_filter": events,
+        "transform": "smallstack",
+        "auth_scheme": "hmac",
+        "enabled": True,
+        "owner": owner,
+    }
+    endpoint, ep_created = WebhookEndpoint.objects.get_or_create(
         target_url=target_url,
-        secret=shared_secret,
-        event_filter=events,
         transform="smallstack",
-        auth_scheme="hmac",
-        enabled=True,
-        owner=owner,
+        defaults={**endpoint_defaults, "secret": resolved_send or generate_secret()},
     )
-    receiver = WebhookReceiver.objects.create(
-        name=f"{base} (in)",
-        slug=receiver_slug,
-        secret=shared_secret,
-        verifier="hmac",
-        require_signature=True,
-        ignore_origin=origin,  # drop our own events echoed back — the loop guard
-        enabled=True,
-        owner=owner,
+    if not ep_created:
+        # Update config in place; only overwrite the secret when one was supplied.
+        endpoint.name = endpoint_defaults["name"]
+        endpoint.event_filter = events
+        endpoint.auth_scheme = "hmac"
+        endpoint.enabled = True
+        if resolved_send:
+            endpoint.secret = resolved_send
+        endpoint.save()
+    send_value = endpoint.secret
+
+    receiver = None
+    recv_value = resolved_recv or generate_secret()
+    if not one_way:
+        receiver_defaults = {
+            "name": f"{base} (in)",
+            "verifier": "hmac",
+            "require_signature": True,
+            "ignore_origin": origin,  # drop our own events echoed back — the loop guard
+            "enabled": True,
+            "owner": owner,
+        }
+        receiver, rec_created = WebhookReceiver.objects.get_or_create(
+            slug=receiver_slug,
+            defaults={**receiver_defaults, "secret": recv_value},
+        )
+        if not rec_created:
+            receiver.name = receiver_defaults["name"]
+            receiver.verifier = "hmac"
+            receiver.require_signature = True
+            receiver.ignore_origin = origin
+            receiver.enabled = True
+            if resolved_recv:
+                receiver.secret = resolved_recv
+            receiver.save()
+        recv_value = receiver.secret
+
+    inbound_url = f"/webhooks/in/{receiver_slug}/"
+    our_inbound_absolute = (
+        f"{origin.rstrip('/')}{inbound_url}" if origin.startswith(("http://", "https://")) else inbound_url
     )
+
+    # The mirror command for the peer, with secrets SWAPPED: the peer sends to US using our
+    # recv secret, and verifies OUR sends using our send secret.
+    import json as _json
+
+    mirror_command = (
+        "sc webhook pair"
+        f" --target {our_inbound_absolute}"
+        f" --send-secret {recv_value}"
+        f" --recv-secret {send_value}"
+        f" --events '{_json.dumps(events)}'"
+    )
+
     return {
         "endpoint_id": endpoint.pk,
-        "receiver_id": receiver.pk,
-        "receiver_slug": receiver.slug,
-        "inbound_url": f"/webhooks/in/{receiver.slug}/",
-        "secret": shared_secret,
+        "receiver_id": receiver.pk if receiver else None,
+        "receiver_slug": receiver_slug if not one_way else None,
+        "inbound_url": inbound_url if not one_way else None,
+        "inbound_url_absolute": our_inbound_absolute if not one_way else None,
+        "send_secret": send_value,
+        "recv_secret": recv_value,
         "origin": origin,
         "events": events,
+        "one_way": one_way,
+        "endpoint_created": ep_created,
+        "mirror_command": mirror_command,
     }
+
+
+def pair_verify(endpoint: WebhookEndpoint) -> dict[str, Any]:
+    """Fire a signed test delivery through a paired endpoint to check the round-trip (F-031).
+
+    Returns the created delivery id; the operator (or ``--json`` consumer) then inspects the
+    delivery status to see whether the peer accepted it. This is a *live* probe — it only
+    confirms the local→peer direction reached the peer (a 2xx); the reverse direction is
+    proven by the peer's own verify."""
+    from django.utils import timezone
+
+    delivery = WebhookDelivery.objects.create(
+        endpoint=endpoint,
+        event_type="webhooks.pair.verify",
+        payload={
+            "event": "webhooks.pair.verify",
+            "action": "verify",
+            "occurred_at": timezone.now().isoformat(),
+            "data": {"message": "SmallStack pairing round-trip check."},
+        },
+        max_attempts=1,  # a probe, not a retry demo
+    )
+    _enqueue_delivery(delivery.pk)
+    return {"delivery_id": delivery.pk, "endpoint_id": endpoint.pk, "endpoint": endpoint.name}

@@ -183,19 +183,56 @@ writing back could re-trigger the event and run away. Three primitives stop it:
 > `origin`-based loop-guard **dedupe** loses its base. `webhook_doctor` WARNs when the
 > origin is unresolved.
 
-**One-step pairing** stands up a loop-safe two-way link — an outbound endpoint **and** an
-inbound receiver here, sharing a generated secret, `transform="smallstack"`, loop guard on:
+**`sc webhook pair` configures THIS instance's half** of a loop-safe two-way link — an
+outbound endpoint **and** an inbound receiver here, `transform="smallstack"`, loop guard on.
+It **does not reach the peer**: it stands up the local half and hands you the exact command
+to run on the peer. A full link is two runs (one per instance).
 
 ```bash
 sc webhook pair --target https://peer.example.com/webhooks/in/paired/ --events '["*"]'
-# prints: outbound endpoint id, inbound receiver slug/URL, the shared secret, our origin
 ```
 
-(Or the **“Connect a SmallStack”** action on the webhooks dashboard.) Mirror the printed
-secret + inbound URL on the peer to complete the link. Because both sides run the loop
-guard and set `ignore_origin`, an event one side originates can't echo back and re-fire.
-The upgraded envelope (`event_id`, absolute `resource.url`) means the receiving side can
-dedupe and act without a second fetch.
+Output (abridged) — the local half, then the **mirror command** for the peer:
+
+```
+Configured (created) THIS instance's half of a two-way link. HALF 1 of 2.
+  outbound endpoint #7 → https://peer.example.com/webhooks/in/paired/
+  inbound receiver #7 at https://a.example.com/webhooks/in/paired-1a2b3c4d/
+  ── SECRETS (copy now — shown once) ──
+    send secret (we sign outbound with) : <SEND>
+    recv secret (we verify inbound with): <RECV>
+  ⇒ HALF 2 of 2 — run THIS on the peer to finish (secrets already swapped):
+    sc webhook pair --target https://a.example.com/webhooks/in/paired-1a2b3c4d/ \
+        --send-secret <RECV> --recv-secret <SEND> --events '["*"]'
+  This configured OUR instance only — the link is not live until the peer runs it.
+```
+
+(Or the **“Connect a SmallStack”** action on the webhooks dashboard, which shows the same
+block once.) Key points:
+
+- **Two per-direction secrets, not one.** The direction we *send* (endpoint A→B) and the
+  direction we *receive* (receiver B→A) use **independent** secrets, so a leak in one
+  direction doesn't expose the other. `--send-secret` / `--recv-secret` set them
+  explicitly; `--secret` is a convenience alias that sets both the same; omitted secrets
+  are generated. The printed **mirror command swaps them** (the peer's send = our recv, the
+  peer's recv = our send), so the operator runs one command on B and the two-secret detail
+  is handled automatically.
+- **Secrets shown once.** Copy them from the block above; retrieve later via the staff
+  **Reveal** action on the endpoint/receiver detail page; **Rotate** there to roll a secret
+  (the other side must re-sync). Secrets are never written to the server or activity/audit
+  log in plaintext.
+- **Idempotent.** The default receiver slug is a stable hash of the target, so re-running
+  `pair` with the same `--target` **updates** the existing endpoint+receiver in place
+  (config refreshed, secrets preserved unless you supply new ones) — no duplicates.
+- **`--one-way`** creates only the outbound endpoint (no local receiver) — for a link where
+  the peer only consumes our events.
+- **`--verify`** (after both halves exist) fires a signed test delivery through the paired
+  endpoint; check its status (`sc webhook deliveries --status success`) to confirm the peer
+  accepted the local→peer direction.
+
+Because both sides run the loop guard and set `ignore_origin`, an event one side originates
+can't echo back and re-fire. The upgraded envelope (`event_id`, absolute `resource.url`)
+means the receiving side can dedupe and act without a second fetch.
 
 ## The four extension seams
 
@@ -300,7 +337,9 @@ sc webhook deliveries --status dead --limit 20
 sc webhook replay 42                       # re-send one dead delivery (reuses its event_id)
 sc webhook replay --status dead            # BULK re-send every dead delivery (F-023)
 sc webhook replay --status dead --endpoint Zapier --since 2026-07-01T00:00:00
-sc webhook pair --target https://peer/webhooks/in/x/ --events '["*"]'  # S2S link (F-027)
+sc webhook pair --target https://peer/webhooks/in/x/ --events '["*"]'  # configure our half + emit peer cmd
+sc webhook pair --target … --one-way       # outbound endpoint only (no local receiver)
+sc webhook pair --target … --verify        # + fire a probe to test the local->peer round-trip
 sc webhook tick                            # run the retry tick once (interactive)
 ```
 

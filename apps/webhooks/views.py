@@ -419,13 +419,14 @@ def replay_delivery(request: HttpRequest, pk: int) -> HttpResponse:
 
 @require_POST
 def pair_smallstack(request: HttpRequest) -> HttpResponse:
-    """One-step 'Connect a SmallStack' (F-027): stand up a loop-safe two-way link and
-    show the operator the shared secret + inbound URL to mirror on the peer."""
+    """'Connect a SmallStack' (F-027/F-031): configure THIS instance's half of a loop-safe
+    two-way link (two per-direction secrets) and hand the operator the mirror command for
+    the peer. Touches only the local instance — it does not reach the peer."""
     if not (request.user.is_authenticated and request.user.is_staff):
         return HttpResponse(status=403)
     target = (request.POST.get("target_url") or "").strip()
     if not target:
-        messages.error(request, "A peer SmallStack URL is required to pair.")
+        messages.error(request, "A peer SmallStack inbound URL is required to pair.")
         return redirect("webhooks_dashboard")
     events_raw = (request.POST.get("events") or "").strip()
     import json as _json
@@ -437,14 +438,28 @@ def pair_smallstack(request: HttpRequest) -> HttpResponse:
         except ValueError:
             messages.error(request, 'Events must be a JSON list, e.g. ["*"].')
             return redirect("webhooks_dashboard")
+    one_way = request.POST.get("one_way") in {"1", "true", "on"}
     result = services.pair_smallstack(
-        target_url=target, events=events, owner=request.user
+        target_url=target, events=events, one_way=one_way, owner=request.user
     )
-    messages.success(
-        request,
-        f"Paired with {target}. Shared secret: {result['secret']} · "
-        f"our inbound URL: {result['inbound_url']} — mirror these on the peer.",
+    # Show the two secrets + peer mirror command ONCE, in a clearly-marked block. Django
+    # messages are consumed on the next render (shown once) and are not written to the
+    # server/audit log — unlike a logger call, so no plaintext secret leaks there.
+    half = "the one-way outbound half" if one_way else "half 1 of 2"
+    lines = [
+        f"Configured this instance's {half} of the link to {target}. "
+        "This touched THIS instance only — nothing was sent to the peer.",
+        "── SECRETS (copy now — shown once) ──",
+        f"send secret (we sign outbound): {result['send_secret']}",
+    ]
+    if not one_way:
+        lines.append(f"recv secret (we verify inbound): {result['recv_secret']}")
+        lines.append("⇒ Half 2 of 2 — run this on the peer to finish (secrets already swapped):")
+        lines.append(result["mirror_command"])
+    lines.append(
+        "Retrieve secrets later via the staff Reveal action here; rotate via Rotate."
     )
+    messages.success(request, "\n".join(lines))
     return redirect("webhooks/endpoints-detail", pk=result["endpoint_id"])
 
 

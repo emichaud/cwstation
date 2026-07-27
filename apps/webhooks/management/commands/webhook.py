@@ -31,7 +31,9 @@ SUBCOMMANDS = ("status", "list", "test", "replay", "deliveries", "tick", "pair")
 class Command(BaseCommand):
     help = (
         "Operational CLI for webhooks: status | list | test | "
-        "replay <id> | replay --status dead (bulk) | deliveries | tick | pair --target <url>."
+        "replay <id> | replay --status dead (bulk) | deliveries | tick | "
+        "pair --target <peer-inbound-url> (configures THIS instance's half + emits the peer command; "
+        "--one-way, --verify)."
     )
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
@@ -43,8 +45,21 @@ class Command(BaseCommand):
         parser.add_argument("--limit", type=int, default=20, help="Row cap for deliveries / bulk replay.")
         parser.add_argument("--target", dest="pair_target", help="Peer SmallStack URL for 'pair'.")
         parser.add_argument("--events", help="JSON list of event patterns for 'pair' (default [\"*\"]).")
-        parser.add_argument("--slug", help="Receiver slug for 'pair' (default derived from target).")
-        parser.add_argument("--secret", dest="pair_secret", help="Shared secret for 'pair' (default generated).")
+        parser.add_argument("--slug", help="Receiver slug for 'pair' (default: stable hash of target).")
+        parser.add_argument(
+            "--secret", dest="pair_secret",
+            help="Convenience: set BOTH the send and recv secret to this value (default: two generated).",
+        )
+        parser.add_argument("--send-secret", dest="send_secret", help="Secret our outbound endpoint signs with.")
+        parser.add_argument("--recv-secret", dest="recv_secret", help="Secret our inbound receiver verifies with.")
+        parser.add_argument(
+            "--one-way", action="store_true",
+            help="pair: create only the outbound endpoint (no local receiver).",
+        )
+        parser.add_argument(
+            "--verify", action="store_true",
+            help="pair: after configuring, fire a test delivery to check the local->peer round-trip.",
+        )
         parser.add_argument("--json", action="store_true", help="Machine-readable output.")
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -255,11 +270,14 @@ class Command(BaseCommand):
         )
 
     def _pair(self, options: dict[str, Any]) -> None:
-        """One-step SmallStack↔SmallStack pairing (F-027): creates a loop-safe
-        endpoint+receiver here sharing a secret, and prints what to mirror on the peer."""
+        """Configure THIS instance's half of a SmallStack↔SmallStack link (F-027/F-031).
+
+        Touches only the local instance (endpoint + optional receiver, two secrets) and
+        emits the exact mirror command to run on the peer — it does NOT reach the peer.
+        """
         target = options.get("pair_target") or options.get("target")
         if not target:
-            raise CommandError("pair needs --target <peer SmallStack URL>.")
+            raise CommandError("pair needs --target <peer SmallStack inbound URL>.")
         events = ["*"]
         if options.get("events"):
             try:
@@ -268,23 +286,68 @@ class Command(BaseCommand):
                 raise CommandError(f"--events must be a JSON list: {exc}") from exc
             if not isinstance(events, list):
                 raise CommandError("--events must be a JSON list of patterns.")
+        one_way = bool(options.get("one_way"))
         result = services.pair_smallstack(
             target_url=target,
             events=events,
             slug=options.get("slug"),
             secret=options.get("pair_secret"),
+            send_secret=options.get("send_secret"),
+            recv_secret=options.get("recv_secret"),
+            one_way=one_way,
         )
 
+        verify_result = None
+        if options.get("verify"):
+            from apps.webhooks.models import WebhookEndpoint
+
+            ep = WebhookEndpoint.objects.get(pk=result["endpoint_id"])
+            verify_result = services.pair_verify(ep)
+            result["verify"] = verify_result
+
         def render(d: dict[str, Any]) -> None:
-            self.stdout.write("Paired with " + target)
-            self.stdout.write(f"  outbound endpoint #{d['endpoint_id']} → {target}")
-            self.stdout.write(f"  inbound receiver #{d['receiver_id']} at {d['inbound_url']}")
-            self.stdout.write(f"  shared secret : {d['secret']}")
-            self.stdout.write(f"  our origin    : {d['origin']}")
+            verb = "Configured (created)" if d["endpoint_created"] else "Configured (updated)"
+            if one_way:
+                self.stdout.write(f"{verb} the outbound half of a ONE-WAY link to {target}.")
+                self.stdout.write(f"  outbound endpoint #{d['endpoint_id']} → {target}")
+            else:
+                self.stdout.write(f"{verb} THIS instance's half of a two-way link. HALF 1 of 2.")
+                self.stdout.write(f"  outbound endpoint #{d['endpoint_id']} → {target}")
+                self.stdout.write(f"  inbound receiver #{d['receiver_id']} at {d['inbound_url_absolute']}")
+            self.stdout.write(f"  our origin        : {d['origin']}")
+
+            # One-copy secret block — clearly marked, shown once.
+            self.stdout.write("")
+            self.stdout.write("  ── SECRETS (copy now — shown once) ──────────────────────────")
+            self.stdout.write(f"    send secret (we sign outbound with) : {d['send_secret']}")
+            if not one_way:
+                self.stdout.write(f"    recv secret (we verify inbound with): {d['recv_secret']}")
             self.stdout.write(
-                "\nMirror on the peer: create the reciprocal endpoint (→ our inbound URL) "
-                "and receiver with the SAME secret; set its ignore_origin to the peer's own "
-                "origin. Loop guard + ignore_origin keep the two-way link from echoing."
+                "    Retrieve later via the staff Reveal action on the endpoint/receiver\n"
+                "    detail page; rotate via the Rotate action there (senders must re-sync)."
             )
+
+            if one_way:
+                self.stdout.write(
+                    "\n  One-way: the peer only needs to verify our sends with the send secret above.\n"
+                    "  This configured OUR instance only — nothing was sent to the peer."
+                )
+                return
+
+            self.stdout.write(
+                "\n  ⇒ HALF 2 of 2 — run THIS on the peer to finish the link "
+                "(secrets already swapped):"
+            )
+            self.stdout.write(f"\n    {d['mirror_command']}\n")
+            self.stdout.write(
+                "  This configured OUR instance only — the link is not live until the peer\n"
+                "  runs the command above. Then re-run with --verify to test the round-trip."
+            )
+            if verify_result:
+                self.stdout.write(
+                    f"\n  Verify: queued test delivery #{verify_result['delivery_id']} to "
+                    f"“{verify_result['endpoint']}” — check its status "
+                    f"(sc webhook deliveries --status success) to confirm the peer accepted it."
+                )
 
         self._emit(result, options["json"], render)
