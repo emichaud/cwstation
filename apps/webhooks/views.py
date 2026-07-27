@@ -105,13 +105,15 @@ class WebhookEndpointCRUDView(CRUDView):
     """
 
     model = WebhookEndpoint
-    fields = ["name", "target_url", "event_filter", "headers", "enabled"]
+    fields = ["name", "target_url", "event_filter", "headers", "transform", "auth_scheme", "enabled"]
     list_fields = ["name", "target_url", "enabled", "last_status", "total_deliveries"]
     detail_fields = [
         "name",
         "target_url",
         "event_filter",
         "headers",
+        "transform",
+        "auth_scheme",
         "enabled",
         "last_status",
         "total_deliveries",
@@ -177,7 +179,10 @@ class WebhookReceiverCRUDView(CRUDView):
     """Inbound receivers — external systems POST to /webhooks/in/<slug>/."""
 
     model = WebhookReceiver
-    fields = ["name", "slug", "handler", "signature_header", "require_signature", "enabled"]
+    fields = [
+        "name", "slug", "handler", "signature_header", "require_signature",
+        "verifier", "challenge", "ignore_origin", "enabled",
+    ]
     list_fields = ["name", "slug", "handler", "enabled", "total_received"]
     detail_fields = [
         "name",
@@ -185,6 +190,9 @@ class WebhookReceiverCRUDView(CRUDView):
         "handler",
         "signature_header",
         "require_signature",
+        "verifier",
+        "challenge",
+        "ignore_origin",
         "enabled",
         "total_received",
         "last_received_at",
