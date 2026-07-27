@@ -261,6 +261,24 @@ and verifies the key (`@webhook_verifier`). Copy its decorators into your app's
 `transform="eventgrid"`, `auth_scheme="eventgrid-sas"`, `verifier="eventgrid"`,
 `challenge="eventgrid"` on the relevant endpoint/receiver.
 
+### Recipes per service
+
+Which seam(s)/setting to reach for per destination, and the one gotcha each. Only
+**Azure Event Grid** ships an adapter (`contrib/eventgrid.py`) — it's the **copy-me
+template** for the others. AWS SNS and Google Pub/Sub are **pattern-only** (no shipped
+adapter): write the seam yourself following the Event Grid file.
+
+| Service | Direction | Use | The one gotcha |
+|---|---|---|---|
+| **Zapier** | outbound | Endpoint, default `smallstack` transform (or a small `@webhook_transform` to flatten `data.*` to the top level) | Zapier's Catch Hook **ignores** the signature and 200s everything — the `X-SmallStack-Signature` header is harmless; map off the (upgraded) envelope keys or a flatten transform. |
+| **n8n** | both (S2S pattern) | Outbound endpoint → n8n; n8n calls back into `/smallstack/api/…` with a Bearer token | The write-back is an ORM/API write into a webhooks-enabled model — rely on the **loop guard** (`suppress_webhooks()` around the write, or a paired receiver with `ignore_origin`) so it doesn't re-fire. This is the [S2S pattern](#smallstacksmallstack-first-class). |
+| **Slack / Discord** | outbound | `@webhook_transform` → `{"text": …}` (or a Slack blocks object); set `endpoint.transform` to it | The destination **rejects the raw envelope** (`400 invalid_payload`) — it accepts only its own shape, so the transform is mandatory, not optional. |
+| **Stripe** | inbound | `@webhook_verifier("stripe")` for the compound `Stripe-Signature: t=…,v1=…` (HMAC over `"<t>.<body>"`); set `receiver.verifier` | The signed content is **`timestamp + "." + body`**, not the raw body — the default `hmac` verifier can't express it. **Don't** reach for `require_signature=False` (that's fail-open); write the verifier. |
+| **GitHub** | inbound | Default `hmac` verifier works as-is; set `receiver.signature_header = "X-Hub-Signature-256"` | GitHub sends `sha256=<hex>` — the default verifier already **accepts the `sha256=` prefix** and hashes the raw body, which is exactly GitHub's scheme. Zero custom code. |
+| **Azure Event Grid** | both | The shipped `contrib/eventgrid.py` adapter — all four seams (`transform=eventgrid`, `auth_scheme=eventgrid-sas`, `verifier=eventgrid`, `challenge=eventgrid`) | Event Grid opens with a `SubscriptionValidationEvent` handshake — the `@webhook_challenge` echoes the `validationCode` **before** verify/dispatch, so it must run unsigned. |
+| **AWS SNS** *(pattern-only)* | inbound | `@webhook_challenge` to confirm the `SubscribeURL` on `SubscriptionConfirmation` + `@webhook_verifier` for the **X.509/RSA** message signature (fetch the cert, verify the canonical string) | Not HMAC — SNS signs with RSA over a canonicalized field list; the challenge must GET the `SubscribeURL` to activate the subscription. Follow the Event Grid template. |
+| **Google Pub/Sub** *(pattern-only)* | inbound | `@webhook_verifier` for the **OIDC bearer JWT** (verify against Google's public keys + audience), then base64-decode `message.data` in the handler | The event body wraps the payload as base64 in `message.data` — verify the JWT at the verifier seam, unwrap the data in the `@webhook_handler`. Follow the Event Grid template. |
+
 ## CLI
 
 CRUD on endpoints/receivers uses the **generic** `sc` verbs (they're CRUDViews);
