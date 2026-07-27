@@ -117,6 +117,19 @@ def test_bulk_replay_rejects_non_dead_status():
         _run("replay", "--status", "retrying")
 
 
+def test_help_lists_pair_and_bulk_replay():
+    """[F-030] The one-line help must surface `pair` and `replay --status dead` so they're
+    discoverable, not just in the Subcommands list."""
+    from apps.webhooks.management.commands.webhook import Command
+
+    help_text = Command().help
+    assert "pair" in help_text
+    assert "--status dead" in help_text
+    # And running with no subcommand prints that help.
+    out = _run()
+    assert "pair" in out and "--status dead" in out
+
+
 def test_deliveries_filters_by_status():
     ep = _endpoint()
     WebhookDelivery.objects.create(endpoint=ep, event_type="ok", payload={}, status="success")

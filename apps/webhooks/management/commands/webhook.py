@@ -29,7 +29,10 @@ SUBCOMMANDS = ("status", "list", "test", "replay", "deliveries", "tick", "pair")
 
 
 class Command(BaseCommand):
-    help = "Operational CLI for webhooks: status | list | test | replay | deliveries | tick."
+    help = (
+        "Operational CLI for webhooks: status | list | test | "
+        "replay <id> | replay --status dead (bulk) | deliveries | tick | pair --target <url>."
+    )
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("subcommand", nargs="?", help=" | ".join(SUBCOMMANDS))
