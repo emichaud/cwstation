@@ -152,7 +152,10 @@ class Command(BaseCommand):
                 "name": "Inbound handlers",
                 "status": "FAIL",
                 "detail": f"Receiver(s) with no registered handler: {', '.join(missing)}. "
-                          f"Registered: {', '.join(handlers) or 'none'}.",
+                          f"Registered: {', '.join(handlers) or 'none'}. "
+                          # F-018: the most common cause of a 'missing' handler is a stale worker.
+                          "If the handler exists in a webhook_handlers.py, RESTART db_worker / the "
+                          "dev server — handlers are autodiscovered at process start, not hot-reloaded.",
             })
         else:
             report.append({
@@ -161,16 +164,58 @@ class Command(BaseCommand):
                 "detail": f"{len(receivers)} active receiver(s), {len(handlers)} handler(s) registered.",
             })
 
-        # Fails-open check: an enabled receiver that doesn't require a valid
-        # signature accepts unsigned/bad-signature POSTs and still runs its
-        # handler. Fine while onboarding a sender, dangerous to leave on.
-        unsigned = [r.name for r in receivers if not r.require_signature]
+        # F-016/F-017: distinguish "verifying with a custom scheme" from "fails open".
+        # A receiver with a non-default verifier IS verifying (Stripe t.body, Event Grid
+        # key, …) — it must not be lumped with require_signature=False.
+        self._check_verification(report, receivers)
+
+    def _check_verification(self, report: Report, receivers: list) -> None:
+        from apps.webhooks import hooks
+
+        seams = hooks.registered()
+        # Custom verifiers that aren't the built-in hmac default.
+        custom = [
+            r for r in receivers
+            if (r.verifier or "hmac") != hooks.DEFAULT_VERIFIER
+        ]
+        unknown = [
+            r.name for r in custom if r.verifier not in seams["verifiers"]
+        ]
+        if unknown:
+            report.append({
+                "name": "Inbound verifiers",
+                "status": "FAIL",
+                "detail": (
+                    f"Receiver(s) select an unregistered verifier (falls back to hmac): "
+                    f"{', '.join(unknown)}. Register it with @webhook_verifier in a "
+                    "webhook_verifiers.py, then RESTART the worker (F-018)."
+                ),
+            })
+        elif custom:
+            report.append({
+                "name": "Inbound verifiers",
+                "status": "PASS",
+                "detail": (
+                    f"{len(custom)} receiver(s) verify with a custom scheme "
+                    f"(e.g. {', '.join(sorted({r.verifier for r in custom}))}) — verified, not fail-open."
+                ),
+            })
+
+        # Fail-open check applies only to receivers on the DEFAULT verifier with signature
+        # verification OFF — those accept unsigned/bad-signature POSTs. A custom-verifier
+        # receiver is NOT fail-open even if require_signature is nuanced.
+        unsigned = [
+            r.name for r in receivers
+            if not r.require_signature and (r.verifier or "hmac") == hooks.DEFAULT_VERIFIER
+        ]
         if unsigned:
             report.append({
                 "name": "Inbound signatures",
                 "status": "WARN",
                 "detail": (
                     f"require_signature=False (accepts unsigned POSTs): {', '.join(unsigned)}. "
+                    "For a provider that signs differently (Stripe, Event Grid), prefer a "
+                    "@webhook_verifier over require_signature=False. "
                     "Re-enable with: sc set webhookreceiver <pk> --require_signature=true"
                 ),
             })
@@ -179,6 +224,7 @@ class Command(BaseCommand):
 
     def _explain(self, *, as_json: bool) -> None:
         from apps.smallstack.crud import CRUDView
+        from apps.webhooks import hooks
         from apps.webhooks.registry import registered_handlers
 
         all_events = ["created", "updated", "deleted"]
@@ -187,7 +233,12 @@ class Command(BaseCommand):
             for v in CRUDView._registry.values()
             if getattr(v, "enable_webhooks", False)
         ]
-        data = {"outbound_models": outbound, "inbound_handlers": registered_handlers()}
+        seams = hooks.registered()
+        data = {
+            "outbound_models": outbound,
+            "inbound_handlers": registered_handlers(),
+            "seams": seams,
+        }
         if as_json:
             self.stdout.write(jsonlib.dumps(data, indent=2, default=str))
             return
@@ -201,6 +252,11 @@ class Command(BaseCommand):
             self.stdout.write(f"  · {name}")
         if not data["inbound_handlers"]:
             self.stdout.write("  (none)")
+        self.stdout.write("Extension seams (registered names):")
+        self.stdout.write(f"  · transforms : {', '.join(seams['transforms'])}")
+        self.stdout.write(f"  · auths      : {', '.join(seams['auths'])}")
+        self.stdout.write(f"  · verifiers  : {', '.join(seams['verifiers'])}")
+        self.stdout.write(f"  · challenges : {', '.join(seams['challenges']) or 'none'}")
 
     def _emit(self, report: Report, options: dict[str, Any]) -> None:
         if options.get("json"):

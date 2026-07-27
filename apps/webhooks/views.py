@@ -26,6 +26,73 @@ from .models import WebhookDelivery, WebhookEndpoint, WebhookReceipt, WebhookRec
 LOCALHOST_IPS = {"127.0.0.1", "::1"}
 
 
+class EventFilterWidget(forms.Widget):
+    """A pattern picker for ``event_filter`` (F-015): checkboxes for the events models
+    actually emit, plus a free-text box for custom/wildcard patterns. Serializes to the
+    same JSON list the field stored before — so it's a pure UI upgrade over the raw
+    textarea, backward-compatible on read and write.
+    """
+
+    template_name = None  # rendered inline below
+
+    def value_from_datadict(self, data, files, name):
+        import json as _json
+
+        # Scripted surfaces (REST/MCP/CLI) post the field directly by its own name — pass
+        # that straight through so the picker is a pure web-UI upgrade, not a new contract.
+        picker_keys = f"{name}_choice" in data or f"{name}_extra" in data
+        if not picker_keys and name in data:
+            return data.get(name)
+
+        chosen = data.getlist(f"{name}_choice") if hasattr(data, "getlist") else data.get(f"{name}_choice", [])
+        extra_raw = (data.get(f"{name}_extra") or "").strip()
+        patterns = list(dict.fromkeys(chosen))  # de-dupe, keep order
+        for line in extra_raw.replace(",", "\n").splitlines():
+            p = line.strip()
+            if p and p not in patterns:
+                patterns.append(p)
+        return _json.dumps(patterns)
+
+    def render(self, name, value, attrs=None, renderer=None):
+        import json as _json
+
+        from django.utils.html import format_html, format_html_join
+        from django.utils.safestring import mark_safe
+
+        current: list[str] = []
+        if value:
+            try:
+                current = value if isinstance(value, list) else _json.loads(value)
+            except (ValueError, TypeError):
+                current = []
+
+        options = services.available_events()
+        known = set(options)
+        extra = [p for p in current if p not in known]
+
+        checkboxes = format_html_join(
+            "",
+            '<label style="display:block; font-size:0.85rem; margin:2px 0;">'
+            '<input type="checkbox" name="{}_choice" value="{}"{}> <code>{}</code></label>',
+            (
+                (name, opt, mark_safe(" checked") if opt in current else "", opt)
+                for opt in options
+            ),
+        )
+        return format_html(
+            '<div class="event-filter-picker">'
+            '<div style="max-height:180px; overflow:auto; border:1px solid var(--border-color,#333);'
+            ' border-radius:6px; padding:6px 10px; margin-bottom:6px;">{}</div>'
+            '<label style="font-size:0.8rem; color:var(--body-quiet-color);">'
+            'Custom patterns (one per line, e.g. <code>support.ticket.*</code>)</label>'
+            '<textarea name="{}_extra" rows="2" class="vTextField" style="width:100%;">{}</textarea>'
+            "</div>",
+            checkboxes,
+            name,
+            "\n".join(extra),
+        )
+
+
 def _with_write_only_secret(base_form_class):
     """Add a write-only ``secret`` field to a generated CRUD form.
 
@@ -216,9 +283,15 @@ class WebhookReceiverCRUDView(CRUDView):
 
 # Write-only secret on both config models (create/update via any surface;
 # reads still go through the staff-gated reveal actions only).
-WebhookEndpointCRUDView.form_class = _with_write_only_secret(
-    WebhookEndpointCRUDView._make_form_class()
-)
+_EndpointForm = _with_write_only_secret(WebhookEndpointCRUDView._make_form_class())
+# F-015: replace the raw event_filter JSON textarea with the pattern picker.
+if "event_filter" in _EndpointForm.base_fields:
+    _EndpointForm.base_fields["event_filter"].widget = EventFilterWidget()
+    _EndpointForm.base_fields["event_filter"].help_text = (
+        "Pick the events to subscribe to, or add custom fnmatch patterns."
+    )
+WebhookEndpointCRUDView.form_class = _EndpointForm
+
 WebhookReceiverCRUDView.form_class = _with_write_only_secret(
     WebhookReceiverCRUDView._make_form_class()
 )

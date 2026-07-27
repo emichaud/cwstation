@@ -276,6 +276,30 @@ def replay_dead(
 # ---------------------------------------------------------------------------
 
 
+def available_events() -> list[str]:
+    """Every concrete event type a model with ``enable_webhooks`` can emit, plus the
+    common wildcards — the option list for the event-filter picker (F-015)."""
+    try:
+        from apps.smallstack.crud import CRUDView
+    except Exception:  # noqa: BLE001
+        return ["*"]
+    all_actions = ("created", "updated", "deleted")
+    events: list[str] = []
+    for view in CRUDView._registry.values():
+        if not getattr(view, "enable_webhooks", False):
+            continue
+        model = getattr(view, "model", None)
+        if model is None:
+            continue
+        label = f"{model._meta.app_label}.{model._meta.model_name}"
+        actions = getattr(view, "webhook_events", None) or all_actions
+        events.append(f"{label}.*")
+        for action in actions:
+            events.append(f"{label}.{action}")
+    # Handy wildcards first.
+    return ["*", "*.created", "*.updated", "*.deleted", *sorted(set(events))]
+
+
 def pair_smallstack(
     *,
     target_url: str,
