@@ -1,0 +1,79 @@
+{% extends "smallstack/crud/object_detail.html" %}
+{% load theme_tags crud_tags %}
+
+{% comment %}
+Receiver detail with secret parity actions: Reveal (read back the verifying
+secret to configure the sender) and Rotate. Shows the inbound POST URL.
+{% endcomment %}
+
+{% block content %}
+<div class="card" data-list-url="{{ list_view_url }}">
+    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+        <h2 class="crud-title">{{ object }}</h2>
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <button type="button" class="btn-secondary" id="wh-reveal-btn">Reveal secret</button>
+            <form method="post" action="{% url 'webhooks_rotate_receiver_secret' pk=object.pk %}" style="margin: 0;"
+                  onsubmit="return confirm('Rotate the verifying secret for {{ object|escapejs }}? The sender must switch to the new secret or its POSTs will be rejected.');">
+                {% csrf_token %}
+                <button type="submit" class="btn-secondary">Rotate secret</button>
+            </form>
+            {% if crud_actions %}
+            {% for action in crud_actions %}
+            {% if action.value == "update" %}
+            <a href="edit/" class="btn-primary">Edit</a>
+            {% endif %}
+            {% if action.value == "delete" %}
+            <button type="button" class="btn-danger" data-delete-url="delete/" onclick="crudDeleteModal(this, '{{ object }}')">Delete</button>
+            {% endif %}
+            {% endfor %}
+            {% endif %}
+        </div>
+    </div>
+    <div class="card-body">
+        <div style="margin-bottom: 12px; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--card-border); background: var(--body-bg); font-size: 0.85rem;">
+            <span style="color: var(--body-quiet-color);">Inbound URL:</span>
+            <code style="font-family: var(--font-monospace, ui-monospace, Menlo, monospace);">/webhooks/in/{{ object.slug }}/</code>
+            {% if not object.require_signature %}
+            <span style="color: var(--warning-fg); margin-left: 8px;">signature verification is OFF — unsigned POSTs are accepted</span>
+            {% endif %}
+        </div>
+        <div id="wh-secret-box" hidden
+             style="margin-bottom: 12px; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--card-border); background: var(--body-bg); display: flex; align-items: center; gap: 8px;">
+            <span style="color: var(--body-quiet-color); font-size: 0.85rem;">Verifying secret</span>
+            <code id="wh-secret-value" style="font-family: var(--font-monospace, ui-monospace, Menlo, monospace); word-break: break-all;"></code>
+            <button type="button" class="btn-secondary" id="wh-secret-copy" style="margin-left: auto;">Copy</button>
+        </div>
+        {% if display_template %}
+            <div id="crud-display-area">
+                {% include display_template %}
+            </div>
+        {% else %}
+            {% crud_detail %}
+        {% endif %}
+    </div>
+</div>
+{% include "smallstack/crud/includes/related_tabs.html" %}
+{% include "smallstack/crud/includes/delete_modal.html" %}
+
+<script>
+(function () {
+    var btn = document.getElementById("wh-reveal-btn");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+        var csrf = document.querySelector("input[name=csrfmiddlewaretoken]").value;
+        fetch("{% url 'webhooks_reveal_receiver_secret' pk=object.pk %}", {
+            method: "POST",
+            headers: {"X-CSRFToken": csrf},
+        }).then(function (r) { return r.json(); }).then(function (data) {
+            if (!data.secret) return;
+            document.getElementById("wh-secret-value").textContent = data.secret;
+            document.getElementById("wh-secret-box").hidden = false;
+        });
+    });
+    document.getElementById("wh-secret-copy").addEventListener("click", function () {
+        navigator.clipboard.writeText(document.getElementById("wh-secret-value").textContent);
+        this.textContent = "Copied";
+    });
+})();
+</script>
+{% endblock %}

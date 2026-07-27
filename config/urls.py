@@ -34,6 +34,7 @@ from apps.smallstack.api import (
     api_schema,
 )
 from apps.smallstack.dashboard import api_widgets as api_dashboard_widgets
+from apps.webhooks.views import incoming_webhook, webhooks_tick
 
 from .views import health_check, legal_page_view
 
@@ -61,6 +62,11 @@ urlpatterns = [
     path("terms/", legal_page_view, {"page": "terms-of-service"}, name="terms_of_service"),
     # Heartbeat ping (localhost-only, used by cron instead of manage.py heartbeat)
     path("heartbeat/ping/", heartbeat_ping, name="heartbeat_ping"),
+    # Webhooks: PUBLIC inbound receiver + localhost-only delivery tick. These are
+    # deliberately outside /smallstack/ (no staff auth) — the receiver is called
+    # by external systems; the tick is IP-gated to localhost.
+    path("webhooks/in/<slug:slug>/", incoming_webhook, name="webhooks_incoming"),
+    path("webhooks/tick/", webhooks_tick, name="webhooks_tick"),
     # Utility routes
     path("health/", health_check, name="health_check"),
     path(

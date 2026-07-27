@@ -29,13 +29,13 @@ from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
-from django.forms.models import model_to_dict
 from django.http import HttpRequest, QueryDict
 
 from apps.smallstack.api import apply_filters, apply_ordering, apply_search, serialize
 from apps.smallstack.audit import ADDITION, CHANGE, DELETION, log_write
 from apps.smallstack.cli_format import json_dump, table
 from apps.smallstack.crud import CRUDView
+from apps.smallstack.form_bridge import merge_form_payload
 
 # Never emitted by the CLI, even when a view falls back to "all concrete fields" for
 # detail: a password hash in --json (which gets piped/logged) is a sharp edge, and the
@@ -71,6 +71,7 @@ class Command(BaseCommand):
             "token": self._cmd_token,
             "status": self._cmd_status,
             "index": self._cmd_index,
+            "webhook": self._cmd_webhook,
             "commands": self._cmd_commands,
         }
         if sub is None:
@@ -310,6 +311,7 @@ class Command(BaseCommand):
                 "api": bool(getattr(view, "enable_api", False)),
                 "mcp": bool(getattr(view, "enable_mcp", False)),
                 "search": bool(getattr(view, "enable_search", False)),
+                "webhooks": bool(getattr(view, "enable_webhooks", False)),
                 "explorer": self._is_explorer(view),
             }
             if counts:
@@ -324,7 +326,10 @@ class Command(BaseCommand):
             return
 
         def flags(e):
-            return "".join(c if e[k] else "-" for c, k in (("a", "api"), ("m", "mcp"), ("s", "search")))
+            return "".join(
+                c if e[k] else "-"
+                for c, k in (("a", "api"), ("m", "mcp"), ("s", "search"), ("w", "webhooks"))
+            )
 
         headers = ["MODEL", "FLAGS", "NAME"] + (["ROWS"] if counts else [])
         rows = []
@@ -334,7 +339,9 @@ class Command(BaseCommand):
                 row.append(str(e["rows"]))
             rows.append(row)
         self.stdout.write(table(rows, headers))
-        self.stdout.write("\nflags: a=api  m=mcp  s=search   ·   'sc describe <model>' for detail")
+        self.stdout.write(
+            "\nflags: a=api  m=mcp  s=search  w=webhooks   ·   'sc describe <model>' for detail"
+        )
 
     # -- get ------------------------------------------------------------------
 
@@ -386,6 +393,7 @@ class Command(BaseCommand):
             "api": bool(getattr(view, "enable_api", False)),
             "mcp": bool(getattr(view, "enable_mcp", False)),
             "search": bool(getattr(view, "enable_search", False)),
+            "webhooks": bool(getattr(view, "enable_webhooks", False)),
             "actions": [a.value for a in getattr(view, "actions", []) or []],
             "list_fields": list(view._get_list_fields()),
             "detail_fields": list(view._get_detail_fields()),
@@ -406,6 +414,7 @@ class Command(BaseCommand):
         self.stdout.write(f"{info['model']}  ({info['label']}) — {info['verbose_name']}")
         self.stdout.write(f"  url_base   : {info['url_base']}")
         badges = [b for b, on in (("api", info["api"]), ("mcp", info["mcp"]), ("search", info["search"]),
+                                  ("webhooks", info["webhooks"]),
                                   ("staff-only", info["staff_only"]),
                                   ("explorer", info["explorer_synthesized"])) if on]
         self.stdout.write(f"  flags      : {', '.join(badges) or '(none)'}")
@@ -542,7 +551,9 @@ class Command(BaseCommand):
         form_class = self._form_class_for(view)
         self._validate_write_fields(form_class, fields)
         request = self._fake_request(actor)
-        form = form_class(QueryDict(urlencode(fields), mutable=False))
+        # Omitted fields fall back to model defaults (mirrors REST/MCP create) —
+        # so e.g. a BooleanField(default=True) isn't silently created as False.
+        form = form_class(merge_form_payload(form_class, fields, fill_defaults=True))
         if not form.is_valid():
             self._fail_form(form)
         try:
@@ -581,17 +592,14 @@ class Command(BaseCommand):
         form_class = self._form_class_for(view)
         self._validate_write_fields(form_class, fields)
 
-        # PATCH-merge: existing values overlaid with incoming (mirrors the REST/MCP path).
-        merged = QueryDict(mutable=True)
-        for key, value in model_to_dict(obj, fields=view.fields or view._get_detail_fields()).items():
-            if value is None:
-                merged[key] = ""
-            elif isinstance(value, list):
-                merged.setlist(key, [str(v) for v in value])
-            else:
-                merged[key] = str(value)
-        for key, value in fields.items():
-            merged[key] = "" if value is None else str(value)
+        # PATCH-merge: existing values overlaid with incoming (mirrors the REST/MCP
+        # path). Native values — a populated JSONField round-trips unchanged.
+        merged = merge_form_payload(
+            form_class,
+            fields,
+            instance=obj,
+            instance_fields=view.fields or view._get_detail_fields(),
+        )
 
         form = form_class(merged, instance=obj)
         if not form.is_valid():
@@ -655,13 +663,18 @@ class Command(BaseCommand):
         which = "all"
         if rest and not rest[0].startswith("-"):
             which = rest.pop(0)
-        mapping = {"api": "api_doctor", "mcp": "mcp_doctor", "search": "search_doctor"}
+        mapping = {
+            "api": "api_doctor",
+            "mcp": "mcp_doctor",
+            "search": "search_doctor",
+            "webhook": "webhook_doctor",
+        }
         if which == "all":
-            targets = ["api_doctor", "mcp_doctor", "search_doctor"]
+            targets = ["api_doctor", "mcp_doctor", "search_doctor", "webhook_doctor"]
         elif which in mapping:
             targets = [mapping[which]]
         else:
-            raise CommandError(f"unknown doctor {which!r}; use api | mcp | search | all")
+            raise CommandError(f"unknown doctor {which!r}; use api | mcp | search | webhook | all")
         for cmd in targets:
             if len(targets) > 1:
                 self.stdout.write(self.style.MIGRATE_HEADING(f"\n=== {cmd} ==="))
@@ -692,6 +705,14 @@ class Command(BaseCommand):
             self._run("sync_help_index", rest)
         else:
             raise CommandError("usage: sc index rebuild [model|--all] | sync")
+
+    def _cmd_webhook(self, argv: list[str]) -> None:
+        """sc webhook status|list|test|replay|deliveries|tick — webhook operations.
+
+        Fronts the `webhook` management command. Endpoint/receiver CRUD uses the
+        generic verbs (`sc ls/new/set/rm webhook`); this covers the ops verbs.
+        """
+        self._run("webhook", list(argv))
 
     def _cmd_token(self, argv: list[str]) -> None:
         """sc token create|list|revoke — API token operations."""

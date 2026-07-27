@@ -21,6 +21,9 @@ When the user asks you to do any of these, read the matching skill file BEFORE w
 | Open a maintenance window / SLA-exclude a deploy (`manage.py maintenance`, Kamal hooks) | `docs/skills/status-monitors.md` |
 | Test the task queue / heartbeat backend locally (worker + heartbeat harness) | `docs/skills/background-tasks.md` |
 | Schedule recurring work (`@scheduled`, cron/interval/once, the scheduler UI + tick) | `docs/skills/scheduler.md` |
+| **Any integration work** (Zapier/n8n/Slack/Stripe/GitHub/Azure, or SmallStack↔SmallStack) — read this FIRST | `docs/skills/webhooks.md` |
+| Notify an external system when a model changes — **outbound webhooks** (`enable_webhooks = True`); shape the payload with `@webhook_transform` | `docs/skills/webhooks.md` |
+| Receive/verify an inbound webhook (`@webhook_handler`; provider signatures via `@webhook_verifier`, handshakes via `@webhook_challenge`) | `docs/skills/webhooks.md` |
 | Expose a model to AI clients via MCP | `docs/skills/mcp/build-mcp-solution.md` |
 | Add a custom REST endpoint (non-CRUD) | `docs/skills/custom-api-endpoints.md` |
 | Debug a "Swagger is empty" / "MCP can't see my tools" / "weird traffic" report | `docs/skills/api-doctor.md` or `docs/skills/mcp/debug-mcp-failure.md` |
@@ -37,8 +40,9 @@ A small-footprint Django foundation for shipping four kinds of apps from one cod
 - **Websites** — themed admin shell, dark mode, palettes, sidebar, breadcrumbs
 - **API servers** — REST emitted from CRUDViews; OpenAPI 3.0.3 schema; Swagger UI at `/api/docs/`; ReDoc at `/api/redoc/`
 - **MCP servers** — JSON-RPC + OAuth 2.0 + PKCE at `/mcp`; Claude Desktop and Claude.ai Connectors UI work without setup
+- **Webhooks** — a foundational integration surface: outbound signed delivery (`enable_webhooks = True`) + inbound receivers (`@webhook_handler`), **four extension seams** (`@webhook_transform`/`@webhook_auth`/`@webhook_verifier`/`@webhook_challenge`) that make Zapier/n8n/Stripe/Slack/Event Grid plug-ins, first-class **SmallStack↔SmallStack** pairing (`sc webhook pair`, loop-safe), stable `event_id` dedupe, `Retry-After` + bulk dead-letter replay; `webhook_doctor`, `sc webhook`
 
-The headline pattern: **one `CRUDView` declaration produces HTML admin pages, REST endpoints, and MCP tools** from a single model. Flip `enable_api = True` / `enable_mcp = True` flags on a CRUDView subclass and the surfaces light up.
+The headline pattern: **one `CRUDView` declaration produces HTML admin pages, REST endpoints, and MCP tools** from a single model. Flip `enable_api = True` / `enable_mcp = True` / `enable_webhooks = True` flags on a CRUDView subclass and the surfaces light up.
 
 ## Quick start
 
@@ -65,6 +69,7 @@ All custom apps in `apps/`, registered as `apps.<name>`:
 - `apps/tasks/` — Background-task helpers
 - `apps/tokenmgr/` — Self-service API token UI at `/smallstack/tokens/`
 - `apps/usermanager/` — User CRUD at `/smallstack/manage/users/`
+- `apps/webhooks/` — Outbound event delivery (`enable_webhooks`) + inbound receivers (`@webhook_handler`) at `/smallstack/webhooks/`
 - `apps/website/` — Project-specific pages — **edit freely** (the others are framework-provided)
 
 Settings split in `config/settings/`:

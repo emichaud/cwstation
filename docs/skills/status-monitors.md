@@ -39,7 +39,7 @@ The overview groups services into three tiers via `Service.category`:
 
 | Tier (label) | `category` | What lives here |
 |---|---|---|
-| **Site** | `core` (default) | The platform's own surfaces — `site`, `api`, `mcp`, `search` (and, later, `scheduler`). Any service an app registers via `ready()` is `core` by default. |
+| **Site** | `core` (default) | The platform's own surfaces — `site`, `api`, `mcp`, `search`, `scheduler`, and **`webhooks`** (outbound delivery health). Any service an app registers via `ready()` is `core` by default. |
 | **Site Monitors** | `internal` | Monitors for surfaces *this project exposes* — `enable_api` REST resources + MCP tools — picked from the live registry (`MonitoredSurface` rows). Checked cheaply **in-process**; optionally **deep-checked** by an app-published override. Home service: `internal`. See "Site Monitors" below. |
 | **External Monitors** | `external` | Generic HTTP probes of arbitrary URLs (`MonitoredEndpoint` rows). Home service: `custom` (slug kept for back-compat; labelled "External Monitors"). |
 
@@ -49,7 +49,10 @@ The category labels/order live next to the registry as `CATEGORY_LABELS` /
 worst-state badge; empty tiers show a hint (staff) and are dropped on the public
 board.
 
-> Forthcoming (own pass): a **scheduler** core monitor (background-task health).
+> Shipped core monitors beyond `site`/`api`/`mcp`/`search`: the **scheduler** (background-task
+> health) and **webhooks** (`apps/webhooks/monitors.py` — `WebhooksService` + `WebhooksMonitor`,
+> tripping DOWN on an overdue retry backlog or a high recent dead-delivery ratio; registered in
+> the app's `ready()`).
 
 ### The Site card & `Monitor.inventory()`
 

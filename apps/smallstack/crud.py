@@ -29,7 +29,7 @@ from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist
 from django.db import IntegrityError
 from django.db.models import ProtectedError, QuerySet, RestrictedError
-from django.http import Http404, HttpRequest, HttpResponse, QueryDict
+from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import redirect as _redirect
 from django.urls import path, reverse
 from django.views.generic import (
@@ -863,21 +863,15 @@ class _CRUDBulkActionView:
                         continue
 
                     # Build PATCH-style form: merge existing values with new fields
-                    from django.forms.models import model_to_dict
-
-                    existing = model_to_dict(obj, fields=cfg.fields or [])
-                    merged = QueryDict(mutable=True)
-                    for key, value in existing.items():
-                        if value is None:
-                            merged[key] = ""
-                        elif isinstance(value, list):
-                            merged.setlist(key, [str(v) for v in value])
-                        else:
-                            merged[key] = str(value)
-                    for key, value in fields_data.items():
-                        merged[key] = str(value) if value is not None else ""
+                    from .form_bridge import merge_form_payload
 
                     form_class = cfg.form_class or cfg._make_form_class()
+                    merged = merge_form_payload(
+                        form_class,
+                        fields_data,
+                        instance=obj,
+                        instance_fields=cfg.fields or [],
+                    )
                     form = form_class(merged, instance=obj)
                     if form.is_valid():
                         obj = form.save()
@@ -1255,6 +1249,18 @@ class CRUDView:
     # name pair like ("ticket", "tickets") → list_tickets + get_ticket.
     mcp_singular: str | None = None
     mcp_plural: str | None = None
+
+    # Webhook exposure — opt-in OUTBOUND eventing. When enable_webhooks=True, a
+    # create/update/delete of this model (via ANY surface — HTML/REST/MCP/sc/raw
+    # ORM) is observed by apps.webhooks.signals and fanned out to matching
+    # WebhookEndpoints as a signed HTTP POST. This is the inverse of enable_api /
+    # enable_mcp: instead of a client calling in, the app calls out on change.
+    # The payload reuses the same serialize() the REST API emits.
+    enable_webhooks = False
+    # Which lifecycle events emit. None => all three. Members are the strings
+    # "created" / "updated" / "deleted" (kept as bare strings to avoid importing
+    # webhook enums into the framework core).
+    webhook_events: list[str] | None = None
 
     # Related object tabs (reverse FK relations on detail page)
     related_tabs = None  # None=auto-discover, list=explicit accessor names, False=disabled

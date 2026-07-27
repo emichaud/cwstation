@@ -185,6 +185,7 @@ class WidgetCRUDView(CRUDView):
 | `enable_api = True` | REST endpoints (`GET /list`, `GET /{id}`, `POST`, `PATCH`, `DELETE`) auto-emitted into `/api/docs/` Swagger UI | `custom-api-endpoints.md` |
 | `enable_mcp = True` | MCP tools (`list_X`, `get_X`, `create_X`, ...) registered for Claude Desktop / Connectors UI | `mcp/build-mcp-solution.md` |
 | `enable_search = True` | Keyword search via FTS5/PG-FTS, a `search_X` MCP tool, results in the topbar omnibar + `/smallstack/search/` page | `search.md` |
+| `enable_webhooks = True` | Outbound webhook events (`<app>.<model>.created/updated/deleted`) fired to registered endpoints on every change, from any surface (HTML, REST, MCP, `sc`, ORM) | `webhooks.md` |
 
 You almost always want at least `enable_api = True` + `enable_search = True`. Combined with `enable_mcp = True` they form the "one model → admin + REST + MCP + RAG" pattern that makes SmallStack distinct.
 
