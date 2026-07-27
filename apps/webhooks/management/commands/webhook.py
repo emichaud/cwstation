@@ -25,7 +25,7 @@ from django.db.models import Count
 from apps.webhooks import services
 from apps.webhooks.models import WebhookDelivery, WebhookEndpoint, WebhookReceiver
 
-SUBCOMMANDS = ("status", "list", "test", "replay", "deliveries", "tick")
+SUBCOMMANDS = ("status", "list", "test", "replay", "deliveries", "tick", "pair")
 
 
 class Command(BaseCommand):
@@ -38,6 +38,10 @@ class Command(BaseCommand):
         parser.add_argument("--endpoint", help="Endpoint (id/name) filter for bulk replay.")
         parser.add_argument("--since", help="ISO timestamp: only replay dead deliveries created after this.")
         parser.add_argument("--limit", type=int, default=20, help="Row cap for deliveries / bulk replay.")
+        parser.add_argument("--target", dest="pair_target", help="Peer SmallStack URL for 'pair'.")
+        parser.add_argument("--events", help="JSON list of event patterns for 'pair' (default [\"*\"]).")
+        parser.add_argument("--slug", help="Receiver slug for 'pair' (default derived from target).")
+        parser.add_argument("--secret", dest="pair_secret", help="Shared secret for 'pair' (default generated).")
         parser.add_argument("--json", action="store_true", help="Machine-readable output.")
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -246,3 +250,38 @@ class Command(BaseCommand):
             options["json"],
             lambda d: self.stdout.write(f"Claimed {d['claimed']} delivery(ies) for retry."),
         )
+
+    def _pair(self, options: dict[str, Any]) -> None:
+        """One-step SmallStack↔SmallStack pairing (F-027): creates a loop-safe
+        endpoint+receiver here sharing a secret, and prints what to mirror on the peer."""
+        target = options.get("pair_target") or options.get("target")
+        if not target:
+            raise CommandError("pair needs --target <peer SmallStack URL>.")
+        events = ["*"]
+        if options.get("events"):
+            try:
+                events = jsonlib.loads(options["events"])
+            except ValueError as exc:
+                raise CommandError(f"--events must be a JSON list: {exc}") from exc
+            if not isinstance(events, list):
+                raise CommandError("--events must be a JSON list of patterns.")
+        result = services.pair_smallstack(
+            target_url=target,
+            events=events,
+            slug=options.get("slug"),
+            secret=options.get("pair_secret"),
+        )
+
+        def render(d: dict[str, Any]) -> None:
+            self.stdout.write("Paired with " + target)
+            self.stdout.write(f"  outbound endpoint #{d['endpoint_id']} → {target}")
+            self.stdout.write(f"  inbound receiver #{d['receiver_id']} at {d['inbound_url']}")
+            self.stdout.write(f"  shared secret : {d['secret']}")
+            self.stdout.write(f"  our origin    : {d['origin']}")
+            self.stdout.write(
+                "\nMirror on the peer: create the reciprocal endpoint (→ our inbound URL) "
+                "and receiver with the SAME secret; set its ignore_origin to the peer's own "
+                "origin. Loop guard + ignore_origin keep the two-way link from echoing."
+            )
+
+        self._emit(result, options["json"], render)

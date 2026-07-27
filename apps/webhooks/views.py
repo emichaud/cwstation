@@ -345,6 +345,37 @@ def replay_delivery(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @require_POST
+def pair_smallstack(request: HttpRequest) -> HttpResponse:
+    """One-step 'Connect a SmallStack' (F-027): stand up a loop-safe two-way link and
+    show the operator the shared secret + inbound URL to mirror on the peer."""
+    if not (request.user.is_authenticated and request.user.is_staff):
+        return HttpResponse(status=403)
+    target = (request.POST.get("target_url") or "").strip()
+    if not target:
+        messages.error(request, "A peer SmallStack URL is required to pair.")
+        return redirect("webhooks_dashboard")
+    events_raw = (request.POST.get("events") or "").strip()
+    import json as _json
+
+    events = ["*"]
+    if events_raw:
+        try:
+            events = _json.loads(events_raw)
+        except ValueError:
+            messages.error(request, 'Events must be a JSON list, e.g. ["*"].')
+            return redirect("webhooks_dashboard")
+    result = services.pair_smallstack(
+        target_url=target, events=events, owner=request.user
+    )
+    messages.success(
+        request,
+        f"Paired with {target}. Shared secret: {result['secret']} · "
+        f"our inbound URL: {result['inbound_url']} — mirror these on the peer.",
+    )
+    return redirect("webhooks/endpoints-detail", pk=result["endpoint_id"])
+
+
+@require_POST
 def replay_dead_deliveries(request: HttpRequest) -> HttpResponse:
     """Bulk-replay every dead delivery as a fresh attempt (F-023). The dead-letter
     recovery action after an outage — one click instead of one id at a time."""

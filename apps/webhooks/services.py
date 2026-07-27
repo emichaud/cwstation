@@ -269,3 +269,72 @@ def replay_dead(
         qs = qs.filter(created_at__gte=since)
     qs = qs.order_by("created_at")[:limit]
     return [replay_delivery(d).pk for d in qs]
+
+
+# ---------------------------------------------------------------------------
+# SmallStack ↔ SmallStack pairing (F-027)
+# ---------------------------------------------------------------------------
+
+
+def pair_smallstack(
+    *,
+    target_url: str,
+    events: list[str] | None = None,
+    name: str | None = None,
+    slug: str | None = None,
+    secret: str | None = None,
+    owner: Any | None = None,
+) -> dict[str, Any]:
+    """Stand up a loop-safe two-way SmallStack↔SmallStack link in one step (F-027).
+
+    Creates, on **this** SmallStack, sharing one generated secret:
+
+    * an **endpoint** → ``target_url`` (``transform="smallstack"``, matching ``events``)
+      so our events flow to the peer, and
+    * a **receiver** (``verifier="hmac"``, ``ignore_origin`` = our own origin) so the
+      peer's events flow to us — and any event we originated that the peer echoes back is
+      dropped, closing the loop.
+
+    Returns the created ids plus the shared ``secret``, receiver ``slug`` and our
+    ``origin`` — the three things the operator mirrors on the peer (create the reciprocal
+    endpoint+receiver there with the same secret). Idempotent-friendly: the caller picks
+    a stable ``slug``/``name`` to re-run safely.
+    """
+    from .context import current_origin
+    from .models import WebhookReceiver, generate_secret
+
+    events = events or ["*"]
+    shared_secret = secret or generate_secret()
+    origin = current_origin()
+    base = name or f"SmallStack {target_url}"
+    receiver_slug = slug or f"paired-{abs(hash(target_url)) % 10_000_000}"
+
+    endpoint = WebhookEndpoint.objects.create(
+        name=f"{base} (out)",
+        target_url=target_url,
+        secret=shared_secret,
+        event_filter=events,
+        transform="smallstack",
+        auth_scheme="hmac",
+        enabled=True,
+        owner=owner,
+    )
+    receiver = WebhookReceiver.objects.create(
+        name=f"{base} (in)",
+        slug=receiver_slug,
+        secret=shared_secret,
+        verifier="hmac",
+        require_signature=True,
+        ignore_origin=origin,  # drop our own events echoed back — the loop guard
+        enabled=True,
+        owner=owner,
+    )
+    return {
+        "endpoint_id": endpoint.pk,
+        "receiver_id": receiver.pk,
+        "receiver_slug": receiver.slug,
+        "inbound_url": f"/webhooks/in/{receiver.slug}/",
+        "secret": shared_secret,
+        "origin": origin,
+        "events": events,
+    }
