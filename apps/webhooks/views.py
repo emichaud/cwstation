@@ -265,6 +265,9 @@ class WebhooksDashboardView(StaffRequiredMixin, TemplateView):
             status=WebhookDelivery.Status.RETRYING
         ).count()
         ctx["dead_24h"] = deliveries.filter(status=WebhookDelivery.Status.DEAD).count()
+        ctx["dead_total"] = WebhookDelivery.objects.filter(
+            status=WebhookDelivery.Status.DEAD
+        ).count()
         ctx["recent_deliveries"] = (
             WebhookDelivery.objects.select_related("endpoint").order_by("-created_at")[:15]
         )
@@ -319,6 +322,7 @@ def replay_delivery(request: HttpRequest, pk: int) -> HttpResponse:
         endpoint=original.endpoint,
         event_type=original.event_type,
         payload=original.payload,
+        event_id=original.event_id,  # reuse the stable key so a consumer dedupes (F-021)
         max_attempts=original.max_attempts,
     )
     services._enqueue_delivery(replay.pk)
@@ -330,6 +334,20 @@ def replay_delivery(request: HttpRequest, pk: int) -> HttpResponse:
             "but signal events will not deliver until it is re-enabled.",
         )
     return redirect("webhooks/deliveries-detail", pk=replay.pk)
+
+
+@require_POST
+def replay_dead_deliveries(request: HttpRequest) -> HttpResponse:
+    """Bulk-replay every dead delivery as a fresh attempt (F-023). The dead-letter
+    recovery action after an outage — one click instead of one id at a time."""
+    if not (request.user.is_authenticated and request.user.is_staff):
+        return HttpResponse(status=403)
+    new_ids = services.replay_dead(limit=1000)
+    if new_ids:
+        messages.success(request, f"Replayed {len(new_ids)} dead delivery(ies).")
+    else:
+        messages.info(request, "No dead deliveries to replay.")
+    return redirect("webhooks_dashboard")
 
 
 @require_POST

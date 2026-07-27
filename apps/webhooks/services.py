@@ -230,3 +230,42 @@ def run_due_deliveries(*, now: datetime | None = None, limit: int = 200) -> int:
             _enqueue_delivery(delivery.pk)
             claimed += 1
     return claimed
+
+
+# ---------------------------------------------------------------------------
+# Replay (single + bulk dead-letter) — one code path for every surface
+# ---------------------------------------------------------------------------
+
+
+def replay_delivery(original: WebhookDelivery) -> WebhookDelivery:
+    """Re-send a past delivery as a fresh attempt, reusing its payload AND ``event_id``
+    (F-021) so a consumer can dedupe an operator replay against the original event."""
+    replay = WebhookDelivery.objects.create(
+        endpoint=original.endpoint,
+        event_type=original.event_type,
+        payload=original.payload,
+        event_id=original.event_id,
+        max_attempts=original.max_attempts,
+    )
+    _enqueue_delivery(replay.pk)
+    return replay
+
+
+def replay_dead(
+    *,
+    endpoint_id: int | None = None,
+    since: datetime | None = None,
+    limit: int = 100,
+) -> list[int]:
+    """Bulk-replay dead deliveries (F-023). Returns the new delivery ids. The single
+    most-requested ops verb for a dead-letter queue: after an outage yields N dead
+    deliveries, replay them all instead of one id at a time."""
+    qs = WebhookDelivery.objects.filter(status=WebhookDelivery.Status.DEAD).select_related(
+        "endpoint"
+    )
+    if endpoint_id is not None:
+        qs = qs.filter(endpoint_id=endpoint_id)
+    if since is not None:
+        qs = qs.filter(created_at__gte=since)
+    qs = qs.order_by("created_at")[:limit]
+    return [replay_delivery(d).pk for d in qs]

@@ -34,8 +34,10 @@ class Command(BaseCommand):
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("subcommand", nargs="?", help=" | ".join(SUBCOMMANDS))
         parser.add_argument("target", nargs="?", help="Endpoint (id/name) or delivery id, per subcommand.")
-        parser.add_argument("--status", help="Filter deliveries by status.")
-        parser.add_argument("--limit", type=int, default=20, help="Row cap for deliveries.")
+        parser.add_argument("--status", help="Filter deliveries by status (or 'replay --status dead' for bulk).")
+        parser.add_argument("--endpoint", help="Endpoint (id/name) filter for bulk replay.")
+        parser.add_argument("--since", help="ISO timestamp: only replay dead deliveries created after this.")
+        parser.add_argument("--limit", type=int, default=20, help="Row cap for deliveries / bulk replay.")
         parser.add_argument("--json", action="store_true", help="Machine-readable output.")
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -160,19 +162,17 @@ class Command(BaseCommand):
         self._emit(data, options["json"], render)
 
     def _replay(self, options: dict[str, Any]) -> None:
+        # Bulk dead-letter replay (F-023): `sc webhook replay --status dead [...]`.
+        if options.get("status"):
+            self._replay_bulk(options)
+            return
         target = options.get("target")
         if not target or not target.isdigit():
-            raise CommandError("replay needs a delivery id.")
+            raise CommandError("replay needs a delivery id, or --status dead for bulk.")
         original = WebhookDelivery.objects.filter(pk=int(target)).select_related("endpoint").first()
         if original is None:
             raise CommandError(f"no delivery #{target}.")
-        replay = WebhookDelivery.objects.create(
-            endpoint=original.endpoint,
-            event_type=original.event_type,
-            payload=original.payload,
-            max_attempts=original.max_attempts,
-        )
-        services._enqueue_delivery(replay.pk)
+        replay = services.replay_delivery(original)
         data = {"queued": True, "delivery_id": replay.pk, "replayed_from": original.pk,
                 "endpoint_enabled": original.endpoint.enabled}
 
@@ -180,6 +180,29 @@ class Command(BaseCommand):
             self.stdout.write(f"Replayed delivery #{d['replayed_from']} as #{d['delivery_id']}.")
             if not d["endpoint_enabled"]:
                 self.stdout.write(self._disabled_note(original.endpoint))
+
+        self._emit(data, options["json"], render)
+
+    def _replay_bulk(self, options: dict[str, Any]) -> None:
+        if options["status"] != "dead":
+            raise CommandError("bulk replay only supports --status dead.")
+        endpoint_id = None
+        if options.get("endpoint"):
+            endpoint_id = self._resolve_endpoint(options["endpoint"]).pk
+        since = None
+        if options.get("since"):
+            from django.utils.dateparse import parse_datetime
+
+            since = parse_datetime(options["since"])
+            if since is None:
+                raise CommandError(f"could not parse --since {options['since']!r} (use ISO 8601).")
+        new_ids = services.replay_dead(
+            endpoint_id=endpoint_id, since=since, limit=options["limit"]
+        )
+        data = {"queued": len(new_ids), "delivery_ids": new_ids}
+
+        def render(d: dict[str, Any]) -> None:
+            self.stdout.write(f"Replayed {d['queued']} dead delivery(ies): {d['delivery_ids'] or '—'}")
 
         self._emit(data, options["json"], render)
 

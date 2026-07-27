@@ -92,6 +92,31 @@ def test_replay_requires_numeric_id():
         _run("replay", "abc")
 
 
+def test_bulk_replay_dead(no_real_enqueue):
+    """[F-023] `sc webhook replay --status dead` replays every dead delivery, reusing
+    its event_id."""
+    import uuid
+
+    ep = _endpoint()
+    for _ in range(3):
+        WebhookDelivery.objects.create(
+            endpoint=ep, event_type="a.b.created", payload={"k": 1},
+            event_id=uuid.uuid4(), status="dead",
+        )
+    WebhookDelivery.objects.create(endpoint=ep, event_type="ok", payload={}, status="success")
+    out = _run("replay", "--status", "dead", "--json")
+    data = json.loads(out)
+    assert data["queued"] == 3
+    # Every replay carries an event_id (reused from its original).
+    replays = WebhookDelivery.objects.filter(pk__in=data["delivery_ids"])
+    assert replays.exclude(event_id__isnull=True).count() == 3
+
+
+def test_bulk_replay_rejects_non_dead_status():
+    with pytest.raises(CommandError, match="only supports --status dead"):
+        _run("replay", "--status", "retrying")
+
+
 def test_deliveries_filters_by_status():
     ep = _endpoint()
     WebhookDelivery.objects.create(endpoint=ep, event_type="ok", payload={}, status="success")

@@ -84,13 +84,7 @@ def _replay(delivery_id: int) -> dict[str, Any]:
     original = WebhookDelivery.objects.filter(pk=delivery_id).select_related("endpoint").first()
     if original is None:
         return {"error": f"delivery {delivery_id} not found"}
-    replay = WebhookDelivery.objects.create(
-        endpoint=original.endpoint,
-        event_type=original.event_type,
-        payload=original.payload,
-        max_attempts=original.max_attempts,
-    )
-    services._enqueue_delivery(replay.pk)
+    replay = services.replay_delivery(original)
     result = {"queued": True, "delivery_id": replay.pk, "replayed_from": delivery_id}
     if not original.endpoint.enabled:
         result["note"] = (
@@ -99,6 +93,20 @@ def _replay(delivery_id: int) -> dict[str, Any]:
             "(update_webhook with enabled=true)"
         )
     return result
+
+
+async def replay_dead_deliveries(args: dict[str, Any]) -> dict[str, Any]:
+    return await sync_to_async(_replay_dead)(
+        args.get("endpoint_id"), args.get("limit", 100)
+    )
+
+
+def _replay_dead(endpoint_id: int | None, limit: int) -> dict[str, Any]:
+    """Bulk-replay dead deliveries (F-023), reusing each event_id."""
+    from . import services
+
+    new_ids = services.replay_dead(endpoint_id=endpoint_id, limit=int(limit))
+    return {"queued": len(new_ids), "delivery_ids": new_ids}
 
 
 def register_webhook_tools() -> None:
@@ -132,7 +140,8 @@ def register_webhook_tools() -> None:
     tool(
         "replay_delivery",
         "Re-send a past webhook delivery by id as a fresh attempt (useful for a "
-        "delivery that died). Returns the new delivery id.",
+        "delivery that died). Reuses the original event_id so consumers dedupe. "
+        "Returns the new delivery id.",
         input_schema={
             "type": "object",
             "properties": {"delivery_id": {"type": "integer"}},
@@ -142,6 +151,22 @@ def register_webhook_tools() -> None:
         write=True,
         requires_access="staff",
     )(replay_delivery)
+    tool(
+        "replay_dead_deliveries",
+        "Bulk-replay every DEAD webhook delivery (optionally scoped to one endpoint) as "
+        "fresh attempts, reusing each event_id. The dead-letter recovery verb after an "
+        "outage. Returns the count and new delivery ids.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "endpoint_id": {"type": "integer"},
+                "limit": {"type": "integer", "default": 100},
+            },
+            "additionalProperties": False,
+        },
+        write=True,
+        requires_access="staff",
+    )(replay_dead_deliveries)
 
 
 register_webhook_tools()

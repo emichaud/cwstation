@@ -39,7 +39,18 @@
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
   <!-- Recent deliveries -->
   <div class="card">
-    <div class="card-header"><h2>Recent deliveries</h2></div>
+    <div class="card-header" style="display: flex; align-items: center; justify-content: space-between;">
+      <h2>Recent deliveries</h2>
+      {% if dead_total %}
+      <form method="post" action="{% url 'webhooks_replay_dead' %}" style="margin: 0;"
+            onsubmit="return confirm('Replay all {{ dead_total }} dead delivery(ies)?');">
+        {% csrf_token %}
+        <button type="submit" class="button button-secondary" style="font-size: 0.8rem;">
+          Replay all dead ({{ dead_total }})
+        </button>
+      </form>
+      {% endif %}
+    </div>
     <div class="card-body" style="padding: 0;">
       {% if recent_deliveries %}
       <table class="table-plain" style="width: 100%; border-collapse: collapse;">
