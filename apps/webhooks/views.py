@@ -418,9 +418,30 @@ def incoming_webhook(request: HttpRequest, slug: str) -> JsonResponse:
     if receiver is None:
         return JsonResponse({"error": "no such receiver"}, status=404)
 
+    from . import hooks
+
+    # 1. Challenge/handshake seam (F-026): runs before verify/dispatch. A provider's
+    #    validation handshake (Event Grid validationCode, SNS SubscribeURL) returns a
+    #    response here to short-circuit; None ⇒ fall through to normal dispatch.
+    challenge = hooks.get_challenge(receiver.challenge)
+    if challenge is not None:
+        try:
+            resp = challenge(request, receiver)
+        except Exception:  # noqa: BLE001 — a broken challenge must not 500 the sender
+            resp = None
+        if resp is not None:
+            return resp
+
     raw = request.body
-    provided = request.headers.get(receiver.signature_header, "")
-    verified = services.verify(receiver.secret, raw, provided)
+    origin = request.headers.get(services.ORIGIN_HEADER, "")
+
+    # 2. Verifier seam (F-016): default "hmac" is the current raw-body HMAC check;
+    #    a provider scheme (Stripe t.body, GitHub sha256=) is a plug-in.
+    verifier = hooks.get_verifier(receiver.verifier)
+    try:
+        verified = bool(verifier(raw, dict(request.headers), receiver))
+    except Exception:  # noqa: BLE001 — a broken verifier fails closed (unverified)
+        verified = False
 
     # Snapshot a safe subset of headers (never store cookies/authorization raw).
     safe_headers = {
@@ -436,10 +457,30 @@ def incoming_webhook(request: HttpRequest, slug: str) -> JsonResponse:
             headers=safe_headers,
             body=raw.decode("utf-8", "replace")[:100_000],
             verified=False,
+            origin=origin,
             status=WebhookReceipt.Status.REJECTED,
             error="signature verification failed",
         )
         return JsonResponse({"error": "invalid signature"}, status=401)
+
+    # 3. Loop guard (F-020): drop an event this SmallStack originated (a two-way S2S
+    #    link echoing back), recording it as ignored rather than dispatching.
+    if receiver.ignore_origin and origin and origin == receiver.ignore_origin:
+        WebhookReceipt.objects.create(
+            receiver=receiver,
+            source_ip=request.META.get("REMOTE_ADDR"),
+            headers=safe_headers,
+            body=raw.decode("utf-8", "replace")[:100_000],
+            verified=verified,
+            origin=origin,
+            status=WebhookReceipt.Status.IGNORED,
+            error="self-originated event dropped (ignore_origin)",
+        )
+        WebhookReceiver.objects.filter(pk=receiver.pk).update(
+            last_received_at=timezone.now(),
+            total_received=F("total_received") + 1,
+        )
+        return JsonResponse({"ignored": True, "reason": "self-origin"}, status=202)
 
     receipt = WebhookReceipt.objects.create(
         receiver=receiver,
@@ -447,6 +488,7 @@ def incoming_webhook(request: HttpRequest, slug: str) -> JsonResponse:
         headers=safe_headers,
         body=raw.decode("utf-8", "replace")[:100_000],
         verified=verified,
+        origin=origin,
         status=WebhookReceipt.Status.ACCEPTED,
     )
     WebhookReceiver.objects.filter(pk=receiver.pk).update(

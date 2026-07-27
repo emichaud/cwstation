@@ -75,6 +75,22 @@ class WebhookEndpoint(models.Model):
     headers = models.JSONField(default=dict, blank=True)
     enabled = models.BooleanField(default=True)
 
+    # Extension seams (see apps/webhooks/hooks.py). Both default to today's behavior:
+    # transform="smallstack" emits the current envelope; auth_scheme="hmac" adds the
+    # current X-SmallStack-Signature. A blank value is normalized to the default.
+    transform = models.CharField(
+        max_length=64,
+        default="smallstack",
+        blank=True,
+        help_text="Outbound payload transform (@webhook_transform name). Default: smallstack envelope.",
+    )
+    auth_scheme = models.CharField(
+        max_length=64,
+        default="hmac",
+        blank=True,
+        help_text="Outbound auth scheme (@webhook_auth name). Default: hmac (X-SmallStack-Signature).",
+    )
+
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -146,6 +162,11 @@ class WebhookDelivery(models.Model):
     )
     event_type = models.CharField(max_length=200, db_index=True)
     payload = models.JSONField(default=dict)
+    # Stable per-event idempotency key: minted once when the signal fires and REUSED by
+    # replay (a new delivery row, same event_id), so a consumer dedupes an operator
+    # replay against the original. Sent as X-SmallStack-Event-Id. Nullable for rows
+    # created before this field existed; new rows always get one.
+    event_id = models.UUIDField(null=True, blank=True, db_index=True)
 
     status = models.CharField(
         max_length=10, choices=Status.choices, default=Status.PENDING, db_index=True
@@ -221,6 +242,29 @@ class WebhookReceiver(models.Model):
     require_signature = models.BooleanField(default=True)
     enabled = models.BooleanField(default=True)
 
+    # Extension seams (see apps/webhooks/hooks.py). Both default to today's behavior:
+    # verifier="hmac" is the current raw-body HMAC check; challenge="" runs no handshake.
+    verifier = models.CharField(
+        max_length=64,
+        default="hmac",
+        blank=True,
+        help_text="Inbound signature verifier (@webhook_verifier name). Default: hmac (raw-body HMAC).",
+    )
+    challenge = models.CharField(
+        max_length=64,
+        default="",
+        blank=True,
+        help_text="Inbound challenge/handshake (@webhook_challenge name). Blank: none.",
+    )
+    # Loop guard: when set to this SmallStack's own origin, inbound events carrying a
+    # matching X-SmallStack-Origin header are dropped (a two-way S2S link can't echo).
+    ignore_origin = models.CharField(
+        max_length=200,
+        default="",
+        blank=True,
+        help_text="Drop inbound events whose X-SmallStack-Origin equals this (self-origin loop guard).",
+    )
+
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -262,6 +306,7 @@ class WebhookReceipt(models.Model):
         REJECTED = "rejected", "Rejected"  # signature failed / receiver disabled
         PROCESSED = "processed", "Processed"  # handler ran successfully
         FAILED = "failed", "Failed"  # handler raised
+        IGNORED = "ignored", "Ignored"  # dropped (self-origin loop guard / challenge)
 
     receiver = models.ForeignKey(
         WebhookReceiver, on_delete=models.CASCADE, related_name="receipts"
@@ -271,6 +316,9 @@ class WebhookReceipt(models.Model):
     headers = models.JSONField(default=dict, blank=True)
     body = models.TextField(blank=True)
     verified = models.BooleanField(default=False)
+    # X-SmallStack-Origin of the sender (blank for non-SmallStack senders). Recorded so a
+    # receiver can drop self-originated events and an operator can trace a loop.
+    origin = models.CharField(max_length=200, blank=True)
     status = models.CharField(
         max_length=10, choices=Status.choices, default=Status.ACCEPTED, db_index=True
     )

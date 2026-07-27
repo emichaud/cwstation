@@ -27,6 +27,13 @@ logger = logging.getLogger("smallstack.webhooks")
 SIGNATURE_HEADER = "X-SmallStack-Signature"
 EVENT_HEADER = "X-SmallStack-Event"
 DELIVERY_HEADER = "X-SmallStack-Delivery"
+# Stable per-event idempotency key (survives replay) — consumers dedupe on it (F-021).
+EVENT_ID_HEADER = "X-SmallStack-Event-Id"
+# The delivering SmallStack's origin — a receiver can drop self-originated events (F-020).
+ORIGIN_HEADER = "X-SmallStack-Origin"
+
+# Default ceiling for a single retry wait when no explicit setting is configured.
+DEFAULT_MAX_BACKOFF = 21600  # 6h — matches the last default backoff step
 
 
 # ---------------------------------------------------------------------------
@@ -106,10 +113,14 @@ def url_is_allowed(url: str) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 
-def fan_out(event_type: str, payload: dict[str, Any]) -> int:
+def fan_out(event_type: str, payload: dict[str, Any], *, event_id: str | None = None) -> int:
     """Create one WebhookDelivery per enabled endpoint whose filter matches, and
     enqueue each. Returns the number of deliveries created. Never raises — a
-    fan-out failure must not break the originating model save."""
+    fan-out failure must not break the originating model save.
+
+    ``event_id`` (F-021) is the stable per-event idempotency key, shared by every
+    delivery for this event and reused by replay.
+    """
     if not getattr(settings, "SMALLSTACK_WEBHOOKS_ENABLED", True):
         return 0
     if not getattr(settings, "SMALLSTACK_WEBHOOKS_OUTBOUND", True):
@@ -126,6 +137,7 @@ def fan_out(event_type: str, payload: dict[str, Any]) -> int:
                 endpoint=ep,
                 event_type=event_type,
                 payload=payload,
+                event_id=event_id,
                 status=WebhookDelivery.Status.PENDING,
                 max_attempts=max_attempts,
             )
@@ -158,6 +170,42 @@ def backoff_seconds(attempt: int) -> int:
     schedule = getattr(settings, "SMALLSTACK_WEBHOOK_BACKOFF", None) or [60, 300, 1800, 7200, 21600]
     idx = max(0, min(attempt - 1, len(schedule) - 1))
     return int(schedule[idx])
+
+
+def max_backoff() -> int:
+    """The ceiling for any single retry wait (clamps a hostile ``Retry-After``)."""
+    return int(getattr(settings, "SMALLSTACK_WEBHOOK_MAX_BACKOFF", DEFAULT_MAX_BACKOFF))
+
+
+def clamp_backoff(seconds: int) -> int:
+    """Clamp a wait to [0, max_backoff]."""
+    return max(0, min(int(seconds), max_backoff()))
+
+
+def parse_retry_after(value: str | None) -> int | None:
+    """Parse a ``Retry-After`` header into delta-seconds. Accepts delta-seconds
+    (``"5"``) or an HTTP-date (``"Wed, 21 Oct 2015 07:28:00 GMT"``). Returns None if
+    absent/unparseable; a past date clamps to 0. Not clamped to max here — the caller
+    clamps when scheduling."""
+    if not value:
+        return None
+    value = value.strip()
+    if value.isdigit():
+        return int(value)
+    try:
+        from email.utils import parsedate_to_datetime
+
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if when is None:
+        return None
+    if when.tzinfo is None:
+        from datetime import timezone as _tz
+
+        when = when.replace(tzinfo=_tz.utc)
+    delta = (when - timezone.now()).total_seconds()
+    return max(0, int(delta))
 
 
 def run_due_deliveries(*, now: datetime | None = None, limit: int = 200) -> int:

@@ -334,6 +334,17 @@ SMALLSTACK_WEBHOOK_BACKOFF = config(
     cast=lambda v: [int(x) for x in v.split(",") if x.strip()],
 )
 
+# Ceiling (seconds) for any single retry wait — clamps a hostile/absurd Retry-After
+# header on a 429/503 so a rate-limiter can't push a delivery weeks out.
+SMALLSTACK_WEBHOOK_MAX_BACKOFF = config(
+    "SMALLSTACK_WEBHOOK_MAX_BACKOFF", default=21600, cast=int
+)
+
+# This deployment's webhook origin — stamped on every outbound delivery as
+# X-SmallStack-Origin so a paired SmallStack can drop self-originated events.
+# Blank ⇒ derived from SITE_URL / the hostname at send time.
+SMALLSTACK_WEBHOOK_ORIGIN = config("SMALLSTACK_WEBHOOK_ORIGIN", default="")
+
 # SSRF guard. When non-empty, an outbound target URL's host must match one of
 # these suffixes (e.g. "example.com,hooks.internal"). Empty ⇒ allow any public
 # host; loopback/private ranges are still rejected unless SMALLSTACK_WEBHOOK_

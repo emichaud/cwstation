@@ -46,12 +46,21 @@ def _wants(view: type[CRUDView], action: str) -> bool:
 
 
 def _build_payload(
-    view: type[CRUDView], instance: Model, action: str, event_type: str
+    view: type[CRUDView], instance: Model, action: str, event_type: str, event_id: str
 ) -> dict[str, Any]:
     """Event envelope. On create/update the record is serialized with the same
-    helper the REST API uses; on delete only the pk survives."""
+    helper the REST API uses; on delete only the pk survives.
+
+    Backward-compatible envelope upgrade (F-014): the original keys stay, and stable
+    top-level keys are added — ``event_id``, ``origin``, and a ``resource`` block with an
+    **absolute** ``url`` — so a consumer (esp. another SmallStack) can dedupe and act
+    without reconstructing the path.
+    """
     from django.utils import timezone
 
+    from .context import current_origin
+
+    model_label = f"{instance._meta.app_label}.{instance._meta.model_name}"
     data: dict[str, Any] = {}
     if action != "deleted":
         try:
@@ -70,25 +79,62 @@ def _build_payload(
         data = {"id": instance.pk}
 
     return {
+        # --- original keys (unchanged, for existing consumers) ---
         "event": event_type,
         "action": action,
-        "model": f"{instance._meta.app_label}.{instance._meta.model_name}",
+        "model": model_label,
         "id": instance.pk,
         "occurred_at": timezone.now().isoformat(),
         "data": data,
+        # --- envelope upgrade (F-014): stable top-level keys, additive ---
+        "event_id": event_id,
+        "origin": current_origin(),
+        "resource": {
+            "type": model_label,
+            "id": instance.pk,
+            "url": _resource_url(view, instance),
+        },
     }
 
 
+def _resource_url(view: type[CRUDView], instance: Model) -> str | None:
+    """Best-effort ABSOLUTE URL to the resource (its REST detail endpoint), so a consumer
+    can act without guessing the path. None if it can't be built."""
+    from .context import current_origin
+
+    try:
+        rest_base = getattr(view, "url_base", "") or ""
+        if not rest_base:
+            return None
+        origin = current_origin()
+        if not origin.startswith(("http://", "https://")):
+            return None
+        return f"{origin.rstrip('/')}/smallstack/api/{rest_base}/{instance.pk}/"
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _fire(sender: type[Model], instance: Model, action: str) -> None:
+    from .context import suppressed
+
+    # Loop guard: writes inside suppress_webhooks() (e.g. an inbound handler's write-back)
+    # emit no outbound events, so a two-way link can't run away.
+    if suppressed():
+        return
     view = _view_for(sender)
     if view is None or not _wants(view, action):
         return
     try:
+        import uuid
+
         from . import services
 
         event_type = _event_type(sender, action)
-        payload = _build_payload(view, instance, action, event_type)
-        services.fan_out(event_type, payload)
+        # One stable event_id per logical event, shared by every fan-out delivery and
+        # reused by replay (F-021).
+        event_id = str(uuid.uuid4())
+        payload = _build_payload(view, instance, action, event_type, event_id)
+        services.fan_out(event_type, payload, event_id=event_id)
     except Exception:  # noqa: BLE001 — a webhook must never break the save/delete
         logger.exception("webhooks: failed to fire %s for %s", action, sender)
 

@@ -32,6 +32,30 @@ class WebhooksConfig(AppConfig):
             except Exception:  # noqa: BLE001
                 logger.warning("webhooks: signal registration failed", exc_info=True)
 
+        # Ensure the four built-in default seams are registered even if the module
+        # wasn't imported yet (defensive — hooks.py registers them at import).
+        try:
+            from . import hooks
+
+            hooks.register_default_hooks()
+        except Exception:  # noqa: BLE001
+            logger.warning("webhooks: default hook registration failed", exc_info=True)
+
+        # Autodiscover extension seams + inbound handlers from each app's webhook_*.py
+        # (pure imports, no DB) — the same pattern as mcp_tools.py / webhook_handlers.py.
+        seam_modules = (
+            "webhook_transforms",  # @webhook_transform  (F-019)
+            "webhook_auths",  # @webhook_auth       (F-025)
+            "webhook_verifiers",  # @webhook_verifier   (F-016)
+            "webhook_challenges",  # @webhook_challenge  (F-026)
+        )
+        try:
+            from apps.smallstack.autodiscover import autodiscover_app_modules
+
+            autodiscover_app_modules(seam_modules, skip_label=self.label)
+        except Exception:  # noqa: BLE001
+            logger.warning("webhooks: seam autodiscovery failed", exc_info=True)
+
         # Inbound: import every app's webhook_handlers.py so @webhook_handler
         # decorators register (pure imports, no DB).
         if getattr(settings, "SMALLSTACK_WEBHOOKS_INBOUND", True):
