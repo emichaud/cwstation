@@ -94,6 +94,65 @@ def test_pair_is_idempotent():
     # Secrets preserved across a re-run that didn't supply new ones.
     assert r1["send_secret"] == r2["send_secret"]
     assert r1["recv_secret"] == r2["recv_secret"]
+    # Everything pairing created is flagged is_paired.
+    assert ep.is_paired is True
+    assert WebhookReceiver.objects.get(pk=r1["receiver_id"]).is_paired is True
+
+
+@override_settings(SMALLSTACK_WEBHOOK_ORIGIN="https://a.example.com")
+def test_pair_ignores_non_paired_endpoint():
+    """[F-031 strict key] A hand-made (is_paired=False) endpoint to the same target_url is
+    left untouched; pair creates a SEPARATE is_paired=True endpoint alongside it."""
+    target = "https://b.example.com/webhooks/in/x/"
+    hand = WebhookEndpoint.objects.create(
+        name="hand-made", target_url=target, event_filter=["only.this"], secret="HANDSECRET"
+    )
+    assert hand.is_paired is False
+
+    r = services.pair_smallstack(target_url=target, events=["*"])
+
+    # A distinct paired endpoint was created — the hand-made one was not adopted.
+    assert r["endpoint_id"] != hand.pk
+    assert WebhookEndpoint.objects.filter(target_url=target).count() == 2
+    paired = WebhookEndpoint.objects.get(pk=r["endpoint_id"])
+    assert paired.is_paired is True
+    # The hand-made endpoint is completely unchanged.
+    hand.refresh_from_db()
+    assert hand.is_paired is False
+    assert hand.name == "hand-made"
+    assert hand.event_filter == ["only.this"]
+    assert hand.secret == "HANDSECRET"
+
+
+def test_is_paired_defaults_false_on_normal_create():
+    """[F-031 strict key] A normal endpoint/receiver create leaves is_paired False."""
+    ep = WebhookEndpoint.objects.create(
+        name="normal", target_url="https://hooks.example.com/x", event_filter=["*"]
+    )
+    rec = WebhookReceiver.objects.create(name="normal-in", slug="normal-in")
+    assert ep.is_paired is False
+    assert rec.is_paired is False
+
+
+@override_settings(SMALLSTACK_WEBHOOK_ORIGIN="https://a.example.com")
+def test_pair_ignores_non_paired_receiver_slug():
+    """[F-031 strict key] A hand-made receiver holding the default pairing slug is left
+    untouched; pair creates its own paired receiver under a distinct slug."""
+    target = "https://b.example.com/webhooks/in/x/"
+    default_slug = services.pairing_slug(target)
+    hand = WebhookReceiver.objects.create(
+        name="hand-made-in", slug=default_slug, secret="HANDRECV"
+    )
+    assert hand.is_paired is False
+
+    r = services.pair_smallstack(target_url=target, events=["*"])
+
+    assert r["receiver_id"] != hand.pk
+    paired = WebhookReceiver.objects.get(pk=r["receiver_id"])
+    assert paired.is_paired is True
+    assert paired.slug != default_slug  # suffixed to avoid the unique-slug collision
+    hand.refresh_from_db()
+    assert hand.is_paired is False and hand.secret == "HANDRECV"
 
 
 @override_settings(SMALLSTACK_WEBHOOK_ORIGIN="https://a.example.com")

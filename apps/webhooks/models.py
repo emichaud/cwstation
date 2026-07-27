@@ -75,6 +75,14 @@ class WebhookEndpoint(models.Model):
     headers = models.JSONField(default=dict, blank=True)
     enabled = models.BooleanField(default=True)
 
+    # True iff created by `sc webhook pair` (F-031). The pairing flow only ever
+    # adopts/updates objects it owns, so a hand-made endpoint to the same URL is never
+    # touched by a re-pair.
+    is_paired = models.BooleanField(
+        default=False,
+        help_text="Managed by the SmallStack↔SmallStack pairing flow (read-only).",
+    )
+
     # Extension seams (see apps/webhooks/hooks.py). Both default to today's behavior:
     # transform="smallstack" emits the current envelope; auth_scheme="hmac" adds the
     # current X-SmallStack-Signature. A blank value is normalized to the default.
@@ -241,6 +249,14 @@ class WebhookReceiver(models.Model):
     # useful while onboarding a sender that doesn't sign yet. Default on.
     require_signature = models.BooleanField(default=True)
     enabled = models.BooleanField(default=True)
+
+    # True iff created by `sc webhook pair` (F-031). The pairing flow only ever
+    # adopts/updates objects it owns, so a hand-made receiver on the same slug is never
+    # touched by a re-pair.
+    is_paired = models.BooleanField(
+        default=False,
+        help_text="Managed by the SmallStack↔SmallStack pairing flow (read-only).",
+    )
 
     # Extension seams (see apps/webhooks/hooks.py). Both default to today's behavior:
     # verifier="hmac" is the current raw-body HMAC check; challenge="" runs no handshake.

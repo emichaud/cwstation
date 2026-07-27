@@ -182,6 +182,7 @@ class WebhookEndpointCRUDView(CRUDView):
         "transform",
         "auth_scheme",
         "enabled",
+        "is_paired",
         "last_status",
         "total_deliveries",
         "consecutive_failures",
@@ -261,6 +262,7 @@ class WebhookReceiverCRUDView(CRUDView):
         "challenge",
         "ignore_origin",
         "enabled",
+        "is_paired",
         "total_received",
         "last_received_at",
     ]

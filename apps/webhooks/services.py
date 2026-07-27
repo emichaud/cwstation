@@ -357,7 +357,9 @@ def pair_smallstack(
     resolved_send = send_secret or secret
     resolved_recv = recv_secret or secret
 
-    # --- outbound endpoint (A→B), idempotent on (target_url + our transform) -------------
+    # --- outbound endpoint (A→B), idempotent among PAIRED objects only -------------------
+    # Keyed on (target_url, is_paired=True): a re-pair adopts the paired endpoint it
+    # created, but a hand-made endpoint to the same URL (is_paired=False) is never touched.
     endpoint_defaults = {
         "name": f"{base} (out)",
         "event_filter": events,
@@ -368,13 +370,14 @@ def pair_smallstack(
     }
     endpoint, ep_created = WebhookEndpoint.objects.get_or_create(
         target_url=target_url,
-        transform="smallstack",
+        is_paired=True,
         defaults={**endpoint_defaults, "secret": resolved_send or generate_secret()},
     )
     if not ep_created:
         # Update config in place; only overwrite the secret when one was supplied.
         endpoint.name = endpoint_defaults["name"]
         endpoint.event_filter = events
+        endpoint.transform = "smallstack"
         endpoint.auth_scheme = "hmac"
         endpoint.enabled = True
         if resolved_send:
@@ -385,6 +388,15 @@ def pair_smallstack(
     receiver = None
     recv_value = resolved_recv or generate_secret()
     if not one_way:
+        # Slug is globally unique: if a hand-made (non-paired) receiver already holds our
+        # default slug, suffix ours so we create a distinct PAIRED receiver alongside it
+        # rather than colliding or adopting theirs. An explicit --slug is honored as-is.
+        if slug is None and WebhookReceiver.objects.filter(
+            slug=receiver_slug, is_paired=False
+        ).exists():
+            receiver_slug = f"{receiver_slug}-p"
+        # Keyed on (slug, is_paired=True): same strictness — a hand-made receiver on the
+        # same slug is not adopted.
         receiver_defaults = {
             "name": f"{base} (in)",
             "verifier": "hmac",
@@ -395,6 +407,7 @@ def pair_smallstack(
         }
         receiver, rec_created = WebhookReceiver.objects.get_or_create(
             slug=receiver_slug,
+            is_paired=True,
             defaults={**receiver_defaults, "secret": recv_value},
         )
         if not rec_created:
