@@ -39,7 +39,7 @@ prints the canonical token for each. A miss raises a "did you mean …" error.
 | `sc token create\|list\|revoke` | API-token ops (`create` fronts `create_api_token`; `list`/`revoke` are queries). | `list`: `--user`, `--all`, `--json` |
 | `sc status [check\|maintenance …]` | Run monitors (`heartbeat`) or manage maintenance windows. | passthrough |
 | `sc index [rebuild\|sync]` | Rebuild the search index / sync the help index. | passthrough |
-| `sc webhook status\|list\|test\|replay\|deliveries\|tick` | Webhook **ops** (fronts `manage.py webhook`). Endpoint/receiver CRUD uses the generic verbs (`sc ls/new/set/rm webhook`). | `--status`, `--limit`, `--json` |
+| `sc webhook status\|list\|test\|replay\|deliveries\|tick\|pair` | Webhook **ops** (fronts `manage.py webhook`). `replay --status dead` bulk-replays every dead delivery; `pair` links two SmallStacks (S2S). Endpoint/receiver CRUD uses the generic verbs (`sc ls/new/set/rm webhook`). | `--status`, `--endpoint`, `--since`, `--limit`, `--target`, `--events`, `--slug`, `--send-secret`, `--recv-secret`, `--one-way`, `--verify`, `--json` |
 | `sc commands` | Discover every framework management command, grouped by app. | `--json` |
 
 **Writable fields ⊆ shown fields.** `new`/`set` go through the model's **form** (exactly like the web UI
@@ -91,7 +91,14 @@ sc webhook status                       # counts by delivery status + retry back
 sc webhook list                         # endpoints with health (last status, fail-streak)
 sc webhook test Zapier                  # fire a signed test delivery
 sc webhook deliveries --status dead --limit 20
-sc webhook replay 42                    # re-send a dead delivery
+sc webhook replay 42                    # re-send one dead delivery
+sc webhook replay --status dead         # BULK: replay every dead delivery (dead-letter recovery)
+sc webhook pair --target https://peer/webhooks/in/x/   # link two SmallStacks (emits the peer cmd)
+
+# select the extension seams on an endpoint/receiver with the generic `sc set`:
+sc set webhook 3 --transform slack --auth_scheme sas          # outbound transform + auth (endpoint)
+sc set webhookreceiver 2 --verifier stripe --challenge eventgrid   # inbound verify + handshake
+# is_paired is read-only (managed by `sc webhook pair`) — shown, never settable.
 ```
 
 > **Gotcha — creating an endpoint via CLI/REST:** `enabled` is a form `BooleanField`,

@@ -32,6 +32,8 @@ Two tables: a **task → tool map** (the most common lookups) and a **tool → d
 | **report on webhook deliveries / get status** | `sc webhook status` · `sc webhook list` · `sc webhook deliveries [--status dead]` |
 | **create an outbound webhook endpoint** | `sc new webhook --name … --target_url … --event_filter '[…]' --enabled=true --user admin` |
 | **test / replay a webhook** | `sc webhook test <endpoint>` · `sc webhook replay <delivery_id>` |
+| **replay ALL dead deliveries** (dead-letter recovery after an outage) | `sc webhook replay --status dead [--endpoint … --since … --limit …]` |
+| **link two SmallStacks** (loop-safe S2S; event source ↔ action target) | `sc webhook pair --target <peer-inbound-url>` (emits the mirror command to run on the peer; `--one-way`, `--verify`) |
 | **drive the webhook retry tick** (cron) | `uv run python manage.py run_due_deliveries` (or `POST /webhooks/tick/` on localhost) |
 | **mint an API token** (CLI / CI / deploy) | `uv run python manage.py create_api_token <user> --access-level <level>` |
 | mint a dev superuser | `make superuser` (= `manage.py create_dev_superuser`) |
@@ -72,6 +74,7 @@ When the user reports a problem, **start at the matching doctor**.
 | "My webhook isn't firing" | `webhook_doctor` → check `Outbound registry` (is `enable_webhooks` set?) + `Endpoint filters` (empty = inert) rows | [`webhooks.md`](webhooks.md) |
 | "Webhook deliveries are stuck retrying" | `webhook_doctor` → `Delivery tick` row (the retry tick isn't running) | [`webhooks.md`](webhooks.md) |
 | "Inbound webhook returns 401 / isn't handled" | `webhook_doctor` → `Inbound handlers` row; check the receiver's `secret` + `@webhook_handler` slug | [`webhooks.md`](webhooks.md) |
+| "Webhook `resource.url` is null / S2S dedupe not working" | `webhook_doctor` → `Webhook origin` row (WARN when origin unresolved — set `SITE_URL`/`SMALLSTACK_WEBHOOK_ORIGIN`) | [`webhooks.md`](webhooks.md) |
 | "Is the task queue actually draining locally?" | `make services ARGS="--smoke"` (watch the worker drain it) | [`background-tasks.md`](background-tasks.md) |
 | "Deploy downtime is counting against my SLA" | open a maintenance window (`manage.py maintenance`) or enable `MAINTENANCE_ON_DEPLOY` | [`status-monitors.md`](status-monitors.md) |
 | "DB file is huge" | `manage.py prune_activity`, then `make backup --keep 7` | — |

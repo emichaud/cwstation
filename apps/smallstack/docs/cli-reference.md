@@ -17,7 +17,7 @@ Every command-line tool SmallStack provides — `manage.py` commands, Make targe
 | Auth | `manage.py create_api_token` | Mint a token for a user |
 | DB | `make backup` | SQLite backup with retention |
 | Search | `manage.py rebuild_search_index` / `search_doctor` | Rebuild FTS index / diagnose search |
-| Webhooks | `manage.py webhook` / `webhook_doctor` / `run_due_deliveries` | Webhook ops (status/test/replay) / diagnose / retry tick |
+| Webhooks | `manage.py webhook` / `webhook_doctor` / `run_due_deliveries` | Webhook ops (status/test/replay/bulk-replay/pair) / diagnose / retry tick |
 | Visual | `manage.py screenshot_auth` + `shot-scraper` | Authenticated browser screenshots |
 | CLI | `manage.py sc` (`sc` shim) | Framework CLI: CRUD over any CRUDView (`ls/get/describe/new/set/rm`) + ops verbs (`doctor/backup/token/status/index/webhook/commands`) — see [`docs/skills/sc-cli.md`](../../../docs/skills/sc-cli.md) |
 | Deploy | `make deploy` / `make logs` | Kamal deploy + tail logs |
@@ -269,7 +269,7 @@ See [`search.md`](../../../docs/skills/search.md).
 
 #### `webhook_doctor`
 
-Diagnose the webhook surface end-to-end — outbound registry (which models have `enable_webhooks`), endpoint URLs (SSRF/allowlist), stuck retries (is the delivery tick firing?), and inbound handler resolution. The webhook-side counterpart to `api_doctor` / `mcp_doctor` / `search_doctor`.
+Diagnose the webhook surface end-to-end — outbound registry (which models have `enable_webhooks`), the webhook origin (WARN if `SITE_URL`/`SMALLSTACK_WEBHOOK_ORIGIN` is unset, degrading `resource.url` + S2S dedupe), endpoint URLs (SSRF/allowlist), stuck retries (is the delivery tick firing?), and inbound handler + verifier resolution. The webhook-side counterpart to `api_doctor` / `mcp_doctor` / `search_doctor`.
 
 ```bash
 uv run python manage.py webhook_doctor              # full report
@@ -291,11 +291,20 @@ uv run python manage.py webhook status                     # counts by delivery 
 uv run python manage.py webhook list                       # endpoints with health (last status, fail-streak)
 uv run python manage.py webhook test <endpoint-id|name>    # fire a signed test delivery
 uv run python manage.py webhook deliveries --status dead --limit 20
-uv run python manage.py webhook replay <delivery-id>       # re-send a past/dead delivery
+uv run python manage.py webhook replay <delivery-id>       # re-send one past/dead delivery
+uv run python manage.py webhook replay --status dead       # BULK: replay every dead delivery (dead-letter recovery)
+     # scope with --endpoint <id|name>, --since <ISO>, --limit N
+uv run python manage.py webhook pair --target <peer-inbound-url>   # link two SmallStacks (loop-safe S2S)
+     # --one-way (endpoint only), --verify (probe the round-trip), --send-secret/--recv-secret/--secret, --events, --slug
 uv run python manage.py webhook tick                       # run the retry tick once (interactive)
 ```
 
-All subcommands accept `--json`. `deliveries` accepts `--status` and `--limit`.
+`pair` configures THIS instance's half of a two-way link and prints the mirror command to run on
+the peer (secrets swapped). All subcommands accept `--json`.
+
+**Select the extension seams** on an endpoint/receiver with the generic `sc set` (they're ordinary
+writable fields): `--transform` / `--auth_scheme` on an endpoint, `--verifier` / `--challenge` on a
+receiver. `is_paired` is read-only (set by `pair`). See [`webhooks.md`](../../../docs/skills/webhooks.md) → the four seams.
 
 #### `run_due_deliveries`
 
