@@ -52,6 +52,7 @@ class Command(BaseCommand):
 
         report: Report = []
         self._check_outbound_registry(report)
+        self._check_origin(report)
         self._check_endpoints(report)
         self._check_stuck_retries(report)
         self._check_inbound(report)
@@ -84,6 +85,29 @@ class Command(BaseCommand):
                 "name": "Outbound registry",
                 "status": "PASS",
                 "detail": f"{len(models)} model(s) emit events: {', '.join(models)}",
+            })
+
+    def _check_origin(self, report: Report) -> None:
+        """F-029: warn when the webhook origin can't resolve to an absolute URL, so the
+        flagship envelope's resource.url degrades to null and S2S loop-guard dedupe loses
+        its base — a silent degradation an operator should see."""
+        from apps.webhooks.context import current_origin, origin_is_configured
+
+        if origin_is_configured():
+            report.append({
+                "name": "Webhook origin",
+                "status": "PASS",
+                "detail": f"Origin resolves to {current_origin()} — resource.url + dedupe OK.",
+            })
+        else:
+            report.append({
+                "name": "Webhook origin",
+                "status": "WARN",
+                "detail": (
+                    f"Webhook origin unresolved (falls back to bare hostname "
+                    f"{current_origin()!r}): set SITE_URL or SMALLSTACK_WEBHOOK_ORIGIN, "
+                    "else resource.url and S2S loop-guard dedupe degrade."
+                ),
             })
 
     def _check_endpoints(self, report: Report) -> None:

@@ -177,6 +177,12 @@ writing back could re-trigger the event and run away. Three primitives stop it:
 
 ## SmallStack↔SmallStack, first-class
 
+> **Prerequisite: set an origin.** S2S/pairing needs `SITE_URL` (or
+> `SMALLSTACK_WEBHOOK_ORIGIN`) set to this deployment's absolute base URL. Without it the
+> origin falls back to the bare hostname, so `resource.url` degrades to `null` and the
+> `origin`-based loop-guard **dedupe** loses its base. `webhook_doctor` WARNs when the
+> origin is unresolved.
+
 **One-step pairing** stands up a loop-safe two-way link — an outbound endpoint **and** an
 inbound receiver here, sharing a generated secret, `transform="smallstack"`, loop guard on:
 

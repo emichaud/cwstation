@@ -86,3 +86,15 @@ def current_origin() -> str:
         return socket.gethostname()
     except OSError:  # pragma: no cover — hostname lookup should not fail
         return "smallstack"
+
+
+def origin_is_configured() -> bool:
+    """True iff the delivery origin is an explicit absolute URL — i.e. a real base a
+    consumer can build ``resource.url`` from and dedupe on.
+
+    False when neither ``SMALLSTACK_WEBHOOK_ORIGIN`` nor a URL-shaped ``SITE_URL`` /
+    ``SMALLSTACK_SITE_URL`` / ``BASE_URL`` is set, in which case :func:`current_origin`
+    falls back to the bare hostname and ``resource.url`` degrades to ``None`` (F-029).
+    """
+    origin = current_origin()
+    return origin.startswith(("http://", "https://"))
