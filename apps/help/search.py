@@ -211,3 +211,145 @@ def help_article_count() -> int:
             return int(row[0]) if row else 0
     except Exception:
         return 0
+
+
+# ---------------------------------------------------------------------------
+# Lexical RAG — passage-level (chunk) index over the SAME help markdown.
+#
+# HELP_FTS_TABLE (above) holds one row per ARTICLE — good for "take me to the
+# page." This table holds one row per markdown SECTION so a tool/LLM gets a
+# focused, cited PASSAGE instead of a whole document. Same FTS5 engine, same
+# SearchHit output shape, zero extra dependencies.
+#
+# The semantic half of RAG (embeddings + vector KNN) is intentionally NOT here.
+# It can be layered on later behind the same SearchHit contract — callers of
+# search_help_chunks() can't tell lexical from semantic, which is exactly what
+# lets that upgrade happen without touching downstream code.
+# ---------------------------------------------------------------------------
+
+HELP_CHUNK_TABLE = "help_chunks_search_idx"
+
+
+def sync_help_rag_index() -> int:
+    """Rebuild the passage-level help index from filesystem markdown.
+
+    Returns the number of chunks indexed. Idempotent — drops and refills the
+    table. SQLite-only for now, mirroring sync_help_index().
+    """
+    from django.db import connection
+
+    from apps.help.chunking import chunk_markdown, iter_help_markdown
+
+    engine = connection.settings_dict["ENGINE"]
+    if "sqlite" not in engine:
+        logger.info("Help RAG index sync skipped on %s — SQLite-only", engine)
+        return 0
+
+    count = 0
+    with connection.cursor() as cur:
+        # Columns: source(0) section(1) heading_path(2) text(3).
+        # source/section are UNINDEXED — carried for URL resolution only.
+        cur.execute(
+            f'CREATE VIRTUAL TABLE IF NOT EXISTS "{HELP_CHUNK_TABLE}" USING fts5'
+            f'("source" UNINDEXED, "section" UNINDEXED, "heading_path", "text",'
+            f' tokenize="porter unicode61")'
+        )
+        cur.execute(f'DELETE FROM "{HELP_CHUNK_TABLE}"')
+        for doc in iter_help_markdown():
+            for ch in chunk_markdown(doc["text"], source=doc["source"]):
+                cur.execute(
+                    f'INSERT INTO "{HELP_CHUNK_TABLE}" '
+                    f'("source", "section", "heading_path", "text") '
+                    f"VALUES (%s, %s, %s, %s)",
+                    [doc["source"], doc["section"], ch["heading_path"], ch["text"]],
+                )
+                count += 1
+    return count
+
+
+_HELP_RAG_INDEX_BUILT = False
+
+
+def _ensure_help_rag_index() -> None:
+    """Lazily populate the chunk index on first query (mirrors _ensure_help_index)."""
+    global _HELP_RAG_INDEX_BUILT
+    if _HELP_RAG_INDEX_BUILT:
+        return
+    if help_chunk_count() > 0:
+        _HELP_RAG_INDEX_BUILT = True
+        return
+    try:
+        sync_help_rag_index()
+    except Exception:
+        logger.exception("Lazy help-RAG-index sync failed")
+    _HELP_RAG_INDEX_BUILT = True
+
+
+def help_chunk_count() -> int:
+    """Number of passages currently indexed."""
+    from django.db import connection
+
+    if "sqlite" not in connection.settings_dict["ENGINE"]:
+        return 0
+    try:
+        with connection.cursor() as cur:
+            cur.execute(f'SELECT COUNT(*) FROM "{HELP_CHUNK_TABLE}"')
+            row = cur.fetchone()
+            return int(row[0]) if row else 0
+    except Exception:
+        return 0
+
+
+def search_help_chunks(query: str, limit: int = 5) -> list[SearchHit]:
+    """Query the passage index. Returns SearchHits citing the source section.
+
+    Same output contract as search_help_articles() — the display line is the
+    heading trail (the citation), the snippet is the matched passage text. A
+    future semantic tier returns the same SearchHit shape, so the MCP tool,
+    API, and UI never branch on which engine answered.
+    """
+    from django.db import connection
+
+    from apps.search.query_parser import to_fts5
+
+    if "sqlite" not in connection.settings_dict["ENGINE"]:
+        return []
+
+    _ensure_help_rag_index()
+
+    translated = to_fts5(query)
+    if not translated:
+        return []
+
+    # Weight heading_path (col 2) above body text (col 3) in bm25; the two
+    # UNINDEXED columns get 0.0. snippet() pulls from the text column (index 3).
+    sql = (
+        f'SELECT source, section, heading_path, '
+        f'snippet("{HELP_CHUNK_TABLE}", 3, "", "", "…", 24) AS snip, '
+        f'-bm25("{HELP_CHUNK_TABLE}", 0.0, 0.0, 2.0, 1.0) AS rank '
+        f'FROM "{HELP_CHUNK_TABLE}" WHERE "{HELP_CHUNK_TABLE}" MATCH %s '
+        f"ORDER BY rank DESC LIMIT %s"
+    )
+    try:
+        with connection.cursor() as cur:
+            cur.execute(sql, [translated, limit])
+            rows = cur.fetchall()
+    except Exception:
+        logger.exception("Help RAG search query failed: %r", query)
+        return []
+
+    hits: list[SearchHit] = []
+    for source, section, heading_path, snip, rank in rows:
+        url = _resolve_help_url(source, section)
+        hits.append(SearchHit(
+            model_label="help.HelpChunk",
+            model_verbose="Help & Docs",
+            object_id=0,
+            display=heading_path or source,
+            subtitle=source,
+            snippet=snip or "",
+            url=url,
+            rank=float(rank),
+            extra={"source": source, "section": section, "heading_path": heading_path},
+        ))
+    return hits

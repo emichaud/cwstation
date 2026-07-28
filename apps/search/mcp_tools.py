@@ -247,6 +247,47 @@ def register_search_tools(only_view=None) -> int:
     except Exception:
         logger.exception("Failed to register search_help MCP tool")
 
+    # search_help_docs — passage-level (RAG) retrieval over the same bundled
+    # docs. Where search_help returns whole ARTICLES ("take me to the page"),
+    # this returns focused, cited PASSAGES ("here's the exact paragraph, and
+    # where it came from") — the right shape for answering a question by
+    # quoting the docs. Same access tier; help docs are always visible.
+    try:
+        tool(
+            "search_help_docs",
+            (
+                "Retrieve focused, cited PASSAGES from SmallStack's bundled help "
+                "documentation to answer a how-to question. Unlike search_help "
+                "(which returns whole articles), each result here is a single "
+                "doc section with its heading trail as the citation, its text "
+                "snippet, and a URL — ready to quote back to the user. Prefer "
+                "this for questions like 'how do I add a custom palette?', "
+                "'how does the MCP OAuth flow work?', 'why is my page brown on "
+                "the orange palette?'. Give it KEYWORDS, not a full sentence — "
+                "it is keyword (lexical) retrieval, so 'orange palette hard-coded "
+                "color' beats 'how do I stop my page looking brown'."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Keyword search text (not a full sentence).",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max passages to return (default 5).",
+                        "default": 5,
+                    },
+                },
+                "required": ["query"],
+            },
+            requires_access="readonly",
+        )(_search_help_docs_handler)
+        count += 1
+    except Exception:
+        logger.exception("Failed to register search_help_docs MCP tool")
+
     # Cross-model tool — always registered if MCP is on, even with zero
     # indexed views (returns an empty list rather than 404).
     try:
@@ -308,3 +349,18 @@ async def _search_help_handler(args: dict):
         return {"results": [], "error": "apps.help not installed"}
     hits = await sync_to_async(search_help_articles)(query, limit)
     return {"results": [h.as_dict() for h in hits]}
+
+
+async def _search_help_docs_handler(args: dict):
+    query = (args.get("query") or "").strip()
+    limit = int(args.get("limit") or 5)
+    if not query:
+        return {"results": []}
+    try:
+        from apps.help.search import search_help_chunks
+    except Exception:
+        return {"results": [], "error": "apps.help not installed"}
+    hits = await sync_to_async(search_help_chunks)(query, limit)
+    # as_dict() carries the heading_path/source/section from SearchHit.extra,
+    # so the calling model gets the citation trail alongside the snippet.
+    return {"results": [h.as_dict() for h in hits], "mode": "lexical"}
