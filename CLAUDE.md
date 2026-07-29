@@ -15,6 +15,7 @@ When the user asks you to do any of these, read the matching skill file BEFORE w
 | Create a new Django app with admin pages | `docs/skills/django-apps.md` |
 | Add a CRUDView (model → admin + REST + MCP) | `docs/skills/django-apps.md` + `apps/smallstack/docs/building-crud-pages.md` |
 | Add keyword search + an MCP search tool to a model | `docs/skills/search.md` |
+| Expose a filtered queryset as typed rows/columns for a dashboard/report/chart UI (`@dataset`) | `docs/skills/datasets.md` |
 | Add stat cards / metric tiles + drill-down modals to a dashboard page | `docs/skills/dashboard-cards.md` |
 | Add a dashboard widget (the central `/smallstack/` dashboard) | `docs/skills/dashboard-widgets.md` |
 | Monitor a subsystem's uptime/health on `/smallstack/status/` (Service + Monitor, or a status chart) | `docs/skills/status-monitors.md` |
