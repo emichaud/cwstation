@@ -318,14 +318,43 @@ class Dataset:
 
     # -- rows (sub-filtering reduces the row count) --------------------------
 
+    def _scoped_qs(
+        self,
+        request: HttpRequest | None,
+        filters: Optional[dict],
+        dimension: Optional[dict] = None,
+        bucket: Optional[str] = None,
+    ) -> QuerySet:
+        """Filtered queryset, optionally narrowed to one bucket of *dimension*
+        (the drilldown). Re-applies the *same* ``_bucket_cond`` the bucketed
+        series used, so ``count(bucket=K) == series bucket K``'s value by
+        construction. Unknown field/bucket raise ValueError (→ 400)."""
+        qs = self._filtered_qs(request, filters)
+        if dimension and bucket is not None:
+            from .buckets import _bucket_cond, _dimension_values, bucket_by_key, resolve_buckets
+
+            field = dimension.get("field")
+            if field not in set(self.column_names()):
+                raise ValueError(f"unknown dimension field {field!r}")
+            buckets = resolve_buckets(self, dimension, request)
+            b = bucket_by_key(buckets, bucket)
+            if b is None:
+                raise ValueError(f"unknown bucket {bucket!r}")
+            qs = qs.filter(_bucket_cond(field, b, _dimension_values(buckets)))
+        return qs
+
     def count(
         self,
         request: HttpRequest | None = None,
         filters: Optional[dict] = None,
+        *,
+        dimension: Optional[dict] = None,
+        bucket: Optional[str] = None,
     ) -> int:
         """Total rows matching *filters* (unpaged) — the companion to a paged
-        ``rows()`` call so a table UI can show "showing 1–50 of N"."""
-        return self._filtered_qs(request, filters).count()
+        ``rows()`` call so a table UI can show "showing 1–50 of N". Pass
+        ``dimension``+``bucket`` for a bucket drilldown's total."""
+        return self._scoped_qs(request, filters, dimension, bucket).count()
 
     def rows(
         self,
@@ -335,17 +364,23 @@ class Dataset:
         limit: Optional[int] = 50,
         offset: int = 0,
         expand: Optional[list[str]] = None,
+        dimension: Optional[dict] = None,
+        bucket: Optional[str] = None,
         request: HttpRequest | None = None,
     ) -> list[dict]:
         """Filtered rows. ``limit=None`` returns the whole filtered set (used by
         CSV export); ``offset`` pages after ordering. Invalid values coerce to
-        the default (matching the module's absent-not-error stance)."""
+        the default (matching the module's absent-not-error stance).
+
+        ``dimension``+``bucket`` narrows to one bucket of a bucketed series (the
+        drilldown) — the rows behind a clicked chart segment, reconciling with
+        that bucket's count by construction."""
         from apps.smallstack.api import serialize
         from apps.smallstack.crud import (
             _apply_ordering_fields as apply_ordering,
         )
 
-        qs = self._filtered_qs(request, filters)
+        qs = self._scoped_qs(request, filters, dimension, bucket)
 
         if ordering:
             qs = apply_ordering(qs, ordering, set(self.column_names()))
@@ -398,7 +433,7 @@ class Dataset:
 
     def series(
         self,
-        dimension: Optional[str] = None,
+        dimension: Any = None,
         *,
         measure: Optional[str] = None,
         agg: str = "count",
@@ -412,10 +447,20 @@ class Dataset:
         filter contract across all three read paths) so the chart reflects the
         builder's active filters.
 
-        With ``dimension=None`` this collapses to a single **ungrouped**
-        aggregate (the KPI/scalar path): one DB round-trip, one row whose label
-        is the agg name — see :meth:`scalar` for the bare-number convenience.
+        ``dimension`` may be:
+
+        - a **string** column name → group by its raw values (with ``measure``/
+          ``agg``, or a declared ratio measure);
+        - a **dict** ``{"field": …, "buckets": […]}`` or ``{"field": …, "auto":
+          …}`` → **bucketed** grouping (numeric bands / categorical / auto
+          top-N + ``other``), returning ``[{key, label, value, lo, hi}]`` where
+          ``value`` is the bucket's row count (count-only — ``measure``/``agg``
+          don't apply here);
+        - ``None`` → a single ungrouped aggregate (the KPI/scalar path).
         """
+        if isinstance(dimension, dict):
+            return self._bucketed_series(dimension, filters=filters, request=request)
+
         if agg not in _AGG_NAMES:
             agg = "count"
 
@@ -478,6 +523,54 @@ class Dataset:
                 }
             )
         return out
+
+    # -- bucketed series (numeric bands / categorical / auto top-N) -----------
+
+    def _bucketed_series(
+        self,
+        dimension: dict,
+        *,
+        filters: Optional[dict] = None,
+        request: HttpRequest | None = None,
+    ) -> list[dict]:
+        """Count-only bucketed rollup → ``[{key, label, value, lo, hi}]``.
+
+        One ``.aggregate()`` of per-bucket filtered ``Count``s (a single query).
+        ``auto`` dimensions derive their buckets from the *unnarrowed* scope so
+        keys stay stable across filters (a filtered series returns the same
+        buckets, zero-counted where empty). With an ``other`` bucket present the
+        counts sum to the filtered total — no silently dropped rows.
+        """
+        from django.db.models import Count
+
+        from .buckets import _bucket_cond, _dimension_values, resolve_buckets
+
+        field = dimension.get("field")
+        if field not in set(self.column_names()):
+            raise ValueError(
+                f"unknown dimension field {field!r}; valid: {sorted(self.column_names())}"
+            )
+
+        buckets = resolve_buckets(self, dimension, request)
+        if not buckets:
+            return []
+        dvals = _dimension_values(buckets)
+
+        qs = self._filtered_qs(request, filters)
+        anns = {
+            b["key"]: Count("id", filter=_bucket_cond(field, b, dvals)) for b in buckets
+        }
+        row = qs.aggregate(**anns)
+        return [
+            {
+                "key": b["key"],
+                "label": b["label"],
+                "value": row[b["key"]] or 0,
+                "lo": b.get("lo"),
+                "hi": b.get("hi"),
+            }
+            for b in buckets
+        ]
 
     # -- scalar (ungrouped aggregate → a single number for a KPI tile) --------
 

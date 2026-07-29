@@ -688,3 +688,120 @@ def test_date_range_gte_lt_is_half_open():
 def test_schema_date_filter_advertises_range():
     filt = {f["name"]: f for f in get_dataset("t_requestlog").schema()["filters"]}
     assert filt["timestamp"].get("range") is True
+
+
+# --- R8: bucketed grouping (count-only) + drilldown -------------------------
+
+
+def _seed_methods(counts):
+    """counts: {method: n}. response_time_ms = index within method."""
+    for method, n in counts.items():
+        for i in range(n):
+            RequestLog.objects.create(
+                path="/x", method=method, status_code=200, response_time_ms=i
+            )
+
+
+def test_bucket_categorical_with_other_reconciles():
+    _seed_methods({"GET": 3, "POST": 2, "PUT": 1})  # 6 total
+    ds = get_dataset("t_requestlog")
+    dim = {
+        "field": "method",
+        "buckets": [
+            {"key": "g", "label": "GET", "value": "GET"},
+            {"key": "other", "label": "Other", "other": True},
+        ],
+    }
+    s = {b["key"]: b for b in ds.series(dim)}
+    assert (s["g"]["value"], s["other"]["value"]) == (3, 3)  # POST+PUT → other
+    # part-to-whole sums to the scope total (no silently dropped rows)
+    assert sum(b["value"] for b in s.values()) == ds.count() == 6
+    # categorical buckets carry no numeric bounds
+    assert s["g"]["lo"] is None and s["g"]["hi"] is None
+    # drilldown parity: rows behind each bucket == its count
+    assert len(ds.rows(dimension=dim, bucket="g", limit=None)) == 3
+    assert len(ds.rows(dimension=dim, bucket="other", limit=None)) == 3
+
+
+def test_bucket_values_in_group():
+    _seed_methods({"GET": 2, "POST": 1, "PUT": 1})
+    ds = get_dataset("t_requestlog")
+    dim = {
+        "field": "method",
+        "buckets": [
+            {"key": "writes", "label": "Writes", "values": ["POST", "PUT"]},
+            {"key": "other", "label": "Other", "other": True},
+        ],
+    }
+    s = {b["key"]: b["value"] for b in ds.series(dim)}
+    assert s == {"writes": 2, "other": 2}  # POST+PUT grouped; GET → other
+
+
+def test_bucket_numeric_bands_half_open():
+    # response_time_ms = 0,1,2 (GET), 0,1 (POST) → values 0,1,2,0,1
+    _seed_methods({"GET": 3, "POST": 2})
+    ds = get_dataset("t_requestlog")
+    dim = {
+        "field": "response_time_ms",
+        "buckets": [
+            {"key": "lo", "label": "0–1", "lo": 0, "hi": 1},   # [0,1): value 0 → 2 rows
+            {"key": "hi", "label": "1+", "lo": 1, "hi": None},  # [1,∞): 1 and 2 → 3 rows
+        ],
+    }
+    s = {b["key"]: b["value"] for b in ds.series(dim)}
+    assert s == {"lo": 2, "hi": 3}
+    # half-open: no double-count, bands sum to total
+    assert s["lo"] + s["hi"] == ds.count() == 5
+
+
+def test_bucket_auto_derives_capped_with_other_and_stable_keys():
+    _seed_methods({"GET": 3, "POST": 2, "PUT": 1})
+    ds = get_dataset("t_requestlog")
+    dim = {"field": "method", "auto": {"limit": 2}}
+    s = ds.series(dim)
+    keys = [b["key"] for b in s]
+    # top-2 by volume get value buckets, keyed v:<value>; the rest → other
+    assert keys == ["v:GET", "v:POST", "other"]
+    assert [b["value"] for b in s] == [3, 2, 1]
+    assert sum(b["value"] for b in s) == ds.count() == 6
+    # key stability: a filtered series derives buckets from the UNNARROWED scope,
+    # so the same keys come back (zero-counted where the filter excludes them).
+    filtered = ds.series(dim, filters={"method": "PUT"})
+    assert [b["key"] for b in filtered] == ["v:GET", "v:POST", "other"]
+    fvals = {b["key"]: b["value"] for b in filtered}
+    assert (fvals["v:GET"], fvals["v:POST"], fvals["other"]) == (0, 0, 1)
+
+
+def test_bucket_unknown_key_drilldown_raises():
+    _seed_methods({"GET": 1})
+    ds = get_dataset("t_requestlog")
+    dim = {"field": "method", "buckets": [{"key": "g", "label": "GET", "value": "GET"}]}
+    with pytest.raises(ValueError):
+        ds.rows(dimension=dim, bucket="nope")
+
+
+def test_rest_bucketed_series_and_drilldown(client, _api_token):
+    _seed_methods({"GET": 3, "POST": 2, "PUT": 1})
+    auth = {"HTTP_AUTHORIZATION": f"Bearer {_api_token}"}
+    buckets = '[{"key":"g","label":"GET","value":"GET"},{"key":"other","label":"Other","other":true}]'
+    from urllib.parse import quote
+
+    url = f"/smallstack/datasets/t_requestlog/series/?dimension=method&buckets={quote(buckets)}"
+    s = {b["key"]: b["value"] for b in client.get(url, **auth).json()["series"]}
+    assert s == {"g": 3, "other": 3}
+    # drilldown via the rows route: total reflects the bucket
+    drill = client.get(
+        f"/smallstack/datasets/t_requestlog/?dimension=method&buckets={quote(buckets)}&bucket=other",
+        **auth,
+    ).json()
+    assert drill["total"] == 3
+
+
+def test_mcp_bucketed_series_auto():
+    _seed_methods({"GET": 3, "POST": 2, "PUT": 1})
+    from apps.datasets.mcp_tools import _RESERVED, _bucket_dimension
+
+    assert "buckets" in _RESERVED  # not treated as a filter
+    dim = _bucket_dimension("method", {"auto": True, "auto_limit": 2})
+    s = get_dataset("t_requestlog").series(dim)
+    assert [b["key"] for b in s] == ["v:GET", "v:POST", "other"]

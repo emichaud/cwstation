@@ -27,7 +27,45 @@ from apps.smallstack.api import _authenticate_api_request
 from .core import Dataset, get_dataset, list_datasets
 from .registry import get_def
 
-_RESERVED = {"ordering", "limit", "offset", "format", "dimension", "measure", "agg", "expand"}
+_RESERVED = {
+    "ordering", "limit", "offset", "format", "dimension", "measure", "agg", "expand",
+    "buckets", "auto", "auto_limit", "label_field", "bucket",
+}
+
+
+def _parse_dimension(request: HttpRequest, field: str | None) -> dict | None:
+    """Build a bucketed-dimension dict from query params, or None for raw mode.
+
+    ``?buckets=<json-list>`` (hand-authored) and/or ``?auto=true&auto_limit=N&
+    label_field=col`` turn a bare ``field`` into a bucketed dimension. Raises
+    ValueError on malformed ``buckets`` JSON (→ 400).
+    """
+    import json
+
+    raw_buckets = request.GET.get("buckets")
+    auto = request.GET.get("auto", "").strip().lower() in ("true", "1", "yes")
+    if not field or (not raw_buckets and not auto):
+        return None
+    dim: dict = {"field": field}
+    if raw_buckets:
+        try:
+            parsed = json.loads(raw_buckets)
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"bad buckets JSON: {exc}") from exc
+        if not isinstance(parsed, list):
+            raise ValueError("buckets must be a JSON list of bucket objects")
+        dim["buckets"] = parsed
+    elif auto:
+        opts: dict = {}
+        if request.GET.get("auto_limit"):
+            try:
+                opts["limit"] = int(request.GET["auto_limit"])
+            except (TypeError, ValueError):
+                pass
+        if request.GET.get("label_field"):
+            opts["label_field"] = request.GET["label_field"]
+        dim["auto"] = opts or True
+    return dim
 
 
 def _enabled() -> bool:
@@ -121,13 +159,19 @@ class DatasetRowsView(_DatasetApiView):
         else:
             limit = request.GET.get("limit", 50)
             offset = request.GET.get("offset", 0)
+        # Bucket drilldown: ?dimension=…&(buckets|auto)…&bucket=<key> narrows the
+        # rows to one bucket — the rows behind a clicked chart segment.
+        bucket = request.GET.get("bucket") or None
         try:
+            dimension = _parse_dimension(request, request.GET.get("dimension", "").strip() or None)
             rows = ds.rows(
                 filters=filters,
                 ordering=request.GET.get("ordering", ""),
                 limit=limit,
                 offset=offset,
                 expand=_parse_expand(request),
+                dimension=dimension,
+                bucket=bucket,
                 request=request,
             )
         except ValueError as exc:
@@ -138,13 +182,15 @@ class DatasetRowsView(_DatasetApiView):
             offset_echo = max(0, int(offset or 0))
         except (TypeError, ValueError):
             offset_echo = 0
-        # ``total`` is the full matching count (for "N of TOTAL" paging);
+        # ``total`` is the full matching count (of the bucket, if drilling down);
         # ``count`` stays the length of this page (unchanged for compatibility).
         return JsonResponse(
             {
                 "key": key,
                 "count": len(rows),
-                "total": ds.count(request=request, filters=filters),
+                "total": ds.count(
+                    request=request, filters=filters, dimension=dimension, bucket=bucket
+                ),
                 "offset": offset_echo,
                 "results": rows,
             }
@@ -156,13 +202,16 @@ class DatasetSeriesView(_DatasetApiView):
         ds = _require_api_dataset(key)
         # A blank/omitted dimension collapses to a single ungrouped aggregate
         # (the KPI/scalar path) instead of erroring.
-        dimension = request.GET.get("dimension", "").strip() or None
+        field = request.GET.get("dimension", "").strip() or None
         # Non-reserved query params are filters — same contract as the rows view,
         # so the chart reflects the builder's active filters.
         filters = {k: v for k, v in request.GET.items() if k not in _RESERVED}
         try:
+            # ?buckets=<json> / ?auto=true turn the field into a bucketed
+            # dimension; otherwise it's raw-value grouping.
+            bucketed = _parse_dimension(request, field)
             series = ds.series(
-                dimension,
+                bucketed if bucketed is not None else field,
                 measure=(request.GET.get("measure") or None),
                 agg=request.GET.get("agg", "count"),
                 limit=request.GET.get("limit", 50),
@@ -171,7 +220,7 @@ class DatasetSeriesView(_DatasetApiView):
             )
         except ValueError as exc:
             return JsonResponse({"error": str(exc)}, status=400)
-        return JsonResponse({"key": key, "dimension": dimension, "series": series})
+        return JsonResponse({"key": key, "dimension": field, "series": series})
 
 
 class DatasetScalarView(_DatasetApiView):

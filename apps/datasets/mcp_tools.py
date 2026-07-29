@@ -21,11 +21,39 @@ from .registry import DatasetDef, all_defs
 
 logger = logging.getLogger("smallstack.datasets")
 
-_RESERVED = {"ordering", "limit", "offset", "group_by", "scalar", "measure", "agg"}
+_RESERVED = {
+    "ordering", "limit", "offset", "group_by", "scalar", "measure", "agg",
+    "buckets", "auto", "auto_limit", "label_field", "bucket",
+}
 
 
 def _tool_name(key: str) -> str:
     return f"query_dataset_{key}"
+
+
+def _bucket_dimension(field: str, args: dict) -> dict | None:
+    """Build a bucketed-dimension dict from tool args, or None for raw grouping.
+
+    ``buckets`` (a JSON array of bucket objects) or ``auto`` (bool, with optional
+    ``auto_limit``/``label_field``) turn ``field`` into a bucketed dimension.
+    """
+    if not field:
+        return None
+    raw_buckets = args.get("buckets")
+    auto = bool(args.get("auto"))
+    if not raw_buckets and not auto:
+        return None
+    dim: dict = {"field": field}
+    if raw_buckets:
+        dim["buckets"] = raw_buckets  # MCP args are JSON — already a list of dicts
+    elif auto:
+        opts: dict = {}
+        if args.get("auto_limit"):
+            opts["limit"] = args["auto_limit"]
+        if args.get("label_field"):
+            opts["label_field"] = args["label_field"]
+        dim["auto"] = opts or True
+    return dim
 
 
 def _input_schema(dfn: DatasetDef) -> dict[str, Any]:
@@ -61,6 +89,33 @@ def _input_schema(dfn: DatasetDef) -> dict[str, Any]:
     props["group_by"] = {
         "type": "string",
         "description": "Return a grouped series ([{label, value}]) by this dimension instead of rows.",
+    }
+    props["buckets"] = {
+        "type": "array",
+        "description": (
+            "With group_by, bucket the field (count-only) instead of grouping raw "
+            "values. Each item: {key, label} plus one of {lo, hi} (numeric [lo,hi), "
+            "hi omitted = open-ended), {value} (equals), {values:[…]} (in-group), or "
+            "{other: true} (the complement of the listed values)."
+        ),
+        "items": {"type": "object"},
+    }
+    props["auto"] = {
+        "type": "boolean",
+        "description": "With group_by, auto-derive top-N value buckets (+ 'other') from the data.",
+    }
+    props["auto_limit"] = {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Max auto buckets before the rest fold into 'other' (default 12).",
+    }
+    props["label_field"] = {
+        "type": "string",
+        "description": "Column to label auto buckets by (else the value itself).",
+    }
+    props["bucket"] = {
+        "type": "string",
+        "description": "Rows mode: drill into one bucket's rows (its key from a bucketed series).",
     }
     props["scalar"] = {
         "type": "boolean",
@@ -122,10 +177,13 @@ def _build_query_tool(tool: Any, dfn: DatasetDef) -> None:
         }
 
         group_by = (args.get("group_by") or "").strip()
+        # A bucketed dimension: group_by is the field, buckets/auto define the
+        # bands → count-only [{key, label, value, lo, hi}].
+        dimension = _bucket_dimension(group_by, args)
         if group_by:
             try:
                 series = ds.series(
-                    group_by,
+                    dimension if dimension is not None else group_by,
                     measure=(args.get("measure") or None),
                     agg=(args.get("agg") or "count"),
                     limit=args.get("limit") or 50,
@@ -155,6 +213,9 @@ def _build_query_tool(tool: Any, dfn: DatasetDef) -> None:
             }
 
         # Expand every FK column so an agent sees names, not opaque pks.
+        # ``bucket`` (+ the group_by/buckets/auto that define the dimension)
+        # narrows to one bucket's rows — the drilldown behind a chart segment.
+        bucket = (args.get("bucket") or "").strip() or None
         try:
             rows = ds.rows(
                 filters=filters,
@@ -162,6 +223,8 @@ def _build_query_tool(tool: Any, dfn: DatasetDef) -> None:
                 limit=args.get("limit") or 50,
                 offset=args.get("offset") or 0,
                 expand=sorted(ds.fk_column_names()),
+                dimension=dimension if bucket else None,
+                bucket=bucket,
                 request=request,
             )
         except ValueError as exc:

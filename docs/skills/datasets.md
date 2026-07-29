@@ -109,6 +109,39 @@ Any date/datetime column accepts half-open bounds — `<col>__gte` / `<col>__lt`
 ds.rows(filters={"created_at__gte": "2026-07-01", "created_at__lt": "2026-07-08"})  # one week
 ```
 
+### Bucketed grouping (bands, categories, top-N + Other)
+
+Raw-value grouping is fine until you need "wait time in bands," "top-N queues + Other," or a histogram. Pass `series()` a **dict** dimension instead of a column name — the buckets are the wire grammar (don't invent a second spelling):
+
+```python
+# numeric bands — half-open [lo, hi); hi omitted ⇒ open-ended outlier band
+ds.series({"field": "wait_s", "buckets": [
+    {"key": "fast", "label": "< 30s",  "lo": 0,  "hi": 30},
+    {"key": "slow", "label": "30–120s", "lo": 30, "hi": 120},
+    {"key": "vslow", "label": "2m+",    "lo": 120, "hi": None},
+]})
+# categorical: {value} equals, {values:[…]} in-group, {other:true} the complement
+ds.series({"field": "queue", "buckets": [
+    {"key": "dedicated", "label": "Dedicated", "values": ["8004", "8007"]},
+    {"key": "other", "label": "Everything else", "other": True},
+]})
+# auto — top-N value buckets by volume (+ Other), keyed v:<value>
+ds.series({"field": "queue", "auto": {"limit": 8, "label_field": "queue_name"}})
+```
+
+Returns `[{key, label, value, lo, hi}]` — `value` is the bucket's **row count** (bucketed grouping is **count-only**; `measure`/`agg` don't apply, that's a future extension). Guarantees:
+
+- **Part-to-whole sums.** With an `{other: true}` bucket the counts sum to the filtered total — no silently dropped rows. Numeric bands are half-open so adjacent bands never double-count.
+- **Auto keys are stable.** `auto` buckets derive from the dataset's **unnarrowed** base queryset (the [`queryset()`](#composing-on-a-dataset--the-queryset-seam) seam), so a *filtered* series returns the same buckets, zero-counted where empty — keys never dangle mid-pipeline.
+
+**Drilldown** — the rows behind a clicked bucket — re-apply the *same* bucket condition, so they reconcile with the count by construction:
+
+```python
+ds.rows(dimension=dim, bucket="slow")   # exactly the rows in the "slow" band
+```
+
+Over REST/MCP: the series/rows routes take the field via `dimension`/`group_by` plus `buckets` (a JSON array — MCP passes it natively; REST URL-encodes it) or `auto=true&auto_limit=&label_field=`; the rows route's `bucket=<key>` is the drilldown.
+
 ## Inspecting a dataset to build an interface — the tricks
 
 This is the section that matters for a builder. **`schema()` is your entire source of truth** — pull names, types, roles, and widgets from it and the UI writes itself.
