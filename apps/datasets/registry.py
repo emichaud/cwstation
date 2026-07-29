@@ -47,7 +47,7 @@ class DatasetDef:
     # MCP access tier for the generated tool. Secure default: staff-only.
     mcp_access: str = "staff"
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.label:
             self.label = self.key.replace("_", " ").title()
 

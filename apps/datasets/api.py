@@ -15,12 +15,12 @@ Routes:
 from __future__ import annotations
 
 from django.conf import settings
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpRequest, JsonResponse
 from django.views import View
 
 from apps.smallstack.mixins import StaffRequiredMixin
 
-from .core import get_dataset, list_datasets
+from .core import Dataset, get_dataset, list_datasets
 from .registry import get_def
 
 _RESERVED = {"ordering", "limit", "format", "dimension", "measure", "agg"}
@@ -30,22 +30,24 @@ def _enabled() -> bool:
     return getattr(settings, "SMALLSTACK_DATASETS_ENABLED", True)
 
 
-def _require_api_dataset(key: str):
+def _require_api_dataset(key: str) -> Dataset:
     dfn = get_def(key)
     if dfn is None or not dfn.enable_api:
         raise Http404("dataset not found")
-    return get_dataset(key)
+    ds = get_dataset(key)
+    assert ds is not None  # guaranteed by the get_def check above
+    return ds
 
 
 class DatasetListView(StaffRequiredMixin, View):
-    def get(self, request):
+    def get(self, request: HttpRequest) -> JsonResponse:
         if not _enabled():
             raise Http404
         return JsonResponse({"results": list_datasets(api_only=True)})
 
 
 class DatasetSchemaView(StaffRequiredMixin, View):
-    def get(self, request, key):
+    def get(self, request: HttpRequest, key: str) -> JsonResponse:
         if not _enabled():
             raise Http404
         ds = _require_api_dataset(key)
@@ -53,7 +55,7 @@ class DatasetSchemaView(StaffRequiredMixin, View):
 
 
 class DatasetRowsView(StaffRequiredMixin, View):
-    def get(self, request, key):
+    def get(self, request: HttpRequest, key: str) -> JsonResponse:
         if not _enabled():
             raise Http404
         ds = _require_api_dataset(key)
@@ -68,7 +70,7 @@ class DatasetRowsView(StaffRequiredMixin, View):
 
 
 class DatasetSeriesView(StaffRequiredMixin, View):
-    def get(self, request, key):
+    def get(self, request: HttpRequest, key: str) -> JsonResponse:
         if not _enabled():
             raise Http404
         ds = _require_api_dataset(key)

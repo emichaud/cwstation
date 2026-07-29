@@ -8,19 +8,21 @@ editing help docs, or to preview what a retrieval call would return.
 
 from __future__ import annotations
 
-from django.core.management.base import BaseCommand
+from typing import Any
+
+from django.core.management.base import BaseCommand, CommandParser
 
 
 class Command(BaseCommand):
     help = "Sync the passage-level (RAG) help index from filesystem markdown."
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument(
             "--query",
             help="After indexing, run this query and print the top passages.",
         )
 
-    def handle(self, *args, **options):
+    def handle(self, *args: Any, **options: Any) -> None:
         from apps.help.search import search_help_chunks, sync_help_rag_index
 
         count = sync_help_rag_index()

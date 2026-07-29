@@ -21,6 +21,7 @@ from __future__ import annotations
 import inspect
 from typing import Any, Optional
 
+from django.db.models import QuerySet
 from django.http import HttpRequest, QueryDict
 
 from .registry import DatasetDef, all_defs, get_def
@@ -31,7 +32,7 @@ _SERIES_LIMIT_MAX = 500
 _ROWS_LIMIT_MAX = 500
 
 
-def _fake_request(user=None, query: str = "") -> HttpRequest:
+def _fake_request(user: Any = None, query: str = "") -> HttpRequest:
     """Minimal request so the pipeline helpers can read ``.user`` / ``.GET``."""
     req = HttpRequest()
     req.method = "GET"
@@ -41,7 +42,7 @@ def _fake_request(user=None, query: str = "") -> HttpRequest:
     return req
 
 
-def _label_for(model, name: str) -> str:
+def _label_for(model: type, name: str) -> str:
     try:
         return str(model._meta.get_field(name).verbose_name).capitalize()
     except Exception:
@@ -59,13 +60,13 @@ def _series_label(value: Any) -> str:
 class Dataset:
     """Runtime wrapper around a registered ``DatasetDef``."""
 
-    def __init__(self, dfn: DatasetDef):
+    def __init__(self, dfn: DatasetDef) -> None:
         self.dfn = dfn
         self.key = dfn.key
 
     # -- queryset / model ----------------------------------------------------
 
-    def _queryset(self, request=None):
+    def _queryset(self, request: HttpRequest | None = None) -> QuerySet:
         """Build the source queryset (lazy — no DB hit)."""
         fn = self.dfn.fn
         try:
@@ -75,7 +76,7 @@ class Dataset:
         return fn(request) if takes_arg else fn()
 
     @property
-    def model(self):
+    def model(self) -> type:
         return self._queryset().model
 
     # -- columns (DB-free) ---------------------------------------------------
@@ -148,7 +149,7 @@ class Dataset:
         filters: Optional[dict] = None,
         ordering: str = "",
         limit: int = 50,
-        request=None,
+        request: HttpRequest | None = None,
     ) -> list[dict]:
         from apps.smallstack.api import serialize
         from apps.smallstack.crud import (
@@ -189,7 +190,7 @@ class Dataset:
         measure: Optional[str] = None,
         agg: str = "count",
         limit: int = 50,
-        request=None,
+        request: HttpRequest | None = None,
     ) -> list[dict]:
         from django.db.models import Avg, Count, Max, Min, Sum
 
@@ -224,7 +225,7 @@ class Dataset:
 class _ConfigAdapter:
     """Presents the ``crud_config`` interface the pipeline helpers expect."""
 
-    def __init__(self, ds: Dataset):
+    def __init__(self, ds: Dataset) -> None:
         self._ds = ds
         self.model = ds.model
         self.ordering_fields = ds.column_names()
@@ -232,13 +233,13 @@ class _ConfigAdapter:
             name for name, typ in ds.columns() if typ in _MEASURE_TYPES
         ]
 
-    def _resolve_filter_fields(self):
+    def _resolve_filter_fields(self) -> list[str]:
         return self._ds.filter_field_names()
 
-    def _resolve_search_fields(self):
+    def _resolve_search_fields(self) -> list[str]:
         return []
 
-    def _get_list_fields(self):
+    def _get_list_fields(self) -> list[str]:
         return self._ds.column_names()
 
 

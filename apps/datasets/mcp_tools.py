@@ -15,6 +15,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from django.http import HttpRequest, QueryDict
+
 from .registry import DatasetDef, all_defs
 
 logger = logging.getLogger("smallstack.datasets")
@@ -66,8 +68,8 @@ def _input_schema(dfn: DatasetDef) -> dict[str, Any]:
     return {"type": "object", "properties": props, "additionalProperties": False}
 
 
-def _build_query_tool(tool, dfn: DatasetDef) -> None:
-    def handler(args: dict[str, Any], *, _key=dfn.key):
+def _build_query_tool(tool: Any, dfn: DatasetDef) -> None:
+    def handler(args: dict[str, Any], *, _key: str = dfn.key) -> dict[str, Any]:
         from apps.mcp.server import current_context
 
         from .core import get_dataset
@@ -114,9 +116,7 @@ def _build_query_tool(tool, dfn: DatasetDef) -> None:
     )(handler)
 
 
-def _fake_context_request(user):
-    from django.http import HttpRequest, QueryDict
-
+def _fake_context_request(user: Any) -> HttpRequest:
     req = HttpRequest()
     req.method = "GET"
     req.user = user
@@ -180,7 +180,7 @@ def register_dataset_tools(only_def: DatasetDef | None = None) -> int:
     return count
 
 
-def _list_datasets_handler(args: dict):
+def _list_datasets_handler(args: dict) -> dict[str, Any]:
     from .core import list_datasets
 
     # MCP surface advertises only the MCP-exposed datasets.
