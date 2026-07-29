@@ -21,7 +21,7 @@ from .registry import DatasetDef, all_defs
 
 logger = logging.getLogger("smallstack.datasets")
 
-_RESERVED = {"ordering", "limit", "group_by", "measure", "agg"}
+_RESERVED = {"ordering", "limit", "group_by", "scalar", "measure", "agg"}
 
 
 def _tool_name(key: str) -> str:
@@ -45,14 +45,21 @@ def _input_schema(dfn: DatasetDef) -> dict[str, Any]:
         "type": "string",
         "description": "Return a grouped series ([{label, value}]) by this dimension instead of rows.",
     }
+    props["scalar"] = {
+        "type": "boolean",
+        "description": (
+            "Return a single KPI number (one ungrouped aggregate, no group_by) "
+            "using measure + agg. Ignored when group_by is set."
+        ),
+    }
     props["measure"] = {
         "type": "string",
-        "description": "Numeric column to aggregate when group_by is set (omit to count rows).",
+        "description": "Numeric column to aggregate for a series/scalar (omit to count rows).",
     }
     props["agg"] = {
         "type": "string",
         "enum": ["count", "sum", "avg", "min", "max"],
-        "description": "Aggregation for the series (default count).",
+        "description": "Aggregation for the series/scalar (default count).",
     }
     props["ordering"] = {
         "type": "string",
@@ -81,26 +88,56 @@ def _build_query_tool(tool: Any, dfn: DatasetDef) -> None:
         ctx = current_context()
         request = _fake_context_request(getattr(ctx, "user", None))
 
-        group_by = (args.get("group_by") or "").strip()
-        if group_by:
-            series = ds.series(
-                group_by,
-                measure=(args.get("measure") or None),
-                agg=(args.get("agg") or "count"),
-                limit=args.get("limit") or 50,
-                request=request,
-            )
-            return {"key": _key, "mode": "series", "count": len(series), "series": series}
-
+        # Non-reserved args are filters — applied identically across rows,
+        # series and scalar so the same filter contract holds in every mode.
         filters = {
             k: v for k, v in args.items() if k not in _RESERVED and v not in (None, "")
         }
-        rows = ds.rows(
-            filters=filters,
-            ordering=(args.get("ordering") or ""),
-            limit=args.get("limit") or 50,
-            request=request,
-        )
+
+        group_by = (args.get("group_by") or "").strip()
+        if group_by:
+            try:
+                series = ds.series(
+                    group_by,
+                    measure=(args.get("measure") or None),
+                    agg=(args.get("agg") or "count"),
+                    limit=args.get("limit") or 50,
+                    filters=filters,
+                    request=request,
+                )
+            except ValueError as exc:
+                return {"error": str(exc)}
+            return {"key": _key, "mode": "series", "count": len(series), "series": series}
+
+        if args.get("scalar"):
+            try:
+                value = ds.scalar(
+                    measure=(args.get("measure") or None),
+                    agg=(args.get("agg") or "count"),
+                    filters=filters,
+                    request=request,
+                )
+            except ValueError as exc:
+                return {"error": str(exc)}
+            return {
+                "key": _key,
+                "mode": "scalar",
+                "agg": args.get("agg") or "count",
+                "measure": args.get("measure") or None,
+                "value": value,
+            }
+
+        # Expand every FK column so an agent sees names, not opaque pks.
+        try:
+            rows = ds.rows(
+                filters=filters,
+                ordering=(args.get("ordering") or ""),
+                limit=args.get("limit") or 50,
+                expand=sorted(ds.fk_column_names()),
+                request=request,
+            )
+        except ValueError as exc:
+            return {"error": str(exc)}
         return {"key": _key, "mode": "rows", "count": len(rows), "results": rows}
 
     desc = (

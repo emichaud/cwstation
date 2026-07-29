@@ -30,6 +30,24 @@ from .registry import DatasetDef, all_defs, get_def
 _MEASURE_TYPES = {"integer", "float", "decimal"}
 _SERIES_LIMIT_MAX = 500
 _ROWS_LIMIT_MAX = 500
+_AGG_NAMES = ("count", "sum", "avg", "min", "max")
+
+
+def _agg_func(agg: str, measure: Optional[str]):
+    """Return the aggregate expression for ``agg`` over ``measure``.
+
+    ``count`` (or a missing measure) counts rows; the others aggregate the
+    measure column. ``agg`` is assumed validated by the caller.
+    """
+    from django.db.models import Avg, Count, Max, Min, Sum
+
+    if agg == "count" or not measure:
+        return Count("id")
+    return {"sum": Sum, "avg": Avg, "min": Min, "max": Max}[agg](measure)
+
+
+def _round_value(val: Any) -> Any:
+    return round(val, 2) if isinstance(val, float) else val
 
 
 def _fake_request(user: Any = None, query: str = "") -> HttpRequest:
@@ -103,6 +121,10 @@ class Dataset:
     def column_names(self) -> list[str]:
         return [name for name, _ in self.columns()]
 
+    def fk_column_names(self) -> set[str]:
+        """Names of columns the schema classifies as foreign keys."""
+        return {name for name, typ in self.columns() if typ == "fk"}
+
     def filter_field_names(self) -> list[str]:
         if self.dfn.filters is not None:
             return list(self.dfn.filters)
@@ -141,6 +163,33 @@ class Dataset:
             "filters": filters,
         }
 
+    # -- shared filter application (one contract for rows/series/scalar) ------
+
+    def _filtered_qs(
+        self,
+        request: HttpRequest | None,
+        filters: Optional[dict],
+    ) -> QuerySet:
+        """Source queryset with *filters* applied via the CRUD list pipeline.
+
+        The single filter-application path shared by ``rows``, ``series`` and
+        ``scalar`` — so all three read paths honour the same filter contract
+        (an active builder filter reduces the table, the chart *and* the KPI).
+        Unknown filter keys are tolerated (ignored) exactly as the list view
+        tolerates them.
+        """
+        from apps.smallstack.crud import _apply_list_filters as apply_filters
+
+        qs = self._queryset(request)
+        if filters:
+            pairs = "&".join(
+                f"{k}={v}" for k, v in filters.items() if v not in (None, "")
+            )
+            if pairs:
+                filter_req = _fake_request(getattr(request, "user", None), pairs)
+                qs = apply_filters(qs, filter_req, _ConfigAdapter(self))
+        return qs
+
     # -- rows (sub-filtering reduces the row count) --------------------------
 
     def rows(
@@ -149,26 +198,15 @@ class Dataset:
         filters: Optional[dict] = None,
         ordering: str = "",
         limit: int = 50,
+        expand: Optional[list[str]] = None,
         request: HttpRequest | None = None,
     ) -> list[dict]:
         from apps.smallstack.api import serialize
         from apps.smallstack.crud import (
-            _apply_list_filters as apply_filters,
-        )
-        from apps.smallstack.crud import (
             _apply_ordering_fields as apply_ordering,
         )
 
-        qs = self._queryset(request)
-        cfg = _ConfigAdapter(self)
-
-        if filters:
-            pairs = "&".join(
-                f"{k}={v}" for k, v in filters.items() if v not in (None, "")
-            )
-            if pairs:
-                filter_req = _fake_request(getattr(request, "user", None), pairs)
-                qs = apply_filters(qs, filter_req, cfg)
+        qs = self._filtered_qs(request, filters)
 
         if ordering:
             qs = apply_ordering(qs, ordering, set(self.column_names()))
@@ -179,30 +217,82 @@ class Dataset:
             limit = 50
 
         field_names = self.column_names()
-        return [serialize(obj, field_names, [], set()) for obj in qs[:limit]]
+
+        # A computed/annotated dataset (``.values(...).annotate(...)``) yields
+        # plain dicts, not model instances — they have no ``.pk`` for
+        # ``serialize`` and are already the shape a table wants. Return them
+        # projected onto the declared columns (plus any annotations they carry).
+        if getattr(qs.query, "values_select", None):
+            return [self._project_dict_row(row, field_names) for row in qs[:limit]]
+
+        # Only expand FK columns the schema actually knows about, so a bad
+        # ``expand`` param can never raise inside ``serialize``.
+        expand_fields = self.fk_column_names() & set(expand or [])
+        return [
+            serialize(obj, field_names, [], expand_fields) for obj in qs[:limit]
+        ]
+
+    @staticmethod
+    def _project_dict_row(row: dict, field_names: list[str]) -> dict:
+        """Shape a values-queryset dict into a stable row.
+
+        Declared columns come first (missing keys → ``None``); any extra
+        annotation keys the queryset carries are appended so callers still see
+        aggregates like ``item_count`` even when they weren't declared columns.
+        """
+        out = {name: row.get(name) for name in field_names}
+        for key, val in row.items():
+            if key not in out:
+                out[key] = val
+        return out
 
     # -- series (group-by rollup → [{label, value}] for bar/pie) -------------
 
     def series(
         self,
-        dimension: str,
+        dimension: Optional[str] = None,
         *,
         measure: Optional[str] = None,
         agg: str = "count",
         limit: int = 50,
+        filters: Optional[dict] = None,
         request: HttpRequest | None = None,
     ) -> list[dict]:
-        from django.db.models import Avg, Count, Max, Min, Sum
+        """Grouped rollup → ``[{label, value}]`` for bar/pie.
 
-        funcs = {"count": Count, "sum": Sum, "avg": Avg, "min": Min, "max": Max}
-        if agg not in funcs:
+        ``filters`` are applied through the same path as :meth:`rows` (one
+        filter contract across all three read paths) so the chart reflects the
+        builder's active filters.
+
+        With ``dimension=None`` this collapses to a single **ungrouped**
+        aggregate (the KPI/scalar path): one DB round-trip, one row whose label
+        is the agg name — see :meth:`scalar` for the bare-number convenience.
+        """
+        if agg not in _AGG_NAMES:
             agg = "count"
 
-        qs = self._queryset(request)
-        if agg == "count" or not measure:
-            annotated = qs.values(dimension).annotate(_value=Count("id"))
-        else:
-            annotated = qs.values(dimension).annotate(_value=funcs[agg](measure))
+        # Validate dimension/measure against the declared columns *before*
+        # touching the ORM, so a bad param yields a clean ValueError (mapped to
+        # HTTP 400 at the view boundary) rather than a raw FieldError / 500.
+        # Mirrors how ``rows()`` already tolerates unknown ordering/filter keys.
+        valid = set(self.column_names())
+        if dimension is not None and dimension not in valid:
+            raise ValueError(
+                f"unknown dimension {dimension!r}; valid: {sorted(valid)}"
+            )
+        if measure and measure not in valid:
+            raise ValueError(
+                f"unknown measure {measure!r}; valid: {sorted(valid)}"
+            )
+
+        qs = self._filtered_qs(request, filters)
+
+        # KPI / scalar path — no GROUP BY, single aggregate over the filtered set.
+        if dimension is None:
+            value = qs.aggregate(_value=_agg_func(agg, measure))["_value"] or 0
+            return [{"label": agg, "value": _round_value(value)}]
+
+        annotated = qs.values(dimension).annotate(_value=_agg_func(agg, measure))
         annotated = annotated.order_by(dimension)
 
         try:
@@ -210,16 +300,60 @@ class Dataset:
         except (TypeError, ValueError):
             limit = 50
 
+        rows = list(annotated[:limit])
+
+        # When the dimension is an FK, its group-by values are bare pks — resolve
+        # them to the related object's ``str()`` so charts read "Electrical",
+        # not "2". Single extra query (pk→name map), not N.
+        label_map = self._fk_label_map(dimension, rows)
+
         out = []
-        for row in annotated[:limit]:
-            val = row["_value"]
+        for row in rows:
+            raw = row.get(dimension)
+            label = label_map.get(raw) if label_map else None
             out.append(
                 {
-                    "label": _series_label(row.get(dimension)),
-                    "value": round(val, 2) if isinstance(val, float) else val,
+                    "label": label if label is not None else _series_label(raw),
+                    "value": _round_value(row["_value"]),
                 }
             )
         return out
+
+    # -- scalar (ungrouped aggregate → a single number for a KPI tile) --------
+
+    def scalar(
+        self,
+        *,
+        measure: Optional[str] = None,
+        agg: str = "count",
+        filters: Optional[dict] = None,
+        request: HttpRequest | None = None,
+    ) -> Any:
+        """One number for a KPI tile — an ungrouped ``qs.aggregate()``.
+
+        ``agg="count"`` (or no ``measure``) counts rows; otherwise the measure
+        column is aggregated. ``filters`` are applied through the same path as
+        :meth:`rows`, so the KPI reflects the builder's active filters. Rolls up
+        in the database, not in Python — the first-class path the "KPI tile"
+        affordance needs (no GROUP BY).
+        """
+        return self.series(
+            None, measure=measure, agg=agg, filters=filters, request=request
+        )[0]["value"]
+
+    def _fk_label_map(self, dimension: str, rows: list[dict]) -> dict:
+        """Map FK pks in *rows* to the related object's ``str()``. ``{}`` if not an FK."""
+        if dimension not in self.fk_column_names():
+            return {}
+        try:
+            field = self.model._meta.get_field(dimension)
+            related = field.related_model
+        except Exception:
+            return {}
+        pks = [r.get(dimension) for r in rows if r.get(dimension) is not None]
+        if not pks:
+            return {}
+        return {obj.pk: str(obj) for obj in related.objects.filter(pk__in=pks)}
 
 
 class _ConfigAdapter:

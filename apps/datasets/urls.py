@@ -7,6 +7,7 @@ from django.urls import path
 from .api import (
     DatasetListView,
     DatasetRowsView,
+    DatasetScalarView,
     DatasetSchemaView,
     DatasetSeriesView,
 )
@@ -18,5 +19,6 @@ urlpatterns = [
     # Specific sub-routes before the catch-all <key>/ rows route.
     path("<str:key>/schema/", DatasetSchemaView.as_view(), name="schema"),
     path("<str:key>/series/", DatasetSeriesView.as_view(), name="series"),
+    path("<str:key>/scalar/", DatasetScalarView.as_view(), name="scalar"),
     path("<str:key>/", DatasetRowsView.as_view(), name="rows"),
 ]

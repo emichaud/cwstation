@@ -11,12 +11,16 @@ import asyncio
 
 import pytest
 from asgiref.sync import async_to_sync
+from django.contrib.auth import get_user_model
+from django.db.models import Count, Sum
 
 from apps.activity.models import RequestLog
 from apps.datasets.core import get_dataset, list_datasets
 from apps.datasets.registry import dataset
 
 pytestmark = pytest.mark.django_db
+
+User = get_user_model()
 
 
 # A test dataset registered at import time (unique key, harmless if it lingers).
@@ -30,6 +34,21 @@ pytestmark = pytest.mark.django_db
 )
 def _t_requestlog(request=None):
     return RequestLog.objects.all()
+
+
+# A computed/annotated dataset (.values().annotate()) — the shape that used to
+# crash .rows() (values-queryset dicts have no .pk).
+@dataset(
+    "t_by_method",
+    label="Requests by method",
+    description="Computed rollup for dataset tests.",
+    enable_api=True,
+    columns=[("method", "text"), ("hits", "integer"), ("total_ms", "integer")],
+)
+def _t_by_method(request=None):
+    return RequestLog.objects.values("method").annotate(
+        hits=Count("id"), total_ms=Sum("response_time_ms")
+    )
 
 
 def _seed():
@@ -110,6 +129,139 @@ def test_series_sum_measure():
     assert as_dict == {"GET": 33, "POST": 40}
 
 
+# --- scalar / KPI (ungrouped aggregate → a single number) -------------------
+
+
+def test_scalar_counts_rows():
+    """Round-2 regression: scalar() returns one number, no GROUP BY."""
+    _seed()
+    assert get_dataset("t_requestlog").scalar() == 4
+
+
+def test_scalar_sum_measure():
+    _seed()
+    total = get_dataset("t_requestlog").scalar(measure="response_time_ms", agg="sum")
+    assert total == 10 + 11 + 12 + 40  # 73
+
+
+def test_series_none_dimension_is_scalar():
+    """series(None) collapses to a single ungrouped [{label, value}] row."""
+    _seed()
+    out = get_dataset("t_requestlog").series(None, measure="response_time_ms", agg="sum")
+    assert out == [{"label": "sum", "value": 73}]
+
+
+def test_scalar_empty_dataset_returns_zero():
+    """No rows → 0, not None (a KPI tile should show a number)."""
+    assert get_dataset("t_requestlog").scalar(measure="response_time_ms", agg="sum") == 0
+
+
+# --- one filter contract across rows / series / scalar (Round-3 regression) --
+
+
+def test_scalar_applies_filters():
+    """Round-3 regression: scalar(filters=) matches the filtered row count."""
+    _seed()
+    ds = get_dataset("t_requestlog")
+    assert ds.scalar(agg="count") == 4
+    # Filtered scalar == count of the filtered rows.
+    filtered_rows = ds.rows(filters={"method": "GET"}, limit=100)
+    assert ds.scalar(agg="count", filters={"method": "GET"}) == len(filtered_rows) == 3
+
+
+def test_series_applies_filters():
+    """Round-3 regression: a filter reduces the series total."""
+    _seed()
+    ds = get_dataset("t_requestlog")
+    unfiltered = ds.series("status_code")
+    filtered = ds.series("status_code", filters={"method": "GET"})
+    assert sum(s["value"] for s in unfiltered) == 4
+    assert sum(s["value"] for s in filtered) == 3  # POST row dropped
+    assert sum(s["value"] for s in filtered) < sum(s["value"] for s in unfiltered)
+
+
+def test_series_scalar_filters_match_rows_contract():
+    """The same filter dict reduces rows, series and scalar identically."""
+    _seed()
+    ds = get_dataset("t_requestlog")
+    flt = {"method": "GET"}
+    n_rows = len(ds.rows(filters=flt, limit=100))
+    n_series = sum(s["value"] for s in ds.series("status_code", filters=flt))
+    n_scalar = ds.scalar(agg="count", filters=flt)
+    assert n_rows == n_series == n_scalar == 3
+
+
+# --- computed (.values().annotate()) datasets -------------------------------
+
+
+def test_rows_on_values_annotate_dataset():
+    """Round-1 regression: .rows() on a values-queryset returns the dicts, no crash."""
+    _seed()
+    rows = get_dataset("t_by_method").rows(limit=10)
+    by_method = {r["method"]: r for r in rows}
+    assert by_method["GET"]["hits"] == 3
+    assert by_method["GET"]["total_ms"] == 33  # 10+11+12
+    assert by_method["POST"]["hits"] == 1
+    # Declared columns are present and in order.
+    assert set(rows[0].keys()) >= {"method", "hits", "total_ms"}
+
+
+# --- FK expand (rows) + FK label resolution (series) ------------------------
+
+
+def _seed_with_user():
+    u = User.objects.create(username="alice")
+    for i in range(3):
+        RequestLog.objects.create(
+            path=f"/a/{i}", method="GET", status_code=200,
+            response_time_ms=10 + i, user=u,
+        )
+    RequestLog.objects.create(
+        path="/b", method="POST", status_code=201, response_time_ms=40, user=u
+    )
+    return u
+
+
+def test_rows_fk_default_is_bare_pk():
+    u = _seed_with_user()
+    rows = get_dataset("t_requestlog").rows(limit=1)
+    assert rows[0]["user"] == u.pk
+
+
+def test_rows_fk_expand_returns_id_name():
+    u = _seed_with_user()
+    rows = get_dataset("t_requestlog").rows(limit=1, expand=["user"])
+    assert rows[0]["user"] == {"id": u.pk, "name": "alice"}
+
+
+def test_rows_expand_ignores_non_fk_and_unknown():
+    """A bad/non-FK expand param is silently dropped, never raises."""
+    _seed_with_user()
+    rows = get_dataset("t_requestlog").rows(limit=1, expand=["method", "nope"])
+    assert isinstance(rows[0]["method"], str)  # unchanged, not expanded
+
+
+def test_series_fk_dimension_labels_resolve_to_name():
+    _seed_with_user()
+    series = get_dataset("t_requestlog").series("user")
+    assert series == [{"label": "alice", "value": 4}]
+
+
+# --- series validation (unknown dimension/measure → ValueError) -------------
+
+
+def test_series_unknown_dimension_raises_valueerror():
+    _seed()
+    with pytest.raises(ValueError):
+        get_dataset("t_requestlog").series("nope")
+
+
+def test_series_unknown_measure_raises_valueerror():
+    _seed()
+    with pytest.raises(ValueError):
+        get_dataset("t_requestlog").series("method", measure="nope", agg="sum")
+
+
 # --- MCP tools --------------------------------------------------------------
 
 
@@ -166,3 +318,197 @@ def test_query_dataset_tool_series_mode():
     assert out["mode"] == "series"
     as_dict = {s["label"]: s["value"] for s in out["series"]}
     assert as_dict == {"GET": 3, "POST": 1}
+
+
+def test_query_dataset_tool_bad_group_by_returns_error():
+    """Round-1 regression: bad group_by → clean {error}, not an uncaught FieldError."""
+    _seed()
+    out = _call_handler("query_dataset_t_requestlog", {"group_by": "nope"})
+    assert "error" in out
+
+
+def test_query_dataset_tool_scalar_mode():
+    """Round-2 regression: scalar=true → one KPI number (no group_by)."""
+    _seed()
+    out = _call_handler(
+        "query_dataset_t_requestlog",
+        {"scalar": True, "agg": "sum", "measure": "response_time_ms"},
+    )
+    assert out["mode"] == "scalar"
+    assert out["value"] == 10 + 11 + 12 + 40  # 73
+
+
+def test_query_dataset_tool_scalar_input_advertised():
+    from apps.mcp.server import TOOL_REGISTRY
+
+    props = TOOL_REGISTRY["query_dataset_t_requestlog"].input_schema["properties"]
+    assert "scalar" in props
+
+
+def test_query_dataset_tool_series_honors_filters():
+    """Round-3 regression: filter args reduce the series in group_by mode."""
+    _seed()
+    out = _call_handler(
+        "query_dataset_t_requestlog", {"group_by": "status_code", "method": "GET"}
+    )
+    assert out["mode"] == "series"
+    assert sum(s["value"] for s in out["series"]) == 3  # only the 3 GET rows
+
+
+def test_query_dataset_tool_scalar_honors_filters():
+    """Round-3 regression: filter args reduce the scalar count."""
+    _seed()
+    out = _call_handler(
+        "query_dataset_t_requestlog", {"scalar": True, "agg": "count", "method": "GET"}
+    )
+    assert out["mode"] == "scalar"
+    assert out["value"] == 3
+
+
+# --- REST surface: Bearer-or-session auth (Round-1 regression) --------------
+
+
+@pytest.fixture
+def _api_token(db):
+    from apps.smallstack.models import APIToken
+
+    admin = User.objects.create_user(
+        username="rest_admin", password="x", is_staff=True
+    )
+    _token, raw = APIToken.create_token(admin, name="test")
+    return raw
+
+
+def test_rest_rejects_anonymous_with_json_401(client):
+    """No credential → JSON 401, never a 302 redirect to an HTML login page."""
+    resp = client.get("/smallstack/datasets/")
+    assert resp.status_code == 401
+    assert resp["Content-Type"].startswith("application/json")
+
+
+def test_rest_accepts_bearer_token(client, _api_token):
+    """A valid Bearer token reaches the datasets surface (the headline blocker)."""
+    resp = client.get(
+        "/smallstack/datasets/",
+        HTTP_AUTHORIZATION=f"Bearer {_api_token}",
+    )
+    assert resp.status_code == 200
+    keys = {d["key"] for d in resp.json()["results"]}
+    assert "t_requestlog" in keys
+
+
+def test_rest_bearer_non_staff_gets_json_403(client, db):
+    from apps.smallstack.models import APIToken
+
+    user = User.objects.create_user(username="plain", password="x", is_staff=False)
+    _token, raw = APIToken.create_token(user, name="t", access_level="staff")
+    resp = client.get(
+        "/smallstack/datasets/", HTTP_AUTHORIZATION=f"Bearer {raw}"
+    )
+    assert resp.status_code == 403
+    assert resp["Content-Type"].startswith("application/json")
+
+
+def test_rest_series_bad_dimension_returns_400(client, _api_token):
+    _seed()
+    resp = client.get(
+        "/smallstack/datasets/t_requestlog/series/?dimension=nope",
+        HTTP_AUTHORIZATION=f"Bearer {_api_token}",
+    )
+    assert resp.status_code == 400
+
+
+def test_rest_rows_expand_returns_id_name(client, _api_token):
+    _seed_with_user()
+    resp = client.get(
+        "/smallstack/datasets/t_requestlog/?expand=user&limit=1",
+        HTTP_AUTHORIZATION=f"Bearer {_api_token}",
+    )
+    assert resp.status_code == 200
+    user_val = resp.json()["results"][0]["user"]
+    assert set(user_val.keys()) == {"id", "name"}
+
+
+# --- REST: CSV export + scalar route (Round-2 regressions) ------------------
+
+
+def test_rest_rows_csv_export(client, _api_token):
+    """Round-2: ?format=csv streams text/csv with a header row + attachment."""
+    _seed()
+    resp = client.get(
+        "/smallstack/datasets/t_requestlog/?format=csv&limit=100",
+        HTTP_AUTHORIZATION=f"Bearer {_api_token}",
+    )
+    assert resp.status_code == 200
+    assert resp["Content-Type"].startswith("text/csv")
+    assert "attachment" in resp["Content-Disposition"]
+    assert "t_requestlog.csv" in resp["Content-Disposition"]
+    lines = resp.content.decode().splitlines()
+    assert "method" in lines[0].split(",")  # header carries the schema columns
+    assert len(lines) >= 2  # header + at least one data row
+
+
+def test_rest_scalar_route(client, _api_token):
+    """Round-2: /<key>/scalar/ returns a single {value}, no GROUP BY."""
+    _seed()
+    resp = client.get(
+        "/smallstack/datasets/t_requestlog/scalar/?agg=count",
+        HTTP_AUTHORIZATION=f"Bearer {_api_token}",
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["agg"] == "count"
+    assert isinstance(body["value"], int)
+
+
+def test_rest_series_no_dimension_is_scalar(client, _api_token):
+    """Round-2: /series/ with no dimension collapses to a scalar (no 400)."""
+    _seed()
+    resp = client.get(
+        "/smallstack/datasets/t_requestlog/series/?agg=sum&measure=response_time_ms",
+        HTTP_AUTHORIZATION=f"Bearer {_api_token}",
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["dimension"] is None
+    assert body["series"][0]["label"] == "sum"
+
+
+def test_rest_scalar_bad_measure_returns_400(client, _api_token):
+    _seed()
+    resp = client.get(
+        "/smallstack/datasets/t_requestlog/scalar/?agg=sum&measure=nope",
+        HTTP_AUTHORIZATION=f"Bearer {_api_token}",
+    )
+    assert resp.status_code == 400
+
+
+def test_rest_series_applies_query_filters(client, _api_token):
+    """Round-3 regression: ?dimension=X&<filter>=<val> changes the series.
+
+    The seed has GET + POST rows; grouping status_code and filtering method=POST
+    must return only the POST bucket (status 201), proving the filter is applied.
+    (Uses relative comparison — the request-log middleware also logs the client's
+    own GETs, so absolute counts aren't asserted.)
+    """
+    _seed()
+    base = "/smallstack/datasets/t_requestlog/series/?dimension=status_code"
+    auth = {"HTTP_AUTHORIZATION": f"Bearer {_api_token}"}
+    all_labels = {s["label"] for s in client.get(base, **auth).json()["series"]}
+    post_labels = {
+        s["label"] for s in client.get(base + "&method=POST", **auth).json()["series"]
+    }
+    # Seeded POST row has status 201; the 200 bucket must drop out under the filter.
+    assert "201" in post_labels
+    assert post_labels != all_labels
+    assert "200" not in post_labels
+
+
+def test_rest_scalar_applies_query_filters(client, _api_token):
+    """Round-3 regression: a filter on the scalar route lowers the count."""
+    _seed()
+    auth = {"HTTP_AUTHORIZATION": f"Bearer {_api_token}"}
+    base = "/smallstack/datasets/t_requestlog/scalar/?agg=count"
+    total = client.get(base, **auth).json()["value"]
+    post_only = client.get(base + "&method=POST", **auth).json()["value"]
+    assert post_only < total
