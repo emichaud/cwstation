@@ -32,8 +32,21 @@ Key + flags reference:
 | `label`, `description` | Human text shown in the picker + tool description |
 | `enable_api` | Publish `GET /smallstack/datasets/<key>/…` (staff-gated) |
 | `enable_mcp` | Publish a `query_dataset_<key>` MCP tool; `mcp_access` sets the tier (default `"staff"`) |
-| `filters` | Restrict which columns are filterable (default: all) |
+| `filterable` | Restrict which columns MAY be filtered (default: all). *(The old `filters=` decorator kwarg is a deprecated alias — still works, warns.)* |
 | `columns` | Override the column list — needed only for annotations (see [Computed columns](#computed-columns)) |
+| `measures` | Declared ratio measures `[(name, numerator, denominator, fmt)]` computed as sum/sum (see [Declared ratio measures](#declared-ratio-measures)) |
+
+> **`filterable` (declaration) vs `filters` (runtime) — two different things.** `@dataset(filterable=["status"])` says *which* columns may be filtered. `ds.rows(filters={"status": "open"})` passes the *active* filter values. The runtime `filters=` on `rows()/series()/scalar()` keeps its name.
+
+## Naming — `dataset` is reserved
+
+`dataset` is standard BI vocabulary, so it's tempting to reuse — don't. This framework primitive owns the generic noun; **name your domain things specifically** so nothing collides with it (in code, app labels, or URLs):
+
+- a metric glossary → `MetricDefinition` (not `DataSet`)
+- a saved chart/query definition → a "query" (not a "dataset")
+- a raw-export folder → `source_exports/` (not `datasets/`)
+
+The framework app is labelled `smallstack_datasets` precisely so a downstream app *can* still be labelled `datasets` without an `INSTALLED_APPS` clash — but keeping the concept-name clear avoids confusion regardless.
 
 ## The four operations a UI is built from
 
@@ -60,6 +73,41 @@ GET /smallstack/datasets/<key>/scalar/?measure=hours_spent&agg=sum   → {value}
 ```
 
 `scalar()` (and the `/scalar/` route, or `/series/` with no `dimension`) is an ungrouped `qs.aggregate()` — one DB round-trip, one number. `agg="count"` or no `measure` counts rows; an empty set yields `0`.
+
+### Paging a table — `offset` + `count()`
+
+`rows()` takes `limit` **and** `offset` (applied after ordering; invalid values coerce to the default), and `ds.count(request, filters)` returns the full matching total so a table can show "showing 1–50 of N":
+
+```python
+ds.rows(filters=flt, ordering="-created_at", limit=50, offset=100)  # page 3
+ds.count(filters=flt)                                               # → total for paging
+ds.rows(filters=flt, limit=None)                                    # whole set (no cap)
+```
+
+Over REST the rows route grows `?offset=` and returns an **envelope** `{key, count, total, offset, results}` — `count` is this page's length, `total` is the full matching count. CSV export (`?format=csv`) is the **whole filtered set**, ignoring paging unless you pass `limit`/`offset` explicitly.
+
+### Declared ratio measures
+
+Role inference offers `sum/avg/min/max/count` over numeric columns — but the measures desks chart are usually **ratios** (CSAT % = great/total, abandon rate). Averaging a per-row percentage is the classic wrong answer; a ratio must be recomputed from summed parts. Declare it once:
+
+```python
+@dataset("surveys", measures=[
+    ("csat_pct", "great", "total", "percent"),   # name, numerator, denominator, fmt
+    ("abandon_rate", "abandoned", "offered", "ratio"),
+])
+def surveys(request=None):
+    return Survey.objects.all()
+```
+
+`series(dimension, measure="csat_pct")` and `scalar(measure="csat_pct")` compute `sum(numerator) / sum(denominator)` **in the database** per group (`× 100` for `percent`), returning **`None`** (not 0) for an empty denominator — never the average of per-row ratios. Declared measures appear in `schema()["columns"]` with `role: "measure", computed: true`, and the MCP tool advertises them as valid `measure` values. `agg` is ignored for a declared measure (the ratio defines its own aggregation).
+
+### Explicit date ranges
+
+Any date/datetime column accepts half-open bounds — `<col>__gte` / `<col>__lt` (ISO date or datetime) — anywhere filters are accepted (rows/series/scalar, in-process and REST/MCP), alongside the `today/week/month/year` presets. Explicit bounds **win** if both are sent for the same column; unparseable values are ignored. `schema()`'s filter entry for a date column carries `"range": true` so a UI can offer a date-range picker.
+
+```python
+ds.rows(filters={"created_at__gte": "2026-07-01", "created_at__lt": "2026-07-08"})  # one week
+```
 
 ## Inspecting a dataset to build an interface — the tricks
 
@@ -146,6 +194,8 @@ Over REST the contract is the same: any non-reserved query param on the rows, `s
 
 So a builder can be fully data-driven: read schema → collect user choices keyed by `name` → post the same filter set to whichever endpoint the widget needs. No translation layer.
 
+**The flat-filter invariant (stable across releases).** A `filters` dict is always a **flat, string-keyed `{name: scalar}` mapping** — the serializable query-param shape. This is deliberate and guaranteed: stored slice descriptors, saved dashboard links, and agent calls all round-trip through `urlencode`, so the contract can't quietly become nested. Richer filtering arrives only as **new param spellings** (e.g. a future `created_at__gte=`), never as nested objects replacing existing keys.
+
 ### Trick 5 — probe cheaply, fetch lazily
 
 - `list_datasets()` is **metadata only** (no DB, no schema probe) — safe to call on every page load for the picker.
@@ -173,6 +223,18 @@ Every operation works on a computed dataset: `list_datasets()`, `schema()`, `ser
 
 Set `enable_mcp=True` and the dataset becomes a `query_dataset_<key>` tool: the agent passes filter args, gets rows — or passes `group_by` (+ optional `measure`/`agg`) for a `[{label, value}]` series, or `scalar=true` (+ `measure`/`agg`, no `group_by`) for a single KPI number. The filter args apply in **all three** modes (rows, series, scalar), so a grouped or aggregated answer respects the same filters. FK columns come back expanded (`{id, name}`) so the agent reads names, not pks. A site-level `list_datasets` tool lets the agent discover what's queryable. Secure default is `mcp_access="staff"`; widen deliberately. This is the same "declare once, surface everywhere" pattern as `enable_api`/`enable_mcp` on a CRUDView.
 
+## Composing on a dataset — the `queryset()` seam
+
+When a higher layer needs to build *on* a dataset (its own aggregation, annotation, or pagination) rather than consume `rows()`/`series()`, use the public **`queryset()`** method — don't reach into internals:
+
+```python
+ds = get_dataset("queued_inbound_calls")
+qs = ds.queryset(request, filters={"status": "unanswered"})   # → a plain QuerySet
+# you own everything from here: qs.aggregate(...), your own paging, etc.
+```
+
+`queryset(request=None, filters=None)` returns the dataset's queryset with the standard filter pipeline applied and **nothing else** — no serialization, limit, ordering, or expand. Same filter contract as `rows()` (unknown keys ignored); per-user scoping via the dataset function's `request` arg happens inside. Guaranteed: `ds.queryset(r, f).count() == len(ds.rows(request=r, filters=f))` for the same filters (unlimited). This is the supported seam for a reporter/BI layer that treats datasets as its source of blessed, filterable scopes.
+
 ## When to reach for a dataset vs. a CRUDView
 
 - **Dataset** — read-only, analytical: "a filtered table to slice, chart, or export." No edit/detail pages. Can join/annotate/aggregate; source is any queryset.
@@ -187,7 +249,7 @@ They compose: a dataset can return a queryset over the same model a CRUDView man
 - REST is **staff-only** by default (secure default for an admin data surface): an authenticated non-staff caller gets a JSON 403. For a non-staff end-user builder, build your own view over `get_dataset(key)` with the right auth + tenancy scoping — see [`building-a-user-facing-site.md`](building-a-user-facing-site.md). Scope per-user data inside the dataset function via its `request` arg.
 - `series()`/`scalar()` validate `dimension`/`measure` against the dataset's columns: an unknown name raises `ValueError` in-process and returns a JSON **400** over REST (not a 500). `rows()` still silently ignores unknown ordering/filter/expand keys.
 - **CSV export**: the rows route honours `?format=csv` — same rows + filters, streamed as a `text/csv` attachment (`<key>.csv`) with the schema columns as the header (expanded FK cells render as the name). That's the "export screen" path; no extra config.
-- `filters` defaults to **all columns**. Numeric columns filter by exact match; text columns with many distinct values fall back to substring (`icontains`); low-cardinality columns become dropdowns.
+- `filterable` defaults to **all columns**. Numeric columns filter by exact match; text columns with many distinct values fall back to substring (`icontains`); low-cardinality columns become dropdowns.
 - Base ships **no datasets** — the app is the seam only. Declare yours in an app's `datasets.py`.
 
 ## Anti-patterns

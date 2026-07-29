@@ -50,6 +50,40 @@ def _round_value(val: Any) -> Any:
     return round(val, 2) if isinstance(val, float) else val
 
 
+def _ratio_expr(spec: dict):
+    """DB expression for a declared ratio: ``sum(num) / sum(denom)`` (×100 for
+    percent). ``NullIf(denom, 0)`` makes an empty-denominator group evaluate to
+    NULL → None, so the ratio is recomputed from summed parts, never averaged."""
+    from django.db.models import ExpressionWrapper, FloatField, Sum, Value
+    from django.db.models.functions import Cast, NullIf
+
+    mult = 100.0 if spec.get("fmt") == "percent" else 1.0
+    return ExpressionWrapper(
+        Cast(Sum(spec["num"]), FloatField()) * mult / NullIf(Sum(spec["denom"]), Value(0)),
+        output_field=FloatField(),
+    )
+
+
+def _parse_date_bound(raw: Any) -> Any:
+    """Parse an ISO date or datetime string for a ``__gte``/``__lt`` bound.
+    Returns None on anything unparseable (garbage is ignored, not an error)."""
+    from datetime import date, datetime
+
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        pass
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        return None
+
+
 def _fake_request(user: Any = None, query: str = "") -> HttpRequest:
     """Minimal request so the pipeline helpers can read ``.user`` / ``.GET``."""
     req = HttpRequest()
@@ -126,9 +160,18 @@ class Dataset:
         return {name for name, typ in self.columns() if typ == "fk"}
 
     def filter_field_names(self) -> list[str]:
-        if self.dfn.filters is not None:
-            return list(self.dfn.filters)
+        if self.dfn.filterable is not None:
+            return list(self.dfn.filterable)
         return self.column_names()
+
+    def declared_measures(self) -> dict[str, dict]:
+        """Declared ratio measures as ``{name: {num, denom, fmt}}`` ("" if none)."""
+        out: dict[str, dict] = {}
+        for entry in self.dfn.measures or []:
+            name, num, denom = entry[0], entry[1], entry[2]
+            fmt = entry[3] if len(entry) > 3 else "ratio"
+            out[name] = {"num": num, "denom": denom, "fmt": fmt}
+        return out
 
     # -- schema (may hit DB via _build_filter_meta's distinct-value probe) ----
 
@@ -147,13 +190,32 @@ class Dataset:
             }
             for name, typ in cols
         ]
+        # Declared ratio measures are computed, not real columns — surface them
+        # so builders offer them like any measure (role=measure, computed=true).
+        for mname, spec in self.declared_measures().items():
+            columns.append(
+                {
+                    "name": mname,
+                    "label": mname.replace("_", " ").capitalize(),
+                    "type": spec["fmt"],
+                    "role": "measure",
+                    "computed": True,
+                }
+            )
+        date_types = {"date", "datetime"}
+        col_types = dict(cols)
         filter_names = set(self.filter_field_names())
         filters = []
-        for name, _typ in cols:
+        for name, typ in cols:
             if name not in filter_names:
                 continue
             meta = _build_filter_meta(model, name)
             if meta:
+                # Date/datetime columns also accept explicit half-open bounds
+                # (<col>__gte / <col>__lt) — advertise so UIs can offer a range
+                # picker alongside the preset dropdown.
+                if col_types.get(name) in date_types:
+                    meta["range"] = True
                 filters.append(meta)
         return {
             "key": self.key,
@@ -164,6 +226,27 @@ class Dataset:
         }
 
     # -- shared filter application (one contract for rows/series/scalar) ------
+
+    def queryset(
+        self,
+        request: HttpRequest | None = None,
+        filters: Optional[dict] = None,
+    ) -> QuerySet:
+        """Public seam: the dataset's queryset with the standard filter pipeline
+        applied — and nothing else (no serialization, limit, ordering, expand).
+
+        This is the supported way for a higher layer to *compose* on a dataset
+        (its own aggregation, annotation, pagination) without touching internals.
+        Same filter contract as :meth:`rows` (unknown keys ignored); per-user
+        scoping via the dataset function's ``request`` arg happens inside::
+
+            qs = get_dataset("open_tickets").queryset(request, {"status": "open"})
+            # → a plain QuerySet you own from here
+
+        Guaranteed: ``queryset(r, f).count() == len(rows(request=r, filters=f))``
+        for the same filters (unlimited).
+        """
+        return self._filtered_qs(request, filters)
 
     def _filtered_qs(
         self,
@@ -177,30 +260,86 @@ class Dataset:
         (an active builder filter reduces the table, the chart *and* the KPI).
         Unknown filter keys are tolerated (ignored) exactly as the list view
         tolerates them.
+
+        FILTER INVARIANT (stable across releases — see docs/skills/datasets.md):
+        ``filters`` is a FLAT, string-keyed ``{name: scalar}`` mapping — the
+        serializable query-param shape that stored slice descriptors, dashboard
+        links, and agent calls depend on. Richer semantics arrive only as NEW
+        param spellings (e.g. ``created_at__gte``), never as nested structures
+        replacing existing keys.
         """
         from apps.smallstack.crud import _apply_list_filters as apply_filters
 
         qs = self._queryset(request)
-        if filters:
-            pairs = "&".join(
-                f"{k}={v}" for k, v in filters.items() if v not in (None, "")
-            )
-            if pairs:
-                filter_req = _fake_request(getattr(request, "user", None), pairs)
-                qs = apply_filters(qs, filter_req, _ConfigAdapter(self))
+        if not filters:
+            return qs
+
+        # Pull out explicit half-open date bounds (<col>__gte / <col>__lt) and
+        # apply them directly — the CRUD pipeline only knows bare-column presets.
+        # An explicit bound on a column drops that column's preset (explicit wins).
+        range_filters, flat_filters = self._split_range_filters(filters)
+        for key, raw in range_filters.items():
+            parsed = _parse_date_bound(raw)
+            if parsed is not None:  # garbage ignored (absent-not-error)
+                qs = qs.filter(**{key: parsed})
+
+        pairs = "&".join(
+            f"{k}={v}" for k, v in flat_filters.items() if v not in (None, "")
+        )
+        if pairs:
+            filter_req = _fake_request(getattr(request, "user", None), pairs)
+            qs = apply_filters(qs, filter_req, _ConfigAdapter(self))
         return qs
 
+    def _split_range_filters(self, filters: dict) -> tuple[dict, dict]:
+        """Separate ``<datecol>__gte`` / ``__lt`` keys from the flat filters.
+
+        A range on a column also suppresses that column's bare preset (so an
+        explicit bound wins if both are sent). Only date/datetime columns in the
+        filterable set qualify; anything else stays a flat filter.
+        """
+        date_cols = {
+            name
+            for name, typ in self.columns()
+            if typ in ("date", "datetime") and name in set(self.filter_field_names())
+        }
+        range_filters, flat = {}, {}
+        ranged_cols = set()
+        for key, val in filters.items():
+            base, sep, lookup = key.partition("__")
+            if sep and lookup in ("gte", "lt") and base in date_cols:
+                range_filters[key] = val
+                ranged_cols.add(base)
+            else:
+                flat[key] = val
+        for col in ranged_cols:
+            flat.pop(col, None)  # explicit bounds win over the preset
+        return range_filters, flat
+
     # -- rows (sub-filtering reduces the row count) --------------------------
+
+    def count(
+        self,
+        request: HttpRequest | None = None,
+        filters: Optional[dict] = None,
+    ) -> int:
+        """Total rows matching *filters* (unpaged) — the companion to a paged
+        ``rows()`` call so a table UI can show "showing 1–50 of N"."""
+        return self._filtered_qs(request, filters).count()
 
     def rows(
         self,
         *,
         filters: Optional[dict] = None,
         ordering: str = "",
-        limit: int = 50,
+        limit: Optional[int] = 50,
+        offset: int = 0,
         expand: Optional[list[str]] = None,
         request: HttpRequest | None = None,
     ) -> list[dict]:
+        """Filtered rows. ``limit=None`` returns the whole filtered set (used by
+        CSV export); ``offset`` pages after ordering. Invalid values coerce to
+        the default (matching the module's absent-not-error stance)."""
         from apps.smallstack.api import serialize
         from apps.smallstack.crud import (
             _apply_ordering_fields as apply_ordering,
@@ -212,9 +351,18 @@ class Dataset:
             qs = apply_ordering(qs, ordering, set(self.column_names()))
 
         try:
-            limit = max(1, min(int(limit or 50), _ROWS_LIMIT_MAX))
+            offset = max(0, int(offset or 0))
         except (TypeError, ValueError):
-            limit = 50
+            offset = 0
+
+        if limit is None:
+            page = slice(offset, None)  # whole set (offset→end)
+        else:
+            try:
+                limit = max(1, min(int(limit or 50), _ROWS_LIMIT_MAX))
+            except (TypeError, ValueError):
+                limit = 50
+            page = slice(offset, offset + limit)
 
         field_names = self.column_names()
 
@@ -223,13 +371,13 @@ class Dataset:
         # ``serialize`` and are already the shape a table wants. Return them
         # projected onto the declared columns (plus any annotations they carry).
         if getattr(qs.query, "values_select", None):
-            return [self._project_dict_row(row, field_names) for row in qs[:limit]]
+            return [self._project_dict_row(row, field_names) for row in qs[page]]
 
         # Only expand FK columns the schema actually knows about, so a bad
         # ``expand`` param can never raise inside ``serialize``.
         expand_fields = self.fk_column_names() & set(expand or [])
         return [
-            serialize(obj, field_names, [], expand_fields) for obj in qs[:limit]
+            serialize(obj, field_names, [], expand_fields) for obj in qs[page]
         ]
 
     @staticmethod
@@ -271,6 +419,12 @@ class Dataset:
         if agg not in _AGG_NAMES:
             agg = "count"
 
+        # A declared ratio measure (sum(num)/sum(denom)) is computed, not a real
+        # column — it defines its own aggregation, so ``agg`` doesn't apply and
+        # the empty-denominator group yields None (never 0, never averaged).
+        declared = self.declared_measures()
+        is_ratio = bool(measure) and measure in declared
+
         # Validate dimension/measure against the declared columns *before*
         # touching the ORM, so a bad param yields a clean ValueError (mapped to
         # HTTP 400 at the view boundary) rather than a raw FieldError / 500.
@@ -280,19 +434,25 @@ class Dataset:
             raise ValueError(
                 f"unknown dimension {dimension!r}; valid: {sorted(valid)}"
             )
-        if measure and measure not in valid:
+        if measure and not is_ratio and measure not in valid:
             raise ValueError(
-                f"unknown measure {measure!r}; valid: {sorted(valid)}"
+                f"unknown measure {measure!r}; valid: {sorted(valid | set(declared))}"
             )
+
+        value_expr = (
+            _ratio_expr(declared[measure]) if is_ratio else _agg_func(agg, measure)
+        )
 
         qs = self._filtered_qs(request, filters)
 
         # KPI / scalar path — no GROUP BY, single aggregate over the filtered set.
         if dimension is None:
-            value = qs.aggregate(_value=_agg_func(agg, measure))["_value"] or 0
-            return [{"label": agg, "value": _round_value(value)}]
+            value = qs.aggregate(_value=value_expr)["_value"]
+            if value is None and not is_ratio:
+                value = 0  # count/sum of nothing is 0; an empty ratio stays None
+            return [{"label": (measure if is_ratio else agg), "value": _round_value(value)}]
 
-        annotated = qs.values(dimension).annotate(_value=_agg_func(agg, measure))
+        annotated = qs.values(dimension).annotate(_value=value_expr)
         annotated = annotated.order_by(dimension)
 
         try:

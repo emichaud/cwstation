@@ -27,7 +27,7 @@ from apps.smallstack.api import _authenticate_api_request
 from .core import Dataset, get_dataset, list_datasets
 from .registry import get_def
 
-_RESERVED = {"ordering", "limit", "format", "dimension", "measure", "agg", "expand"}
+_RESERVED = {"ordering", "limit", "offset", "format", "dimension", "measure", "agg", "expand"}
 
 
 def _enabled() -> bool:
@@ -112,19 +112,43 @@ class DatasetRowsView(_DatasetApiView):
     def get(self, request: HttpRequest, key: str) -> JsonResponse:
         ds = _require_api_dataset(key)
         filters = {k: v for k, v in request.GET.items() if k not in _RESERVED}
+        is_csv = request.GET.get("format") == "csv"
+        # CSV is the whole filtered set (an export), ignoring paging unless the
+        # caller explicitly passes limit/offset; JSON pages (default limit 50).
+        if is_csv:
+            limit = request.GET.get("limit")  # None (absent) → unbounded
+            offset = request.GET.get("offset", 0)
+        else:
+            limit = request.GET.get("limit", 50)
+            offset = request.GET.get("offset", 0)
         try:
             rows = ds.rows(
                 filters=filters,
                 ordering=request.GET.get("ordering", ""),
-                limit=request.GET.get("limit", 50),
+                limit=limit,
+                offset=offset,
                 expand=_parse_expand(request),
                 request=request,
             )
         except ValueError as exc:
             return JsonResponse({"error": str(exc)}, status=400)
-        if request.GET.get("format") == "csv":
+        if is_csv:
             return _rows_csv_response(ds, key, rows)
-        return JsonResponse({"key": key, "count": len(rows), "results": rows})
+        try:
+            offset_echo = max(0, int(offset or 0))
+        except (TypeError, ValueError):
+            offset_echo = 0
+        # ``total`` is the full matching count (for "N of TOTAL" paging);
+        # ``count`` stays the length of this page (unchanged for compatibility).
+        return JsonResponse(
+            {
+                "key": key,
+                "count": len(rows),
+                "total": ds.count(request=request, filters=filters),
+                "offset": offset_echo,
+                "results": rows,
+            }
+        )
 
 
 class DatasetSeriesView(_DatasetApiView):

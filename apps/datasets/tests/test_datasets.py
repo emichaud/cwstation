@@ -512,3 +512,179 @@ def test_rest_scalar_applies_query_filters(client, _api_token):
     total = client.get(base, **auth).json()["value"]
     post_only = client.get(base + "&method=POST", **auth).json()["value"]
     assert post_only < total
+
+
+# --- R3: filterable= (with deprecated filters= alias) -----------------------
+
+
+def test_filterable_restricts_filter_fields():
+    from apps.datasets.registry import dataset, unregister
+
+    @dataset("t_filterable", filterable=["method"])
+    def _t_filterable(request=None):
+        return RequestLog.objects.all()
+
+    try:
+        names = {f["name"] for f in get_dataset("t_filterable").schema()["filters"]}
+        assert names == {"method"}
+    finally:
+        unregister("t_filterable")
+
+
+def test_filters_kwarg_is_deprecated_alias():
+    from apps.datasets.registry import dataset, get_def, unregister
+
+    with pytest.warns(DeprecationWarning):
+        @dataset("t_legacy_filters", filters=["method"])
+        def _t_legacy(request=None):
+            return RequestLog.objects.all()
+
+    try:
+        # Old kwarg still maps to filterable.
+        assert get_def("t_legacy_filters").filterable == ["method"]
+        names = {f["name"] for f in get_dataset("t_legacy_filters").schema()["filters"]}
+        assert names == {"method"}
+    finally:
+        unregister("t_legacy_filters")
+
+
+# --- R4: public queryset() seam ---------------------------------------------
+
+
+def test_queryset_seam_matches_rows_unlimited():
+    _seed()
+    ds = get_dataset("t_requestlog")
+    flt = {"method": "GET"}
+    # count parity with an unlimited rows() over the same filters
+    assert ds.queryset(filters=flt).count() == len(ds.rows(filters=flt, limit=500))
+
+
+def test_queryset_seam_supports_reporter_style_aggregation():
+    from django.db.models import Sum
+
+    _seed()
+    ds = get_dataset("t_requestlog")
+    qs = ds.queryset(filters={"method": "GET"})
+    # a higher layer composes its own aggregation on the returned queryset
+    total = qs.aggregate(s=Sum("response_time_ms"))["s"]
+    assert total == 10 + 11 + 12  # the three seeded GET rows
+
+
+# --- R5: pagination (offset + total) ----------------------------------------
+
+
+def test_rows_offset_pages_through_without_overlap():
+    for i in range(5):
+        RequestLog.objects.create(
+            path=f"/p/{i}", method="GET", status_code=200, response_time_ms=i
+        )
+    ds = get_dataset("t_requestlog")
+    p1 = ds.rows(ordering="response_time_ms", limit=2, offset=0)
+    p2 = ds.rows(ordering="response_time_ms", limit=2, offset=2)
+    p3 = ds.rows(ordering="response_time_ms", limit=2, offset=4)
+    ids = [r["id"] for r in p1 + p2 + p3]
+    assert len(ids) == 5
+    assert len(set(ids)) == 5  # disjoint, gap-free
+
+
+def test_rows_limit_none_returns_whole_set():
+    _seed()  # 4 rows
+    ds = get_dataset("t_requestlog")
+    assert len(ds.rows(limit=None)) == 4
+
+
+def test_count_matches_unlimited_rows():
+    _seed()
+    ds = get_dataset("t_requestlog")
+    flt = {"method": "GET"}
+    assert ds.count(filters=flt) == len(ds.rows(filters=flt, limit=None))  # 3
+
+
+def test_rest_rows_envelope_has_total_and_offset(client, _api_token):
+    _seed()  # 4 rows
+    auth = {"HTTP_AUTHORIZATION": f"Bearer {_api_token}"}
+    body = client.get(
+        "/smallstack/datasets/t_requestlog/?limit=2&offset=2", **auth
+    ).json()
+    assert body["total"] == 4        # full matching count
+    assert body["count"] == 2        # this page
+    assert body["offset"] == 2
+
+
+# --- R6: declared ratio measures --------------------------------------------
+
+
+@dataset(
+    "t_ratio",
+    label="Ratio test",
+    measures=[
+        ("code_ratio", "status_code", "response_time_ms", "ratio"),
+        ("code_pct", "status_code", "response_time_ms", "percent"),
+    ],
+)
+def _t_ratio(request=None):
+    return RequestLog.objects.all()
+
+
+def _seed_ratio():
+    # GET group: (1/1) and (1/100) — avg of per-row ratios = 0.505,
+    # but sum/sum = 2/101 ≈ 0.0198. They disagree, so the test proves sum/sum.
+    a = RequestLog.objects.create(path="/a", method="GET", status_code=1, response_time_ms=1)
+    b = RequestLog.objects.create(path="/b", method="GET", status_code=1, response_time_ms=100)
+    # POST group: denominator sums to 0 → ratio must be None (empty denom).
+    c = RequestLog.objects.create(path="/c", method="POST", status_code=5, response_time_ms=0)
+    return a, b, c
+
+
+def test_declared_ratio_is_sum_over_sum_not_average():
+    _seed_ratio()
+    series = get_dataset("t_ratio").series("method", measure="code_ratio")
+    by = {row["label"]: row["value"] for row in series}
+    assert by["GET"] == round(2 / 101, 2)   # 0.02 — NOT avg(1.0, 0.01)=0.505
+    assert by["POST"] is None                # empty denominator → None, not 0
+
+
+def test_declared_ratio_percent_scales_by_100():
+    _seed_ratio()
+    val = get_dataset("t_ratio").scalar(measure="code_pct")
+    assert val == round(7 / 101 * 100, 2)    # sum(num)=7, sum(denom)=101
+
+
+def test_declared_measure_appears_in_schema():
+    cols = {c["name"]: c for c in get_dataset("t_ratio").schema()["columns"]}
+    assert cols["code_ratio"]["role"] == "measure"
+    assert cols["code_ratio"]["computed"] is True
+
+
+# --- R7: explicit date-range filters ----------------------------------------
+
+
+def _seed_dates():
+    import datetime as _dt
+
+    from django.utils import timezone as _tz
+
+    days = [1, 4, 8]  # July 1, 4, 8 2026
+    for d in days:
+        obj = RequestLog.objects.create(
+            path=f"/d{d}", method="GET", status_code=200, response_time_ms=1
+        )
+        # timestamp is auto_now_add — bypass it with update().
+        stamp = _tz.make_aware(_dt.datetime(2026, 7, d, 12, 0))
+        RequestLog.objects.filter(pk=obj.pk).update(timestamp=stamp)
+
+
+def test_date_range_gte_lt_is_half_open():
+    _seed_dates()
+    ds = get_dataset("t_requestlog")
+    rows = ds.rows(
+        filters={"timestamp__gte": "2026-07-01", "timestamp__lt": "2026-07-08"},
+        limit=100,
+    )
+    # July 1 and 4 included; July 8 excluded (half-open).
+    assert len(rows) == 2
+
+
+def test_schema_date_filter_advertises_range():
+    filt = {f["name"]: f for f in get_dataset("t_requestlog").schema()["filters"]}
+    assert filt["timestamp"].get("range") is True

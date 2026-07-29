@@ -21,7 +21,7 @@ from .registry import DatasetDef, all_defs
 
 logger = logging.getLogger("smallstack.datasets")
 
-_RESERVED = {"ordering", "limit", "group_by", "scalar", "measure", "agg"}
+_RESERVED = {"ordering", "limit", "offset", "group_by", "scalar", "measure", "agg"}
 
 
 def _tool_name(key: str) -> str:
@@ -33,9 +33,26 @@ def _input_schema(dfn: DatasetDef) -> dict[str, Any]:
     from .core import Dataset
 
     props: dict[str, Any] = {}
+    declared_measures: list[str] = []
     try:
-        for fname in Dataset(dfn).filter_field_names():
+        ds = Dataset(dfn)
+        cols = dict(ds.columns())
+        date_cols = set()
+        for fname in ds.filter_field_names():
             props[fname] = {"type": "string", "description": f"Filter by {fname}."}
+            if cols.get(fname) in ("date", "datetime"):
+                date_cols.add(fname)
+        # Explicit half-open date bounds alongside the bare-column preset.
+        for fname in date_cols:
+            props[f"{fname}__gte"] = {
+                "type": "string",
+                "description": f"{fname} on/after this ISO date/datetime (inclusive).",
+            }
+            props[f"{fname}__lt"] = {
+                "type": "string",
+                "description": f"{fname} before this ISO date/datetime (exclusive).",
+            }
+        declared_measures = list(ds.declared_measures())
     except Exception:
         # A dataset whose queryset can't be constructed at startup still gets a
         # usable (filter-less) tool rather than none.
@@ -52,10 +69,14 @@ def _input_schema(dfn: DatasetDef) -> dict[str, Any]:
             "using measure + agg. Ignored when group_by is set."
         ),
     }
-    props["measure"] = {
-        "type": "string",
-        "description": "Numeric column to aggregate for a series/scalar (omit to count rows).",
-    }
+    measure_desc = "Numeric column to aggregate for a series/scalar (omit to count rows)."
+    if declared_measures:
+        measure_desc += (
+            " Declared ratio measures (computed sum/sum, agg ignored): "
+            + ", ".join(declared_measures)
+            + "."
+        )
+    props["measure"] = {"type": "string", "description": measure_desc}
     props["agg"] = {
         "type": "string",
         "enum": ["count", "sum", "avg", "min", "max"],
@@ -71,6 +92,12 @@ def _input_schema(dfn: DatasetDef) -> dict[str, Any]:
         "maximum": 500,
         "default": 50,
         "description": "Max rows/series points to return.",
+    }
+    props["offset"] = {
+        "type": "integer",
+        "minimum": 0,
+        "default": 0,
+        "description": "Row offset for paging (rows mode only).",
     }
     return {"type": "object", "properties": props, "additionalProperties": False}
 
@@ -133,6 +160,7 @@ def _build_query_tool(tool: Any, dfn: DatasetDef) -> None:
                 filters=filters,
                 ordering=(args.get("ordering") or ""),
                 limit=args.get("limit") or 50,
+                offset=args.get("offset") or 0,
                 expand=sorted(ds.fk_column_names()),
                 request=request,
             )

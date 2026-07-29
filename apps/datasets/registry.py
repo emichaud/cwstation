@@ -40,8 +40,15 @@ class DatasetDef:
     # ``(name, type)`` tuple for a computed/annotated column whose type the
     # model helpers can't infer. None => derive from the queryset's model.
     columns: Optional[list] = None
-    # Optional explicit filterable column names. None => all columns.
-    filters: Optional[list] = None
+    # Optional explicit filterable column names (which columns MAY be filtered).
+    # None => all columns. This is the *declaration* side; the *runtime* active
+    # filter values are the ``filters=`` arg on rows()/series()/scalar().
+    filterable: Optional[list] = None
+    # Optional declared *ratio* measures, computed in-DB as
+    # ``sum(numerator) / sum(denominator)`` per group (never the average of
+    # per-row ratios). Each entry: ``(name, numerator, denominator, fmt)`` where
+    # ``fmt`` is ``"percent"`` (×100) or ``"ratio"``. Empty denominator → None.
+    measures: Optional[list] = None
     enable_api: bool = False
     enable_mcp: bool = False
     # MCP access tier for the generated tool. Secure default: staff-only.
@@ -83,7 +90,9 @@ def dataset(
     label: str = "",
     description: str = "",
     columns: Optional[list] = None,
-    filters: Optional[list] = None,
+    filterable: Optional[list] = None,
+    filters: Optional[list] = None,  # deprecated alias for filterable
+    measures: Optional[list] = None,
     enable_api: bool = False,
     enable_mcp: bool = False,
     mcp_access: str = "staff",
@@ -92,14 +101,31 @@ def dataset(
 
     Example::
 
-        @dataset("open_tickets", label="Open Tickets", enable_mcp=True)
+        @dataset("open_tickets", label="Open Tickets",
+                 filterable=["status"], enable_mcp=True)
         def open_tickets(request=None):
             return Ticket.objects.filter(status="open")
 
     The function may take zero args or a single ``request`` arg (used for
     per-request scoping). The model is derived from the returned queryset, so
     no model/CRUDView declaration is needed.
+
+    ``filterable=`` declares which columns MAY be filtered. (The *runtime* active
+    filter values are the ``filters=`` arg on ``rows()``/``series()``/``scalar()``.)
+    The old ``filters=`` decorator kwarg is a deprecated alias — accepted with a
+    ``DeprecationWarning`` — kept for ≥2 minor releases.
     """
+    if filters is not None:
+        import warnings
+
+        warnings.warn(
+            "@dataset(filters=...) is deprecated; use filterable=... "
+            "(the runtime rows()/series()/scalar() filters= arg is unchanged).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if filterable is None:
+            filterable = filters
 
     def decorator(fn: Callable) -> Callable:
         register(
@@ -109,7 +135,8 @@ def dataset(
                 label=label,
                 description=description,
                 columns=columns,
-                filters=filters,
+                filterable=filterable,
+                measures=measures,
                 enable_api=enable_api,
                 enable_mcp=enable_mcp,
                 mcp_access=mcp_access,

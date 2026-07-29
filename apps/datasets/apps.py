@@ -17,7 +17,11 @@ logger = logging.getLogger("smallstack.datasets")
 
 class DatasetsConfig(AppConfig):
     name = "apps.datasets"
-    label = "datasets"
+    # Namespaced label (like apps.runbook's "smallstack_runbook") so a downstream
+    # app labelled "datasets" — a common BI noun — can't collide in INSTALLED_APPS.
+    # Safe to set now: this app has no models/migrations, so there's no downstream
+    # migration-history rename. Do NOT revert to plain "datasets".
+    label = "smallstack_datasets"
     verbose_name = "Datasets"
 
     def ready(self) -> None:
