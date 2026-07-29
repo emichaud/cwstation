@@ -9,6 +9,29 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.13.10] - 2026-07-29
+
+### Added
+- **Datasets hardening** (from downstream feedback):
+  - `@dataset(filterable=…)` replaces `filters=` for the *declaration* of which
+    columns may be filtered; the old `filters=` decorator kwarg is a deprecated
+    alias (warns). Runtime `rows()/series()/scalar()(filters=…)` is unchanged.
+  - Public **`ds.queryset(request, filters)`** seam so a higher layer (a BI/report
+    layer) can compose on a dataset's filtered queryset without touching internals.
+  - **Pagination**: `rows(limit, offset)` (+ `limit=None` for the whole set) and
+    `ds.count()`; the REST rows route returns an envelope `{count, total, offset,
+    results}` and CSV exports the whole filtered set.
+  - **Declared ratio measures**: `@dataset(measures=[(name, num, denom, fmt)])`
+    computes `sum(num)/sum(denom)` in-DB per group (`×100` for percent), returning
+    `None` for an empty denominator — never the average of per-row ratios. Surfaced
+    in `schema()` (`computed: true`) and the MCP tool.
+  - **Explicit date ranges**: `<col>__gte` / `<col>__lt` half-open bounds on any
+    date/datetime column, everywhere filters are accepted (explicit wins over a
+    preset); `schema()` advertises `"range": true`.
+- Datasets app **label namespaced** to `smallstack_datasets` (avoids an
+  `INSTALLED_APPS` clash with a downstream app named `datasets`).
+- Docs: naming guidance + the flat-filter invariant documented in `datasets.md`.
+
 ## [0.13.9] - 2026-07-29
 
 ### Added
