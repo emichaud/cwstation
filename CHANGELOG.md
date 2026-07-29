@@ -9,6 +9,21 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.13.11] - 2026-07-29
+
+### Added
+- **Datasets — bucketed grouping + drilldown** (R8, the final datasets-feedback
+  item). `series()` now accepts a **dict** dimension for bucketed grouping:
+  numeric bands (`{lo, hi}`, half-open), categorical (`{value}` / `{values}`),
+  an honest `{other: true}` complement, and **auto** top-N value buckets keyed
+  `v:<value>` (+ `other`) derived from the unnarrowed scope so keys stay stable
+  under filters. Count-only (`[{key, label, value, lo, hi}]`). A `rows(dimension=,
+  bucket=)` **drilldown** re-applies the same bucket condition, so the rows behind
+  a bucket reconcile with its count by construction. Exposed over REST (JSON
+  `buckets` / `auto` params, `bucket=` drilldown) and MCP (`buckets` array, `auto`,
+  `bucket`). The bucket grammar (`apps/datasets/buckets.py`) is lifted verbatim
+  from the downstream reporter so call_stats can swap to it.
+
 ## [0.13.10] - 2026-07-29
 
 ### Added
