@@ -9,6 +9,21 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.13.9] - 2026-07-29
+
+### Added
+- **Datasets (`apps/datasets/`)** — the `@dataset` primitive: register a filtered
+  queryset as a named, typed source of rows/columns for dashboard/report/chart
+  UIs. `schema()` introspects it into dimensions/measures + filter widgets;
+  `rows()` returns tabular data (FK columns are a bare pk by default, `id`+`name`
+  on expand), `series()` aggregates a measure over a dimension (resolving FK
+  dimension labels to name), and a **scalar** mode returns a single aggregate
+  (count / sum) when no dimension is given. Opt-in REST + MCP: a `query_dataset`
+  tool (series + scalar, honoring filters) and JSON endpoints (anonymous → 401).
+  Unknown dimension/measure raise a clear `ValueError`. See `docs/skills/datasets.md`.
+- **Help RAG** — a lexical passage index over the bundled help docs plus a
+  `search_help_docs` MCP tool, so AI clients can retrieve relevant doc passages.
+
 ## [0.13.8] - 2026-07-26
 
 ### Added
