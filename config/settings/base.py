@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     "apps.tokenmgr",  # User-facing UI for API token management
     "apps.api",  # API admin: /smallstack/api/ health + activity + threat panel
     "apps.search",  # Search: FTS5/PG-FTS + per-CRUDView opt-in + MCP search tools
+    "apps.datasets",  # Datasets: @dataset querysets → typed rows/columns + opt-in API/MCP
     "apps.runbook",  # Runbook: versioned markdown documents (label: smallstack_runbook)
     "apps.scheduler",  # Scheduler: DB-backed recurring jobs over django.tasks
     "apps.webhooks",  # Webhooks: outbound event delivery + inbound receivers

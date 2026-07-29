@@ -23,7 +23,9 @@ class SmallStackConfig(AppConfig):
         # Search to SMALLSTACK_MCP_ENABLED.)
         from apps.smallstack.autodiscover import autodiscover_app_modules
 
-        autodiscover_app_modules(("views",))
+        # views.py → CRUDView subclasses; datasets.py → @dataset providers.
+        # Both must be imported so their decorators/subclasses self-register.
+        autodiscover_app_modules(("views", "datasets"))
 
         from apps.smallstack import dashboard
         from apps.smallstack.dashboard_widgets import (

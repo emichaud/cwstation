@@ -178,6 +178,11 @@ SMALLSTACK_PUBLIC_STATUS_ENABLED = config("SMALLSTACK_PUBLIC_STATUS_ENABLED", de
 # Default on.
 SMALLSTACK_API_ENABLED = config("SMALLSTACK_API_ENABLED", default=True, cast=bool)
 
+# Master switch for the datasets surface: the /smallstack/datasets/ REST routes
+# and the dataset MCP tools (list_datasets + query_dataset_<key>). Per-dataset
+# ``enable_api`` / ``enable_mcp`` become no-ops when this is off. Default on.
+SMALLSTACK_DATASETS_ENABLED = config("SMALLSTACK_DATASETS_ENABLED", default=True, cast=bool)
+
 # ---------------------------------------------------------------------------
 # Login Rate Limiting (django-axes)
 # ---------------------------------------------------------------------------
