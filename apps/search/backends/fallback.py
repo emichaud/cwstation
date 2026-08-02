@@ -112,6 +112,12 @@ def _make_hit(
         url = obj.get_absolute_url()
     except Exception:
         pass
+    # Many models don't define get_absolute_url, but the registering
+    # CRUDView already knows the detail destination. Fall back to it so
+    # search results are clickable out of the box for any searchable
+    # CRUDView, no model boilerplate required.
+    if not url:
+        url = _detail_url_for(view, obj)
 
     return SearchHit(
         model_label=view.model_label,
@@ -124,6 +130,29 @@ def _make_hit(
         rank=rank,
         extra=extra,
     )
+
+
+def _detail_url_for(view: IndexedView, obj: Any) -> str | None:
+    """Best-effort detail URL from the registering CRUDView.
+
+    Mirrors the ``{url_base}-detail`` route convention used across the
+    CRUD layer (``apps.smallstack.displays._resolve_detail_url``). Returns
+    None if the view exposes no ``url_base`` or has no DETAIL route — a
+    DETAIL-less CRUDView simply yields an unclickable hit, as before.
+    """
+    from django.urls import NoReverseMatch, reverse
+
+    url_base = getattr(view.view_cls, "url_base", None)
+    if not url_base:
+        return None
+    namespace = getattr(view.view_cls, "namespace", None)
+    name = f"{url_base}-detail"
+    if namespace:
+        name = f"{namespace}:{name}"
+    try:
+        return reverse(name, kwargs={"pk": obj.pk})
+    except NoReverseMatch:
+        return None
 
 
 def _resolve_field(obj: Any, field_path: str | None) -> Any:

@@ -80,6 +80,25 @@ After that, signals keep the index current on every save — no recurring step.
 (There is no migration to write for search; the backend self-provisions. See
 [sqlite-vs-postgres.md](sqlite-vs-postgres.md).)
 
+**Keep `rebuild_search_index --all` OFF the hot deploy path.** It's a one-off
+(first switch / bulk import), not a per-deploy step — running it every deploy
+thrashes the DB and gets killed by the next redeploy. What *does* belong on
+every deploy is the cheap stats refresh, which the container entrypoint already
+runs for you:
+
+```bash
+uv run python manage.py analyze_search_index   # fast; keeps FTS on the GIN index
+```
+
+Skipping it after a large backfill is the classic "search was instant in dev,
+crawls in prod" bug: with stale stats the planner seq-scans `search_vector @@ q`
+until autovacuum catches up. If search is ever slow or empty in prod and you
+can't reach `psql`, run **`manage.py search_diagnose "<query>"`** (or the
+staff page `/smallstack/search/diagnostics/`) — it reports per-table health, app
+timing, and a live `EXPLAIN` verdict (Seq Scan vs GIN). Remember that **bulk
+writes bypass the index** — call `apps.search.reindex_instances(...)` after any
+`bulk_create` / `bulk_update` / `.update()` (see [search.md](../search.md)).
+
 ## 4. Connection management
 
 Each Django request opens a DB connection. On Postgres that's more expensive

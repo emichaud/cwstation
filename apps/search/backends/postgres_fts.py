@@ -54,26 +54,52 @@ class PostgresFTSBackend:
     def ensure_index(self, view: IndexedView) -> bool:
         """Add the ``search_vector`` column + GIN index if absent.
 
-        Idempotent (``IF NOT EXISTS`` on both statements), so it is safe to
-        run on every ``post_migrate``. Self-provisioning here — rather than
-        via a model field + migration — is what lets the bundled
-        SQLite-default models opt into Postgres FTS without shipping a
-        ``tsvector`` column that SQLite can't create.
+        Idempotent (``IF NOT EXISTS``), so it is safe to run on every
+        ``post_migrate``. Self-provisioning here — rather than via a model
+        field + migration — is what lets the bundled SQLite-default models
+        opt into Postgres FTS without shipping a ``tsvector`` column that
+        SQLite can't create.
+
+        The GIN index is built with ``CREATE INDEX CONCURRENTLY`` so it never
+        takes a write lock on a large, live table — the plain form can block
+        every writer for the duration and time out silently on a big table.
+        ``CONCURRENTLY`` can't run inside a transaction block, so it's only
+        used when the connection is in autocommit (the normal ``post_migrate``
+        state); inside an atomic block it falls back to the plain locking form,
+        which is fine for the empty/small tables a fresh migrate sees.
+        Failures are surfaced (return ``False`` → the doctor reports MISSING),
+        not just logged and forgotten.
         """
         table = view.model._meta.db_table
         index = _gin_index_name(view)
-        with connection.cursor() as cur:
-            try:
+
+        # 1. Column add — fast, idempotent, transaction-safe.
+        try:
+            with connection.cursor() as cur:
                 cur.execute(
                     f'ALTER TABLE "{table}" ADD COLUMN IF NOT EXISTS search_vector tsvector'
                 )
-                cur.execute(
-                    f'CREATE INDEX IF NOT EXISTS "{index}" '
-                    f'ON "{table}" USING GIN (search_vector)'
-                )
-            except Exception:
-                logger.exception("PG-FTS ensure_index failed for %s", view.model_label)
-                return False
+        except Exception:
+            logger.exception("PG-FTS add-column failed for %s", view.model_label)
+            return False
+
+        # 2. GIN index — skip if already present, else create (concurrently
+        #    when we can).
+        if _index_exists(index):
+            return True
+        concurrently = "" if connection.in_atomic_block else "CONCURRENTLY "
+        sql = (
+            f'CREATE INDEX {concurrently}IF NOT EXISTS "{index}" '
+            f'ON "{table}" USING GIN (search_vector)'
+        )
+        try:
+            with connection.cursor() as cur:
+                cur.execute(sql)
+        except Exception:
+            logger.exception(
+                "PG-FTS GIN index create failed for %s (index=%s)", view.model_label, index
+            )
+            return False
         return True
 
     def index_object(self, view: IndexedView, obj: Any) -> None:
@@ -109,30 +135,75 @@ class PostgresFTSBackend:
         pass
 
     def rebuild(self, view: IndexedView) -> int:
-        """Rebuild the search index for a model.
+        """Rebuild the search index for a model, then refresh planner stats.
 
-        Materializes the pk list up front, then loads and indexes in
-        batches with one transaction per batch. This avoids connection
-        contention and is significantly faster than per-row indexing.
+        Two strategies:
+
+        * **Set-based** (default) — when every ``search_field`` maps to a
+          local, concrete DB column, recompute the whole table with a single
+          ``UPDATE t SET search_vector = setweight(...) || ...``. Seconds
+          instead of minutes, and safe to run anytime.
+        * **Per-row** — fallback for views whose fields include ``__``-related
+          paths or Python properties (e.g. a computed ``phone_search``), which
+          have no column to read in SQL. Materializes the pk list up front,
+          then loads and indexes in batches with one transaction per batch (no
+          open read cursor during writes → no lock contention).
+
+        Either way, ``ANALYZE`` runs at the end: a bulk ``search_vector``
+        rewrite leaves stats stale until autovacuum catches up, and the
+        planner may seq-scan ``search_vector @@ q`` in the meantime.
         """
-        from django.db import transaction
-
         self.ensure_index(view)
 
-        # Materialize pk list upfront
+        columns = _set_based_columns(view)
+        if columns is not None:
+            count = self._rebuild_set_based(view, columns)
+        else:
+            count = self._rebuild_per_row(view)
+
+        self._analyze(view)
+        return count
+
+    def _rebuild_set_based(self, view: IndexedView, columns: list[tuple[str, str]]) -> int:
+        """Recompute every row's ``search_vector`` in one UPDATE.
+
+        ``columns`` is a list of ``(db_column, weight_label)`` — both derived
+        from the model definition (trusted), never user input, so inlining
+        them into the statement is safe.
+        """
+        table = view.model._meta.db_table
+        parts = [
+            f"setweight(to_tsvector('english', coalesce(\"{col}\"::text, '')), '{label}')"
+            for col, label in columns
+        ]
+        set_expr = " || ".join(parts)
+        sql = f'UPDATE "{table}" SET search_vector = {set_expr}'
+        with connection.cursor() as cur:
+            cur.execute(sql)
+            affected = cur.rowcount
+        return affected if affected is not None and affected >= 0 else view.model.objects.count()
+
+    def _rebuild_per_row(self, view: IndexedView) -> int:
+        from django.db import transaction
+
         pks = list(view.model.objects.values_list("pk", flat=True))
         chunk_size = 500
         count = 0
-
-        # Load and index in explicit batches, one transaction per batch
         for start in range(0, len(pks), chunk_size):
             batch = list(view.model.objects.filter(pk__in=pks[start : start + chunk_size]))
             with transaction.atomic():
                 for obj in batch:
                     self.index_object(view, obj)
             count += len(batch)
-
         return count
+
+    def _analyze(self, view: IndexedView) -> None:
+        table = view.model._meta.db_table
+        try:
+            with connection.cursor() as cur:
+                cur.execute(f'ANALYZE "{table}"')
+        except Exception:
+            logger.exception("PG-FTS ANALYZE failed for %s", view.model_label)
     # ---- query -----------------------------------------------------------
 
     def query(
@@ -200,8 +271,47 @@ def _gin_index_name(view: IndexedView) -> str:
     return f"svecgin_{table[:40]}_{digest}"
 
 
+def _index_exists(name: str) -> bool:
+    """Whether a relation of kind index named ``name`` exists (current schema)."""
+    try:
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM pg_class WHERE relkind = 'i' AND relname = %s", [name]
+            )
+            return cur.fetchone() is not None
+    except Exception:
+        return False
+
+
 def _clamp_weight(weight_int: int) -> int:
     return max(0, min(int(weight_int), 3))
+
+
+def _set_based_columns(view: IndexedView) -> list[tuple[str, str]] | None:
+    """Return ``[(db_column, weight_label), ...]`` if every search_field is a
+    local concrete column — the precondition for the single-UPDATE rebuild.
+
+    Returns ``None`` (→ per-row fallback) if any field is a ``__``-related
+    path or a Python property with no backing column, since those can only be
+    resolved in Python.
+    """
+    columns: list[tuple[str, str]] = []
+    for field_name in view.fields:
+        if "__" in field_name:
+            return None
+        try:
+            model_field = view.model._meta.get_field(field_name)
+        except Exception:
+            return None  # property / non-field — resolve per-row
+        # Concrete, single-column, local fields only (no m2m, no reverse rels).
+        if not getattr(model_field, "concrete", False) or model_field.many_to_many:
+            return None
+        column = getattr(model_field, "column", None)
+        if not column:
+            return None
+        label = _WEIGHT_LABELS.get(_clamp_weight(view.weights.get(field_name, 1)), "C")
+        columns.append((column, label))
+    return columns or None
 
 
 def _build_snippet_pg(view: IndexedView, obj: Any, query: str) -> str:

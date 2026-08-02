@@ -19,6 +19,16 @@ python manage.py migrate --noinput
 echo "Collecting static files..."
 python manage.py collectstatic --noinput
 
+# Refresh Postgres planner stats for the search tables (cheap, fast, safe on
+# every deploy). This keeps FTS queries on the GIN index instead of seq-scanning
+# after a bulk vector write. No-op on SQLite.
+#
+# NOTE: the initial search backfill (`manage.py rebuild_search_index --all`) is
+# deliberately NOT run here — it's a one-off, not a per-deploy step. Run it once
+# after enabling search on existing data (or in a data migration). Putting it on
+# the hot deploy path thrashes the DB and gets killed by the next redeploy.
+python manage.py analyze_search_index || echo "analyze_search_index skipped/failed (non-fatal)"
+
 # Create superuser if environment variables are set and user doesn't exist
 python manage.py ensure_superuser
 

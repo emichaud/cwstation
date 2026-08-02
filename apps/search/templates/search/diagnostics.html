@@ -1,0 +1,162 @@
+{% extends "smallstack/base.html" %}
+{% load theme_tags %}
+
+{% block title %}Search diagnostics · SmallStack{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed">
+  <div class="page-header-content">
+    <h1>Search diagnostics</h1>
+    <p class="page-subtitle">
+      Health, app-level timing, and the live query plan — the
+      <em>is-it-fast</em> counterpart to
+      <code>search_doctor</code>. Same data as
+      <code>manage.py search_diagnose</code>.
+    </p>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div style="display: flex; flex-direction: column; gap: 1.25rem;">
+
+  <form method="get" style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+    <input type="search" name="q" value="{{ query }}" placeholder="Optional query — enables timing + EXPLAIN"
+           class="vTextField" style="flex: 1 1 320px; min-width: 220px;">
+    <button type="submit" class="btn-primary">Run</button>
+  </form>
+
+  <div class="card">
+    <div class="card-header">Environment</div>
+    <div class="card-body">
+      <p style="margin: 0;">
+        Engine <strong style="color: var(--body-fg);">{{ diag.vendor }}</strong>
+        · Backend <strong style="color: var(--body-fg);">{{ diag.backend }}</strong>
+        {% if diag.query %}· Query <code>{{ diag.query }}</code>{% endif %}
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">Per-source health</div>
+    <div class="card-body" style="padding: 0;">
+      <table class="table-plain">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th style="text-align: right;">Est. rows</th>
+            <th style="text-align: center;">Index</th>
+            <th style="text-align: right;">Un-indexed backlog</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in diag.sources %}
+          <tr>
+            <td><code>{{ s.label }}</code></td>
+            <td style="text-align: right;">{{ s.est_rows|default_if_none:"?" }}</td>
+            <td style="text-align: center;">
+              {% if s.index == "present" %}
+                <span style="color: var(--success-fg); font-weight: 600;">present</span>
+              {% elif s.index == "MISSING" %}
+                <span style="color: var(--error-fg); font-weight: 600;">MISSING</span>
+              {% else %}
+                <span style="color: var(--body-quiet-color);">{{ s.index }}</span>
+              {% endif %}
+            </td>
+            <td style="text-align: right;">
+              {% if s.backlog %}
+                <span style="color: var(--warning-fg); font-weight: 600;">{{ s.backlog }}</span>
+              {% else %}
+                {{ s.backlog|default_if_none:"?" }}
+              {% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="4" style="color: var(--body-quiet-color);">No indexed models.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% if diag.timings %}
+  <div class="card">
+    <div class="card-header">App-level timing</div>
+    <div class="card-body">
+      <p style="margin: 0 0 0.75rem;">
+        <code>search_all</code>:
+        <strong style="color: var(--body-fg);">{{ diag.timings.search_all_ms }} ms</strong>
+        ({{ diag.timings.hit_count }} hits) ·
+        <code>get_indexed_sources</code>:
+        <strong style="color: var(--body-fg);">{{ diag.timings.get_indexed_sources_ms }} ms</strong>
+      </p>
+      <table class="table-plain">
+        <thead>
+          <tr><th>Source</th><th style="text-align: right;">Query time</th><th style="text-align: right;">Hits</th></tr>
+        </thead>
+        <tbody>
+          {% for row in diag.timings.per_source %}
+          <tr>
+            <td><code>{{ row.label }}</code></td>
+            <td style="text-align: right;">{{ row.ms }} ms</td>
+            <td style="text-align: right;">{% if row.hits < 0 %}<span style="color: var(--error-fg);">err</span>{% else %}{{ row.hits }}{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if diag.plan %}
+  <div class="card">
+    <div class="card-header">Live query plan · biggest table</div>
+    <div class="card-body">
+      <p style="margin: 0;"><code>{{ diag.plan.table }}</code></p>
+      {% if diag.plan.error %}
+        <p style="margin: 0.5rem 0 0; color: var(--error-fg);">{{ diag.plan.error }}</p>
+      {% else %}
+        <p style="margin: 0.5rem 0 0;">
+          Execution <strong style="color: var(--body-fg);">{{ diag.plan.exec_ms }} ms</strong>
+        </p>
+        <p style="margin: 0.35rem 0 0; color: var(--body-quiet-color);">
+          {{ diag.plan.node_types|join:" → " }}
+        </p>
+        <p style="margin: 0.5rem 0 0;">
+          Verdict:
+          {% if diag.plan.healthy %}
+            <strong style="color: var(--success-fg);">{{ diag.plan.verdict }}</strong>
+          {% else %}
+            <strong style="color: var(--error-fg);">{{ diag.plan.verdict }}</strong>
+          {% endif %}
+        </p>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+      <span>Copyable report</span>
+      <button type="button" class="btn-outline btn-sm" onclick="ssCopyDiag(this)">Copy</button>
+    </div>
+    <div class="card-body" style="padding: 0;">
+      <pre id="ss-diag-report" style="margin: 0; padding: 1rem; overflow-x: auto; font-size: 0.8rem; line-height: 1.5;">{{ report_text }}</pre>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  function ssCopyDiag(btn) {
+    var text = document.getElementById("ss-diag-report").textContent;
+    navigator.clipboard.writeText(text).then(function () {
+      var original = btn.textContent;
+      btn.textContent = "Copied";
+      setTimeout(function () { btn.textContent = original; }, 1500);
+    });
+  }
+</script>
+{% endblock %}

@@ -23,30 +23,46 @@ logger = logging.getLogger("smallstack.search.help")
 HELP_FTS_TABLE = "help_articles_search_idx"
 
 
+# GIN index name for the Postgres help-article table.
+HELP_PG_GIN = f"{HELP_FTS_TABLE}_gin"
+
+
 def sync_help_index() -> int:
     """Rebuild the help-article search index from filesystem markdown.
 
-    Returns the article count indexed. Idempotent — drops and refills
-    the table. Cheap (under ~100 articles in a typical install).
+    Returns the article count indexed. Idempotent — drops and refills the
+    table. Cheap (under ~100 articles in a typical install). Uses SQLite
+    FTS5 or a Postgres ``tsvector`` + GIN table depending on the engine, so
+    help search is a real indexed source on both — not a special-cased
+    Python scan on Postgres. Other engines have no help FTS table; queries
+    fall back to an in-memory scan (fine at this article count).
     """
     from django.db import connection
 
-    from apps.help.utils import build_search_index
+    from apps.help.utils import build_search_index, clear_search_index_cache
 
-    engine = connection.settings_dict["ENGINE"]
-
-    if "sqlite" not in engine:
-        # PG-FTS for help docs ships in a follow-up; for now help search
-        # is SQLite-only. Fallback would scan every article on every
-        # query which is fine for ~100 articles but not principled.
-        logger.info(
-            "Help search index sync skipped on %s — SQLite-only in v0.11.0", engine
-        )
-        return 0
+    # A manual sync means "pick up whatever is on disk now" — drop the memo.
+    clear_search_index_cache()
 
     articles = build_search_index()
     if not articles:
         return 0
+
+    if connection.vendor == "postgresql":
+        return _sync_help_index_pg(articles)
+    if connection.vendor == "sqlite":
+        return _sync_help_index_sqlite(articles)
+
+    logger.info(
+        "Help search index sync skipped on %s — no FTS table for this engine; "
+        "queries use the in-memory fallback scan.",
+        connection.vendor,
+    )
+    return 0
+
+
+def _sync_help_index_sqlite(articles) -> int:
+    from django.db import connection
 
     with connection.cursor() as cur:
         cur.execute(
@@ -69,6 +85,38 @@ def sync_help_index() -> int:
     return len(articles)
 
 
+def _sync_help_index_pg(articles) -> int:
+    """Build the Postgres help-article FTS table (title weighted A, body B)."""
+    from django.db import connection
+
+    with connection.cursor() as cur:
+        cur.execute(
+            f'CREATE TABLE IF NOT EXISTS "{HELP_FTS_TABLE}" '
+            f"(slug text, section text, title text, body text, search_vector tsvector)"
+        )
+        cur.execute(
+            f'CREATE INDEX IF NOT EXISTS "{HELP_PG_GIN}" '
+            f'ON "{HELP_FTS_TABLE}" USING GIN (search_vector)'
+        )
+        cur.execute(f'TRUNCATE "{HELP_FTS_TABLE}"')
+        for article in articles:
+            cur.execute(
+                f'INSERT INTO "{HELP_FTS_TABLE}" (slug, section, title, body, search_vector) '
+                f"VALUES (%s, %s, %s, %s, "
+                f"setweight(to_tsvector('english', %s), 'A') || "
+                f"setweight(to_tsvector('english', %s), 'B'))",
+                [
+                    article.get("slug", ""),
+                    article.get("section", ""),
+                    article.get("title", ""),
+                    article.get("text", ""),
+                    article.get("title", ""),
+                    article.get("text", ""),
+                ],
+            )
+    return len(articles)
+
+
 _HELP_INDEX_BUILT = False
 
 
@@ -78,12 +126,13 @@ def _ensure_help_index() -> None:
     Saves the per-boot cost of always running sync_help_index() in
     HelpConfig.ready() — tests don't pay it; production pays it once
     on the first call. The management command sync_help_index forces
-    a rebuild.
+    a rebuild. Checks the *index table's* own row count (not the doc
+    count), so it also builds the index on Postgres, where the two differ.
     """
     global _HELP_INDEX_BUILT
     if _HELP_INDEX_BUILT:
         return
-    if help_article_count() > 0:
+    if _help_index_row_count() > 0:
         _HELP_INDEX_BUILT = True
         return
     try:
@@ -93,14 +142,31 @@ def _ensure_help_index() -> None:
     _HELP_INDEX_BUILT = True
 
 
+def _help_index_row_count() -> int:
+    """Rows in the engine's help FTS table (0 if the table doesn't exist yet)."""
+    from django.db import connection
+
+    if connection.vendor not in ("sqlite", "postgresql"):
+        return 0
+    try:
+        with connection.cursor() as cur:
+            cur.execute(f'SELECT COUNT(*) FROM "{HELP_FTS_TABLE}"')
+            row = cur.fetchone()
+            return int(row[0]) if row else 0
+    except Exception:
+        return 0
+
+
 def search_help_articles(query: str, limit: int = 10) -> list[SearchHit]:
     """Query the help-article index. Returns SearchHits with help URLs."""
     from django.db import connection
 
-    from apps.search.query_parser import to_fts5
-
-    if "sqlite" not in connection.settings_dict["ENGINE"]:
+    if connection.vendor == "postgresql":
+        return _search_help_pg(query, limit)
+    if connection.vendor != "sqlite":
         return _fallback_scan(query, limit)
+
+    from apps.search.query_parser import to_fts5
 
     _ensure_help_index()
 
@@ -138,8 +204,63 @@ def search_help_articles(query: str, limit: int = 10) -> list[SearchHit]:
     return hits
 
 
+_PG_TSQUERY_FUNCS = {
+    "plain": "plainto_tsquery",
+    "phrase": "phraseto_tsquery",
+    "raw": "to_tsquery",
+}
+
+
+def _search_help_pg(query: str, limit: int) -> list[SearchHit]:
+    """Query the Postgres help-article FTS table (GIN-indexed ts_rank).
+
+    The snippet is built in Python from the stored body — same window style
+    as the SQLite/fallback paths — so the SearchHit shape is identical across
+    engines and the UI never branches on which backend answered.
+    """
+    from django.db import connection
+
+    from apps.search.query_parser import to_postgres
+
+    _ensure_help_index()
+
+    translated, search_type = to_postgres(query)
+    if not translated:
+        return []
+    tsquery_fn = _PG_TSQUERY_FUNCS.get(search_type, "plainto_tsquery")
+
+    sql = (
+        f"SELECT slug, section, title, body, ts_rank(search_vector, q) AS rank "
+        f"FROM \"{HELP_FTS_TABLE}\", {tsquery_fn}('english', %s) AS q "
+        f"WHERE search_vector @@ q ORDER BY rank DESC LIMIT %s"
+    )
+    try:
+        with connection.cursor() as cur:
+            cur.execute(sql, [translated, limit])
+            rows = cur.fetchall()
+    except Exception:
+        logger.exception("Help search query failed (pg): %r", query)
+        return []
+
+    q_lower = query.lower().strip()
+    hits: list[SearchHit] = []
+    for slug, section, title, body, rank in rows:
+        url = _resolve_help_url(slug, section)
+        hits.append(SearchHit(
+            model_label="help.HelpArticle",
+            model_verbose="Help & Docs",
+            object_id=0,
+            display=title or slug,
+            subtitle=section,
+            snippet=_extract_window(body or "", q_lower),
+            url=url,
+            rank=float(rank),
+        ))
+    return hits
+
+
 def _fallback_scan(query: str, limit: int) -> list[SearchHit]:
-    """In-memory scan for non-SQLite databases. Cheap at ~100 articles."""
+    """In-memory scan for engines with no help FTS table. Cheap at ~100 articles."""
     from apps.help.utils import build_search_index
 
     q = query.lower().strip()
@@ -218,8 +339,9 @@ def help_article_count() -> int:
 #
 # HELP_FTS_TABLE (above) holds one row per ARTICLE — good for "take me to the
 # page." This table holds one row per markdown SECTION so a tool/LLM gets a
-# focused, cited PASSAGE instead of a whole document. Same FTS5 engine, same
-# SearchHit output shape, zero extra dependencies.
+# focused, cited PASSAGE instead of a whole document. Same engines as the
+# article index (SQLite FTS5 / Postgres tsvector+GIN), same SearchHit output
+# shape, zero extra dependencies.
 #
 # The semantic half of RAG (embeddings + vector KNN) is intentionally NOT here.
 # It can be layered on later behind the same SearchHit contract — callers of
@@ -228,24 +350,51 @@ def help_article_count() -> int:
 # ---------------------------------------------------------------------------
 
 HELP_CHUNK_TABLE = "help_chunks_search_idx"
+# GIN index name for the Postgres passage (chunk) table.
+HELP_CHUNK_PG_GIN = f"{HELP_CHUNK_TABLE}_gin"
 
 
 def sync_help_rag_index() -> int:
     """Rebuild the passage-level help index from filesystem markdown.
 
     Returns the number of chunks indexed. Idempotent — drops and refills the
-    table. SQLite-only for now, mirroring sync_help_index().
+    table. Uses SQLite FTS5 or a Postgres ``tsvector`` + GIN table depending on
+    the engine (mirroring sync_help_index), so the ``search_help_docs`` MCP
+    tool works on both. Other engines have no chunk table and that tool returns
+    empty there.
     """
     from django.db import connection
 
     from apps.help.chunking import chunk_markdown, iter_help_markdown
 
-    engine = connection.settings_dict["ENGINE"]
-    if "sqlite" not in engine:
-        logger.info("Help RAG index sync skipped on %s — SQLite-only", engine)
+    chunks = [
+        {
+            "source": doc["source"],
+            "section": doc["section"],
+            "heading_path": ch["heading_path"],
+            "text": ch["text"],
+        }
+        for doc in iter_help_markdown()
+        for ch in chunk_markdown(doc["text"], source=doc["source"])
+    ]
+    if not chunks:
         return 0
 
-    count = 0
+    if connection.vendor == "postgresql":
+        return _sync_help_rag_index_pg(chunks)
+    if connection.vendor == "sqlite":
+        return _sync_help_rag_index_sqlite(chunks)
+
+    logger.info(
+        "Help RAG index sync skipped on %s — no FTS table for this engine.",
+        connection.vendor,
+    )
+    return 0
+
+
+def _sync_help_rag_index_sqlite(chunks) -> int:
+    from django.db import connection
+
     with connection.cursor() as cur:
         # Columns: source(0) section(1) heading_path(2) text(3).
         # source/section are UNINDEXED — carried for URL resolution only.
@@ -255,16 +404,47 @@ def sync_help_rag_index() -> int:
             f' tokenize="porter unicode61")'
         )
         cur.execute(f'DELETE FROM "{HELP_CHUNK_TABLE}"')
-        for doc in iter_help_markdown():
-            for ch in chunk_markdown(doc["text"], source=doc["source"]):
-                cur.execute(
-                    f'INSERT INTO "{HELP_CHUNK_TABLE}" '
-                    f'("source", "section", "heading_path", "text") '
-                    f"VALUES (%s, %s, %s, %s)",
-                    [doc["source"], doc["section"], ch["heading_path"], ch["text"]],
-                )
-                count += 1
-    return count
+        for ch in chunks:
+            cur.execute(
+                f'INSERT INTO "{HELP_CHUNK_TABLE}" '
+                f'("source", "section", "heading_path", "text") '
+                f"VALUES (%s, %s, %s, %s)",
+                [ch["source"], ch["section"], ch["heading_path"], ch["text"]],
+            )
+    return len(chunks)
+
+
+def _sync_help_rag_index_pg(chunks) -> int:
+    """Build the Postgres passage table (heading_path weighted A, body B)."""
+    from django.db import connection
+
+    with connection.cursor() as cur:
+        cur.execute(
+            f'CREATE TABLE IF NOT EXISTS "{HELP_CHUNK_TABLE}" '
+            f"(source text, section text, heading_path text, body text, search_vector tsvector)"
+        )
+        cur.execute(
+            f'CREATE INDEX IF NOT EXISTS "{HELP_CHUNK_PG_GIN}" '
+            f'ON "{HELP_CHUNK_TABLE}" USING GIN (search_vector)'
+        )
+        cur.execute(f'TRUNCATE "{HELP_CHUNK_TABLE}"')
+        for ch in chunks:
+            cur.execute(
+                f'INSERT INTO "{HELP_CHUNK_TABLE}" '
+                f"(source, section, heading_path, body, search_vector) "
+                f"VALUES (%s, %s, %s, %s, "
+                f"setweight(to_tsvector('english', %s), 'A') || "
+                f"setweight(to_tsvector('english', %s), 'B'))",
+                [
+                    ch["source"],
+                    ch["section"],
+                    ch["heading_path"],
+                    ch["text"],
+                    ch["heading_path"],
+                    ch["text"],
+                ],
+            )
+    return len(chunks)
 
 
 _HELP_RAG_INDEX_BUILT = False
@@ -286,10 +466,10 @@ def _ensure_help_rag_index() -> None:
 
 
 def help_chunk_count() -> int:
-    """Number of passages currently indexed."""
+    """Number of passages currently indexed (0 if the table doesn't exist yet)."""
     from django.db import connection
 
-    if "sqlite" not in connection.settings_dict["ENGINE"]:
+    if connection.vendor not in ("sqlite", "postgresql"):
         return 0
     try:
         with connection.cursor() as cur:
@@ -310,10 +490,12 @@ def search_help_chunks(query: str, limit: int = 5) -> list[SearchHit]:
     """
     from django.db import connection
 
-    from apps.search.query_parser import to_fts5
-
-    if "sqlite" not in connection.settings_dict["ENGINE"]:
+    if connection.vendor == "postgresql":
+        return _search_help_chunks_pg(query, limit)
+    if connection.vendor != "sqlite":
         return []
+
+    from apps.search.query_parser import to_fts5
 
     _ensure_help_rag_index()
 
@@ -348,6 +530,55 @@ def search_help_chunks(query: str, limit: int = 5) -> list[SearchHit]:
             display=heading_path or source,
             subtitle=source,
             snippet=snip or "",
+            url=url,
+            rank=float(rank),
+            extra={"source": source, "section": section, "heading_path": heading_path},
+        ))
+    return hits
+
+
+def _search_help_chunks_pg(query: str, limit: int) -> list[SearchHit]:
+    """Query the Postgres passage table (heading_path weighted above body).
+
+    Snippet built in Python from the stored body — same window as the
+    SQLite path — so the SearchHit shape is identical across engines and the
+    ``search_help_docs`` MCP tool never branches on which backend answered.
+    """
+    from django.db import connection
+
+    from apps.search.query_parser import to_postgres
+
+    _ensure_help_rag_index()
+
+    translated, search_type = to_postgres(query)
+    if not translated:
+        return []
+    tsquery_fn = _PG_TSQUERY_FUNCS.get(search_type, "plainto_tsquery")
+
+    sql = (
+        f"SELECT source, section, heading_path, body, ts_rank(search_vector, q) AS rank "
+        f"FROM \"{HELP_CHUNK_TABLE}\", {tsquery_fn}('english', %s) AS q "
+        f"WHERE search_vector @@ q ORDER BY rank DESC LIMIT %s"
+    )
+    try:
+        with connection.cursor() as cur:
+            cur.execute(sql, [translated, limit])
+            rows = cur.fetchall()
+    except Exception:
+        logger.exception("Help RAG search query failed (pg): %r", query)
+        return []
+
+    q_lower = query.lower().strip()
+    hits: list[SearchHit] = []
+    for source, section, heading_path, body, rank in rows:
+        url = _resolve_help_url(source, section)
+        hits.append(SearchHit(
+            model_label="help.HelpChunk",
+            model_verbose="Help & Docs",
+            object_id=0,
+            display=heading_path or source,
+            subtitle=source,
+            snippet=_extract_window(body or "", q_lower),
             url=url,
             rank=float(rank),
             extra={"source": source, "section": section, "heading_path": heading_path},

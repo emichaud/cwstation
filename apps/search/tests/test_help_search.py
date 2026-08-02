@@ -12,20 +12,26 @@ def _is_sqlite() -> bool:
     return "sqlite" in connection.settings_dict["ENGINE"]
 
 
+def _has_help_fts() -> bool:
+    """Help FTS is a real indexed source on SQLite (FTS5) and Postgres (GIN)."""
+    return connection.vendor in ("sqlite", "postgresql")
+
+
 def test_sync_help_index_returns_count():
     from apps.help.search import sync_help_index
 
     count = sync_help_index()
-    # 0 on non-SQLite databases (documented behavior), >0 on SQLite.
-    if _is_sqlite():
+    # Builds a real index on SQLite (FTS5) and Postgres (tsvector+GIN); other
+    # engines have no help FTS table and rely on the in-memory fallback scan.
+    if _has_help_fts():
         assert count >= 1
     else:
         assert count == 0
 
 
 def test_search_help_articles_returns_help_hits():
-    if not _is_sqlite():
-        pytest.skip("Help-article FTS requires SQLite")
+    if not _has_help_fts():
+        pytest.skip("Help-article FTS requires SQLite or Postgres")
     from apps.help.search import search_help_articles, sync_help_index
 
     sync_help_index()
@@ -45,8 +51,8 @@ def test_search_help_articles_empty_query_returns_empty():
 
 
 def test_search_all_includes_help_hits_when_available():
-    if not _is_sqlite():
-        pytest.skip("Help-article FTS requires SQLite")
+    if not _has_help_fts():
+        pytest.skip("Help-article FTS requires SQLite or Postgres")
     from apps.help.search import sync_help_index
     from apps.search.registry import search_all
 

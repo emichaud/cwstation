@@ -183,7 +183,7 @@ If a user runs your project on MySQL, search still works (fallback) but degrades
 ```bash
 # SQLite & Postgres: nothing required if you just added the model — the
 # backend self-provisions its index on the next migrate. If rows existed
-# before you opted in, backfill the index:
+# before you opted in, backfill the index (a one-off, NOT a per-deploy step):
 uv run python manage.py rebuild_search_index <app_label>.<Model>
 
 # Postgres only: install the driver (once) so the backend is active.
@@ -197,11 +197,79 @@ uv run python manage.py rebuild_search_index --all
 uv run python manage.py search_doctor
 ```
 
+### ⚠️ Bulk writes bypass the index — reindex after them
+
+The index is kept current by `post_save` / `post_delete` **signals**. Bulk
+operations fire **no per-row signals**, so rows written by `bulk_create`,
+`bulk_update`, or `QuerySet.update()` land **un-indexed and invisible to
+search**. This is the #1 silent failure — an importer or data migration that
+`bulk_create`s everything ends up with an empty search index and no error.
+
+Close the gap with the first-class helper right after the bulk write:
+
+```python
+from apps.search import reindex_instances
+
+objs = Company.objects.bulk_create([...])
+reindex_instances(Company, objs)                 # index the new rows
+
+Ticket.objects.filter(stale=True).update(status="closed")
+reindex_instances(Ticket, Ticket.objects.filter(stale=True))
+
+reindex_instances(Company)                        # no arg → whole model
+```
+
+It accepts a model + instances / a queryset / pks (or nothing for the whole
+model), batches in one transaction per chunk, and no-ops loudly (a warning,
+`0` returned) if the model isn't a searchable view.
+
+### Postgres in production
+
+```bash
+# On every deploy: refresh planner stats so FTS uses the GIN index instead of
+# seq-scanning after a bulk vector write. Cheap + fast + safe (the container
+# entrypoint already runs this). No-op on SQLite.
+uv run python manage.py analyze_search_index
+
+# When search is slow/broken and you can't reach psql — health, app-level
+# timing, and a live EXPLAIN of the biggest table, with a Seq-Scan-vs-GIN
+# verdict. Also at /smallstack/search/diagnostics/ (staff-only).
+uv run python manage.py search_diagnose "<a real query>"
+```
+
+The set-based Postgres `rebuild_search_index` recomputes the whole table in a
+single `UPDATE` (seconds, not minutes) and `ANALYZE`s afterward — so it's cheap
+to run any time. Help docs are a first-class FTS source on Postgres too (not a
+Python scan) — both the article index (`search_help` / omnibar) and the
+passage-level RAG index behind the `search_help_docs` MCP tool build a
+`tsvector`+GIN index on Postgres, so AI clients get cited passages on prod, not
+an empty result. GIN indexes are built `CONCURRENTLY` so provisioning never
+locks a live table.
+
 ## Anti-patterns
 
 **Don't** index huge text columns naively. Indexing a 50KB `body` field per row produces a slow index and a slow query. Use a `search_summary` column with the first 1-2 paragraphs, or filter the input via `search_fields` to short, targeted fields.
 
-**Don't** index computed/property fields. `search_fields` must be real model fields the backend can read at index time. Computed properties don't update via signals.
+**Computed/property fields in `search_fields` are fine — with one caveat.** The backend resolves each field with `getattr` at index time, so a `@property` works, and because `post_save` re-indexes the *whole* row it stays current as long as the property derives from **this model's own fields**. The caveat: a property derived from *another* table won't re-index when that other row changes (no signal fires on this model). For those, reindex explicitly (see `reindex_instances`). Note the set-based Postgres rebuild falls back to per-row for any view that includes a property field (it has no column to read in SQL) — correct, just slower.
+
+**Identifiers (phone numbers, SKUs, account codes) don't tokenize well.** `to_tsvector('english', '+13128482994')` (and the FTS5 porter tokenizer) treats a digit run as one opaque token, so only the exact string matches — the 10-digit / formatted / partial lookups all miss. FTS is the wrong tool for substring identifier matching (`pg_trgm` is the right one if you need it). For "find this number," feed the index the normalized digit forms via a computed field:
+
+```python
+from apps.search import digits_search
+
+class CallRecord(models.Model):
+    phone = models.CharField(max_length=32)
+
+    @property
+    def phone_search(self):
+        return digits_search(self.phone)   # "+1 (312) 848-2994" → "13128482994 3128482994"
+
+class CallRecordView(CRUDView):
+    enable_search = True
+    search_fields = ["phone_search", ...]  # both 10- and 11-digit queries now hit
+```
+
+Formatted/partial *input* still needs its own digit-normalization before you pass it to search.
 
 **Don't** use `search_fields` for filtering — those are different concerns:
 - `filter_fields`: structured equality / range filters in the list-page UI
