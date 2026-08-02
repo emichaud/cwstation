@@ -474,6 +474,36 @@ def _apply_select_related(qs, model, expand_fields: set[str]):
     return qs
 
 
+def _resolve_only_fields(model, list_fields, extra_fields) -> list[str] | None:
+    """Return the concrete column names to pass to ``.only()``, or ``None``.
+
+    The list serializer reads ``list_fields`` + ``api_extra_fields`` off each
+    row, so restricting the SELECT to just those columns cuts column transfer
+    and instance hydration on wide tables.
+
+    Returns ``None`` (meaning: don't restrict, load every column) the moment any
+    requested name is *not* a concrete local DB field — a property, annotation,
+    reverse relation, or m2m. Such a name might compute its value from columns
+    outside the restricted set, and ``.only()`` would then turn each access into
+    a deferred per-row query (an N+1) — the opposite of the intended win. The
+    optimization only kicks in when it is provably safe; otherwise the endpoint
+    behaves exactly as before. The pk is always loaded by Django regardless.
+    """
+    names = list(list_fields) + list(extra_fields or [])
+    if not names:
+        return None
+    only: list[str] = []
+    for name in names:
+        try:
+            field = model._meta.get_field(name)
+        except Exception:
+            return None  # property / annotation / unknown — bail to full load
+        if not getattr(field, "concrete", False) or getattr(field, "many_to_many", False):
+            return None  # reverse relation or m2m — bail to full load
+        only.append(name)
+    return only
+
+
 # ---------------------------------------------------------------------------
 # Smart filter field spec builder
 # ---------------------------------------------------------------------------
@@ -978,8 +1008,17 @@ def _api_list(request, crud_config):
     if expand_fields:
         qs = _apply_select_related(qs, crud_config.model, expand_fields)
 
-    items, page_meta = _paginate(request, qs, page_size=crud_config._resolve_paginate_by() or _DEFAULT_PAGE_SIZE)
     fields = crud_config._get_list_fields()
+
+    # Load only the columns the serializer reads. Safe no-op when any field is
+    # non-concrete (see _resolve_only_fields). Runs after export/aggregation so
+    # those still see the full queryset; count() ignores the column set. An
+    # expanded FK stays fully loaded via the select_related() join above.
+    only_fields = _resolve_only_fields(crud_config.model, fields, crud_config.api_extra_fields)
+    if only_fields is not None:
+        qs = qs.only(*only_fields)
+
+    items, page_meta = _paginate(request, qs, page_size=crud_config._resolve_paginate_by() or _DEFAULT_PAGE_SIZE)
     results: list[dict] = [_serialize(obj, fields, crud_config.api_extra_fields, expand_fields) for obj in items]
 
     # agg_extra (sum_*, avg_*, count_by, …) merges last, matching the prior .update() order.
