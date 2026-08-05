@@ -6,11 +6,12 @@ and **Send**. Every pass is saved as a session you can replay.
 
 ## Decoding off the air
 
-1. Record the signal as a WAV — from your receiver's audio out into your computer,
-   or export from SDR software (GQRX, SDR++, etc.). Mono or stereo, 8/16/32-bit PCM.
-2. Open **Decode → Off the air**, pick the file, and set **Tone** to the pitch of the
-   signal — the sidetone you actually hear, commonly 500–800 Hz. This is the one knob
-   that matters: the decoder listens in a narrow window around that frequency.
+1. Record the signal — from your receiver's audio out into your computer, or export
+   from SDR software (GQRX, SDR++, etc.). **WAV, MP3, FLAC, and OGG all work**, mono
+   or stereo — W1AW code-practice MP3s decode as-is.
+2. Open **Decode → Off the air** and pick the file. Leave **Auto-detect tone** on —
+   the station finds the CW note from the spectrum. (Or untick it and set the pitch
+   yourself, commonly 500–800 Hz.)
 3. Decode. You get the copy with per-character confidence (shaky characters show in
    red), the sender's speed, and any callsigns spotted in the copy. Open the session
    to replay it on the tape.
@@ -20,8 +21,8 @@ and **Send**. Every pass is saved as a session you can replay.
 - The decoder is fully adaptive on speed — you never set WPM for receive. It buffers
   the opening marks, works out the dit length, then replays them, so the first
   character isn't lost.
-- If the copy is empty or garbage, the tone is almost always wrong. Tune your
-  receiver so the CW note sits near your usual sidetone pitch and try that number.
+- If the copy is empty or garbage with auto-detect off, the tone is almost always
+  wrong — turn auto-detect back on, or set it to the pitch you actually hear.
 - Like every threshold decoder, it's excellent on clean or machine-sent CW and
   degrades on weak, fading, or irregular hand keying — a trained ear still wins
   there. The confidence shading tells you which characters to distrust.
@@ -74,8 +75,8 @@ The same engine runs headless:
 # sanity check, no radio needed
 uv run python manage.py cw_decode --text "CQ CQ DE N0CALL K" --wpm 22
 
-# decode a recording
-uv run python manage.py cw_decode --wav signal.wav --tone 700
+# decode a recording (WAV/MP3/FLAC/OGG; tone auto-detected unless --tone given)
+uv run python manage.py cw_decode --wav 220111_20WPM.mp3
 
 # watch the QSO-draft bridge extract callsigns/RST
 uv run python manage.py cw_decode --text "CQ TEST DE W1AW 599" --log

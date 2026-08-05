@@ -177,6 +177,70 @@ class TestWavRoundTrip:
             float32_from_wav(buf)
 
 
+class TestRecordingFormats:
+    FIXTURE = "apps/cw/tests/fixtures/test_de_ab1cd_20wpm_700hz.mp3"
+
+    def test_mp3_loads_and_decodes(self):
+        from apps.cw.engine import load_audio
+
+        with open(self.FIXTURE, "rb") as f:
+            data, fs = load_audio(f)
+        assert fs == 8000
+        res = decode_array(data, fs, CWConfig(tone_hz=700))
+        assert res.text == "TEST DE AB1CD"
+
+    def test_audio_file_source_reads_mp3_path(self):
+        from apps.cw.engine import AudioFileSource
+
+        src = AudioFileSource(self.FIXTURE)
+        dec = CWDecoder(src.sample_rate, CWConfig(tone_hz=700))
+        for blk in src.blocks():
+            dec.process(blk)
+        assert dec.finalize().text == "TEST DE AB1CD"
+
+    def test_garbage_raises_value_error(self):
+        from apps.cw.engine import load_audio
+
+        with pytest.raises(ValueError, match="WAV, MP3, FLAC, OGG"):
+            load_audio(io.BytesIO(b"definitely not audio data" * 10))
+
+
+class TestToneDetection:
+    @pytest.mark.parametrize("tone", [450, 600, 750, 900])
+    def test_detects_synth_tone(self, tone: int):
+        from apps.cw.engine import detect_tone
+
+        r = synthesize_cw("CQ CQ CQ DE N0CALL", wpm=20, tone_hz=tone, sample_rate=8000)
+        got = detect_tone(r.audio, r.sample_rate)
+        assert got == pytest.approx(tone, abs=15)
+
+    def test_detected_tone_decodes_blind(self):
+        from apps.cw.engine import detect_tone
+
+        r = synthesize_cw("CQ DE W1AW", wpm=20, tone_hz=820, sample_rate=8000)
+        tone = detect_tone(r.audio, r.sample_rate)
+        res = decode_array(r.audio, r.sample_rate, CWConfig(tone_hz=tone))
+        assert res.text == "CQ DE W1AW"
+
+    def test_short_or_silent_audio_falls_back(self):
+        from apps.cw.engine import detect_tone
+
+        assert detect_tone(np.zeros(100, dtype=np.float32), 8000) == 600.0
+        assert detect_tone(np.zeros(80000, dtype=np.float32), 8000) == 600.0
+
+
+class TestEnvelopeDecimation:
+    def test_long_envelope_is_capped(self):
+        r = synthesize_cw("CQ CQ CQ DE N0CALL N0CALL K", wpm=20, tone_hz=600, sample_rate=8000)
+        res = decode_array(r.audio, r.sample_rate, CWConfig(tone_hz=600))
+        session = session_from_result(res, max_env_points=50)
+        assert len(session["env_t"]) <= 51
+        assert len(session["env_t"]) == len(session["env_mag"])
+        # exact data untouched
+        assert len(session["chars"]) == len(res.chars)
+        assert len(session["key_runs"]) == len(res.key_runs)
+
+
 class TestBridge:
     def test_extracts_callsign_and_rst(self):
         drafts: list[QSODraft] = []

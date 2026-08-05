@@ -17,7 +17,7 @@ from apps.search.access import SearchAccess
 from apps.smallstack.crud import Action, CRUDView
 
 from . import services
-from .forms import PracticeDecodeForm, SendForm, WavDecodeForm
+from .forms import PracticeDecodeForm, RecordingDecodeForm, SendForm
 from .models import CWSession
 
 
@@ -135,7 +135,7 @@ class DecodeView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         context.setdefault("practice_form", PracticeDecodeForm())
-        context.setdefault("wav_form", WavDecodeForm())
+        context.setdefault("recording_form", RecordingDecodeForm())
         return context
 
     def post(self, request: HttpRequest, **kwargs: Any) -> HttpResponse:
@@ -153,25 +153,28 @@ class DecodeView(LoginRequiredMixin, TemplateView):
                 return redirect(session)
             return self.render_to_response(self.get_context_data(practice_form=form))
 
-        form = WavDecodeForm(request.POST, request.FILES)
+        form = RecordingDecodeForm(request.POST, request.FILES)
         if form.is_valid():
+            tone: float | None = (
+                None if form.cleaned_data["auto_tone"] else form.cleaned_data["tone_hz"]
+            )
             try:
-                session = services.decode_wav(
+                session = services.decode_recording(
                     request.user,
-                    stream=form.cleaned_data["wav"],
-                    tone_hz=form.cleaned_data["tone_hz"],
+                    stream=form.cleaned_data["recording"],
+                    tone_hz=tone,
                 )
-            except Exception as exc:  # wave raises its own bare Error subclass
+            except ValueError as exc:
                 messages.error(request, f"Couldn't decode that file: {exc}")
-                return self.render_to_response(self.get_context_data(wav_form=form))
+                return self.render_to_response(self.get_context_data(recording_form=form))
             if not session.text:
                 messages.warning(
                     request,
-                    "No CW found — check the tone frequency matches the signal "
-                    "(try the peak you hear, commonly 500–800 Hz).",
+                    "No CW found — try setting the tone manually to the pitch "
+                    "you hear (commonly 500–800 Hz).",
                 )
             return redirect(session)
-        return self.render_to_response(self.get_context_data(wav_form=form))
+        return self.render_to_response(self.get_context_data(recording_form=form))
 
 
 class SendView(LoginRequiredMixin, TemplateView):

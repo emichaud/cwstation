@@ -22,7 +22,7 @@ class CWSession(models.Model):
 
     class Source(models.TextChoices):
         SYNTH = "synth", "Practice (synthesized)"
-        WAV = "wav", "WAV upload"
+        WAV = "wav", "Recording upload"
         TEXT = "text", "Composed message"
 
     user = models.ForeignKey(

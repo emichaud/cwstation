@@ -74,14 +74,14 @@ class TestPracticeDecode:
         assert CWSession.objects.count() == 0
 
 
-class TestWavDecode:
+class TestRecordingDecode:
     def test_decodes_uploaded_wav(self, client_logged: Client, user: object) -> None:
         r = synthesize_cw("TEST DE AB1CD", wpm=20, tone_hz=600, sample_rate=8000)
         blob = wav_bytes_from_float32(r.audio, r.sample_rate)
         upload = io.BytesIO(blob)
         upload.name = "signal.wav"
         response = client_logged.post(reverse("cw-decode"), {
-            "mode": "wav", "wav": upload, "tone_hz": 600,
+            "mode": "wav", "recording": upload, "tone_hz": 600,
         })
         assert response.status_code == 302
         session = CWSession.objects.get(user=user)
@@ -89,11 +89,24 @@ class TestWavDecode:
         assert session.text == "TEST DE AB1CD"
         assert not session.has_audio  # uploads are not stored
 
+    def test_decodes_uploaded_mp3_with_auto_tone(
+        self, client_logged: Client, user: object
+    ) -> None:
+        # fixture is 700 Hz; auto_tone must find it without the slider
+        with open("apps/cw/tests/fixtures/test_de_ab1cd_20wpm_700hz.mp3", "rb") as f:
+            response = client_logged.post(reverse("cw-decode"), {
+                "mode": "wav", "recording": f, "auto_tone": "on", "tone_hz": 600,
+            })
+        assert response.status_code == 302
+        session = CWSession.objects.get(user=user)
+        assert session.text == "TEST DE AB1CD"
+        assert session.tone_hz == pytest.approx(700, abs=15)
+
     def test_garbage_file_shows_error(self, client_logged: Client) -> None:
-        upload = io.BytesIO(b"not a wav file at all")
+        upload = io.BytesIO(b"not an audio file at all")
         upload.name = "junk.wav"
         response = client_logged.post(reverse("cw-decode"), {
-            "mode": "wav", "wav": upload, "tone_hz": 600,
+            "mode": "wav", "recording": upload, "tone_hz": 600,
         })
         assert response.status_code == 200
         assert CWSession.objects.count() == 0

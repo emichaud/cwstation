@@ -31,25 +31,32 @@
         <div class="card-header"><h2>Off the air</h2></div>
         <div class="card-body">
             <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
-                Upload a WAV recorded from your receiver (or exported from GQRX/SDR software).
-                Set the tone to the pitch of the signal — the decoder listens at that frequency
-                and adapts to the sender's speed on its own.
+                Upload a recording from your receiver or SDR software — WAV, MP3, FLAC, or OGG
+                (W1AW code-practice MP3s work as-is). The decoder finds the CW note
+                automatically and adapts to the sender's speed on its own.
             </p>
             <form method="post" enctype="multipart/form-data">
                 {% csrf_token %}
                 <input type="hidden" name="mode" value="wav">
                 <div class="cw-field">
-                    <label for="{{ wav_form.wav.id_for_label }}">WAV file</label>
-                    {{ wav_form.wav }}
-                    {% if wav_form.wav.errors %}<div class="cw-errors">{{ wav_form.wav.errors|join:" " }}</div>{% endif %}
+                    <label for="{{ recording_form.recording.id_for_label }}">Recording</label>
+                    {{ recording_form.recording }}
+                    {% if recording_form.recording.errors %}<div class="cw-errors">{{ recording_form.recording.errors|join:" " }}</div>{% endif %}
                 </div>
                 <div class="cw-field">
-                    <label for="wav-tone">Tone <span class="cw-slider-val" id="wav-tone-val">600 Hz</span></label>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" name="auto_tone" checked style="accent-color: var(--primary);"
+                               onchange="document.getElementById('rec-tone-row').style.opacity = this.checked ? 0.4 : 1;">
+                        Auto-detect tone <span style="color: var(--text-muted);">(recommended)</span>
+                    </label>
+                </div>
+                <div class="cw-field" id="rec-tone-row" style="opacity: 0.4;">
+                    <label for="rec-tone">Tone <span class="cw-slider-val" id="rec-tone-val">600 Hz</span></label>
                     <div class="cw-slider-row">
-                        <input type="range" id="wav-tone" name="tone_hz" min="300" max="1200" step="10" value="600"
-                               oninput="document.getElementById('wav-tone-val').textContent = this.value + ' Hz'">
+                        <input type="range" id="rec-tone" name="tone_hz" min="300" max="1200" step="10" value="600"
+                               oninput="document.getElementById('rec-tone-val').textContent = this.value + ' Hz'">
                     </div>
-                    {% if wav_form.tone_hz.errors %}<div class="cw-errors">{{ wav_form.tone_hz.errors|join:" " }}</div>{% endif %}
+                    {% if recording_form.tone_hz.errors %}<div class="cw-errors">{{ recording_form.tone_hz.errors|join:" " }}</div>{% endif %}
                 </div>
                 <button type="submit" class="btn-primary">Decode recording</button>
             </form>

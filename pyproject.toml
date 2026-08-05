@@ -24,6 +24,7 @@ dependencies = [
     "croniter>=6.2.4",
     "tzdata>=2025.3",
     "numpy>=2.5.1",
+    "soundfile>=0.14.0",
 ]
 
 [project.scripts]

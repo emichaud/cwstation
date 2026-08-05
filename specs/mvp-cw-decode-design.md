@@ -28,7 +28,7 @@ An experienced CW operator's workbench:
 3. **Monitor** — the paper-tape live view: keyed dits/dahs scroll past a *now* line, characters resolve above their elements, WPM/SNR gauges, envelope + threshold trace. Renders real decoder output (single source of truth: Python does the DSP, JS only renders).
 4. **Sessions** — every decode/send is saved: direction, text, WPM, tone, SNR, callsigns heard, full telemetry JSON (replayable in the monitor).
 
-**Dependencies added to stock SmallStack: `numpy` only.** `sounddevice` is documented as an optional extra, imported lazily and guarded.
+**Dependencies added to stock SmallStack: `numpy` + `soundfile`** (libsndfile wheel — decodes the MP3/FLAC/OGG recordings operators actually have, e.g. W1AW practice files; lazily imported, WAV needs only the stdlib). `sounddevice` is documented as an optional extra, imported lazily and guarded.
 
 ## 3. Architecture
 

@@ -9,10 +9,10 @@ from typing import BinaryIO
 
 from django.contrib.auth.base_user import AbstractBaseUser
 
-from .engine import CWConfig, decode_array, synthesize_cw
+from .engine import CWConfig, decode_array, detect_tone, load_audio, synthesize_cw
 from .engine.bridge import extract_callsigns
 from .engine.export import session_from_result
-from .engine.wav import float32_from_wav, wav_bytes_from_float32
+from .engine.wav import wav_bytes_from_float32
 from .models import CWSession
 
 
@@ -40,9 +40,17 @@ def decode_practice(
     )
 
 
-def decode_wav(user: AbstractBaseUser, stream: BinaryIO, tone_hz: float) -> CWSession:
-    """Decode an uploaded WAV recorded off a receiver."""
-    audio, sample_rate = float32_from_wav(stream)
+def decode_recording(
+    user: AbstractBaseUser, stream: BinaryIO, tone_hz: float | None
+) -> CWSession:
+    """Decode an uploaded recording (WAV/MP3/FLAC/OGG) recorded off a receiver.
+
+    With `tone_hz=None` the CW note is auto-detected from the spectrum — the
+    right default for off-air files where the operator doesn't know the pitch.
+    """
+    audio, sample_rate = load_audio(stream)
+    if tone_hz is None:
+        tone_hz = detect_tone(audio, sample_rate)
     result = decode_array(audio, sample_rate, CWConfig(tone_hz=tone_hz))
     return CWSession.objects.create(
         user=user,

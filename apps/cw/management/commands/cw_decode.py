@@ -20,9 +20,10 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from apps.cw.engine import (
     ArraySource,
     AudioEngineManager,
+    AudioFileSource,
     CWConfig,
     CWDecoder,
-    WavFileSource,
+    detect_tone,
     synthesize_cw,
 )
 from apps.cw.engine.bridge import CWLogBridge, QSODraft
@@ -34,32 +35,40 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: CommandParser) -> None:
         src = parser.add_mutually_exclusive_group(required=True)
-        src.add_argument("--wav", help="path to a WAV file to decode")
+        src.add_argument("--wav", help="path to a recording to decode (WAV/MP3/FLAC/OGG)")
         src.add_argument("--text", help="text to synthesize and decode")
         parser.add_argument("--wpm", type=float, default=20.0, help="WPM for --text (default 20)")
-        parser.add_argument("--tone", type=float, default=600.0, help="tone frequency Hz (default 600)")
+        parser.add_argument(
+            "--tone", type=float, default=None,
+            help="tone frequency Hz (default: auto-detect for --wav, 600 for --text)",
+        )
         parser.add_argument("--snr", type=float, default=None, help="add noise at this SNR dB for --text")
         parser.add_argument("--prior", action="store_true", help="give the decoder the WPM as a prior")
         parser.add_argument("--log", action="store_true", help="run the log bridge and print QSO drafts")
         parser.add_argument("--session", help="write a monitor session JSON to this path")
 
     def handle(self, **options: Any) -> None:
+        tone: float | None = options["tone"]
         if options["wav"]:
             try:
-                source: ArraySource = WavFileSource(options["wav"])
+                source: ArraySource = AudioFileSource(options["wav"])
             except (OSError, ValueError) as exc:
-                raise CommandError(f"Couldn't read WAV: {exc}") from exc
+                raise CommandError(f"Couldn't read recording: {exc}") from exc
             fs, truth = source.sample_rate, ""
+            if tone is None:
+                tone = detect_tone(source.audio, fs)
+                self.stdout.write(f"tone   : auto-detected {tone:.0f} Hz")
         else:
+            tone = tone if tone is not None else 600.0
             r = synthesize_cw(
-                options["text"], wpm=options["wpm"], tone_hz=options["tone"],
+                options["text"], wpm=options["wpm"], tone_hz=tone,
                 sample_rate=8000, snr_db=options["snr"],
             )
             source = ArraySource(r.audio, r.sample_rate)
             fs, truth = r.sample_rate, r.text
 
         cfg = CWConfig(
-            tone_hz=options["tone"],
+            tone_hz=tone,
             expected_wpm=(options["wpm"] if options["prior"] else None),
         )
         decoder = CWDecoder(fs, cfg)
@@ -81,7 +90,7 @@ class Command(BaseCommand):
             self.stdout.write(f"sent   : {truth}")
         self.stdout.write(f"decoded: {res.text}")
         self.stdout.write(
-            f"speed  : {res.wpm_final:.1f} wpm   tone: {options['tone']:.0f} Hz   "
+            f"speed  : {res.wpm_final:.1f} wpm   tone: {tone:.0f} Hz   "
             f"chars: {len(res.chars)}"
         )
 

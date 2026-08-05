@@ -28,7 +28,8 @@ them is the main way changes here go wrong.
 | `engine/events.py` | The event contract + `DecodeResult` (text + replay telemetry). |
 | `engine/cw.py` | `CWDecoder` — streaming: tone DFT → envelope → adaptive threshold → key runs → elements → chars. Fully adaptive WPM with a two-phase bootstrap. |
 | `engine/synth.py` | `synthesize_cw()` — PARIS timing, raised-cosine edges, controllable SNR. The no-hardware test driver AND the transmit path. |
-| `engine/sources.py` | `ArraySource` / `SyntheticCWSource` / `WavFileSource` / `SoundDeviceSource` (guarded optional). |
+| `engine/audio_io.py` | `load_audio()` — WAV via stdlib, MP3/FLAC/OGG via `soundfile`; `detect_tone()` — spectral peak finder so operators don't guess the pitch. |
+| `engine/sources.py` | `ArraySource` / `SyntheticCWSource` / `AudioFileSource` (any format) / `SoundDeviceSource` (guarded optional). |
 | `engine/manager.py` | The seam: `AudioDemodulator`, `NetworkTapEngine`, `AudioEngineManager` (fan-out + subscribers). |
 | `engine/bridge.py` | `CWLogBridge` → `QSODraft` (callsign/RST extraction). Framework-agnostic. |
 | `engine/export.py` | `DecodeResult` → session dict the monitor animates. |
@@ -72,5 +73,12 @@ app changes.
 ## Scope guardrails (from `specs/mvp-cw-decode-design.md`)
 
 The MVP deliberately excludes CHIRP (GPL question), Hamlib CAT control, and live
-websocket streaming. Don't add dependencies to the engine beyond numpy;
-`sounddevice` stays an optional, lazily-imported extra.
+websocket streaming. Engine dependencies are numpy plus `soundfile` (lazily imported
+in `audio_io.py`, only for compressed formats); `sounddevice` stays an optional,
+lazily-imported extra. Don't add more.
+
+Test fixture: `apps/cw/tests/fixtures/test_de_ab1cd_20wpm_700hz.mp3` — synthesized
+CW encoded to MP3 (via `soundfile`), so the compressed-format path is self-verifying.
+Long recordings: `session_from_result()` decimates the envelope trace to
+`max_env_points` (default 6000) so a 7-minute file doesn't store megabytes of
+telemetry — chars and key runs stay exact.

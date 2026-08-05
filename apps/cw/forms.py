@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from django import forms
 
-MAX_WAV_BYTES = 20 * 1024 * 1024  # 20 MB — minutes of 8 kHz mono, plenty
+MAX_UPLOAD_BYTES = 30 * 1024 * 1024  # 30 MB — a half-hour practice MP3 fits
 
 
 class PracticeDecodeForm(forms.Form):
@@ -23,16 +23,20 @@ class PracticeDecodeForm(forms.Form):
     )
 
 
-class WavDecodeForm(forms.Form):
-    """Decode a WAV recorded off a receiver (or exported from GQRX)."""
+class RecordingDecodeForm(forms.Form):
+    """Decode a recording off a receiver — WAV, MP3, FLAC, or OGG."""
 
-    wav = forms.FileField(label="WAV file")
+    recording = forms.FileField(label="Recording (WAV, MP3, FLAC, OGG)")
+    auto_tone = forms.BooleanField(
+        required=False, initial=True, label="Auto-detect tone",
+        help_text="Find the CW note from the spectrum — recommended for off-air files",
+    )
     tone_hz = forms.FloatField(min_value=300, max_value=1200, initial=600, label="Tone (Hz)")
 
-    def clean_wav(self) -> object:
-        f = self.cleaned_data["wav"]
-        if f.size > MAX_WAV_BYTES:
-            raise forms.ValidationError("File too large (20 MB max).")
+    def clean_recording(self) -> object:
+        f = self.cleaned_data["recording"]
+        if f.size > MAX_UPLOAD_BYTES:
+            raise forms.ValidationError("File too large (30 MB max).")
         return f
 
 

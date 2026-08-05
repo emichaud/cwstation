@@ -12,7 +12,18 @@ from typing import Any
 from .events import DecodeResult
 
 
-def session_from_result(result: DecodeResult, truth: str = "") -> dict[str, Any]:
+def session_from_result(
+    result: DecodeResult, truth: str = "", max_env_points: int = 6000
+) -> dict[str, Any]:
+    # Long recordings produce block-rate envelope traces (250 pts/s — a
+    # 7-minute file is >100k points). Decimate to a stored-size cap; the
+    # tape only needs visual resolution, chars/key_runs stay exact.
+    env_t, env_mag, env_thr = result.envelope_t, result.envelope_mag, result.envelope_thr
+    if max_env_points and len(env_t) > max_env_points:
+        stride = -(-len(env_t) // max_env_points)  # ceil division
+        env_t = env_t[::stride]
+        env_mag = env_mag[::stride]
+        env_thr = env_thr[::stride]
     return {
         "meta": {
             "engine": result.engine,
@@ -22,9 +33,9 @@ def session_from_result(result: DecodeResult, truth: str = "") -> dict[str, Any]
             "truth": truth.upper(),
             "decoded": result.text,
         },
-        # envelope trace (already normalized 0..1) sampled at block rate
-        "env_t": result.envelope_t,
-        "env_mag": result.envelope_mag,
+        # envelope trace (already normalized 0..1), decimated for storage
+        "env_t": env_t,
+        "env_mag": env_mag,
         # keyed runs for the "paper tape" view
         "key_runs": [{"on": r.on, "t": r.t_start, "ms": r.dur_ms} for r in result.key_runs],
         # decoded characters on a timeline

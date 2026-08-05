@@ -10,16 +10,18 @@ a mode later means writing one class and registering it with
 """
 from __future__ import annotations
 
+from .audio_io import detect_tone, load_audio
 from .cw import CWConfig, CWDecoder, decode_array
 from .events import CharEvent, DecodeResult, ElementEvent, KeyRun
 from .manager import AudioDemodulator, AudioEngineManager, NetworkTapEngine
-from .sources import ArraySource, AudioSource, SyntheticCWSource, WavFileSource
+from .sources import ArraySource, AudioFileSource, AudioSource, SyntheticCWSource, WavFileSource
 from .synth import SynthResult, dit_seconds, synthesize_cw
 
 __all__ = [
     "ArraySource",
     "AudioDemodulator",
     "AudioEngineManager",
+    "AudioFileSource",
     "AudioSource",
     "CWConfig",
     "CWDecoder",
@@ -32,6 +34,8 @@ __all__ = [
     "SyntheticCWSource",
     "WavFileSource",
     "decode_array",
+    "detect_tone",
     "dit_seconds",
+    "load_audio",
     "synthesize_cw",
 ]
