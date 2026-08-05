@@ -74,6 +74,40 @@ class CWSession(models.Model):
         return sum(1 for a, b in zip(got, want) if a == b) / len(want)
 
 
+class CWRig(models.Model):
+    """The operator's rig connection — a Hamlib `rigctld` daemon.
+
+    rigctld runs on the machine wired to the radio (often the same box as
+    this server). When enabled and reachable, the live page shows rig state
+    and the send sheet can key the transmitter: CAT PTT on → play the keyed
+    audio out the chosen sound device into the rig → PTT off.
+    """
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="cw_rig"
+    )
+    enabled = models.BooleanField(default=False)
+    host = models.CharField(max_length=200, default="127.0.0.1")
+    port = models.PositiveIntegerField(default=4532)
+    use_ptt = models.BooleanField(
+        default=True, help_text="Key PTT via CAT. Off = rely on the rig's VOX."
+    )
+    audio_output = models.CharField(
+        max_length=200, blank=True,
+        help_text="Output sound device name/index for TX audio (blank = system default)",
+    )
+    ptt_lead_ms = models.PositiveIntegerField(
+        default=150, help_text="Delay between PTT-on and audio so the first dit isn't clipped"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "CW Rig"
+
+    def __str__(self) -> str:
+        return f"rigctld {self.host}:{self.port} for {self.user}"
+
+
 DEFAULT_MACROS: list[tuple[str, str]] = [
     ("cq", "CQ CQ CQ DE {mycall} {mycall} K"),
     ("qrz", "QRZ? DE {mycall} K"),

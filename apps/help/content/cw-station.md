@@ -140,6 +140,34 @@ Radio-side tips: tune the signal so its note sits at one steady pitch (the narro
 filter helps), and prefer slow AGC — the decoder rides through fading, but heavily
 pumped audio is hard for anything to copy.
 
+## Rig control (Hamlib) — transmit for real
+
+With Hamlib's `rigctld` running on the machine wired to the radio, the station gets
+real CAT control. Install Hamlib (`brew install hamlib` / `apt install hamlib-utils`)
+and start the daemon:
+
+```bash
+rigctld -m 1                        # dummy rig — test everything with no radio
+rigctld -m 3085 -r /dev/ttyUSB0     # a real rig, e.g. IC-7300 (rigctl -l lists models)
+```
+
+Then open the **Rig** panel on the Live page: expand *rigctld setup*, tick
+**enabled**, and the panel shows the dial — frequency, mode, and an ON AIR indicator,
+refreshed every few seconds. **Tune** sets the frequency; **CW mode** puts the rig in
+CW.
+
+To transmit, tick **on air** in the send sheet before *Key it*. The sequence is:
+CAT PTT on → a short lead delay (so the first dit isn't clipped) → the keyed audio
+plays out the configured sound device into the rig — the same audio path as any
+soundcard digital mode — → PTT off, *always*, even if playback fails. Untick
+**CAT PTT** in the setup to rely on the rig's VOX instead. TX audio playback needs
+the live extra (`uv sync --extra live`) and the sound device that feeds your rig
+(set it in the panel; blank = system default).
+
+On-air etiquette still applies: drive levels low (ALC near zero), check the
+frequency is clear, identify per your license. One message transmits at a time —
+the app refuses to key if PTT is already down.
+
 ## The band simulator — no radio required
 
 **CW Monitor → Simulator** is a practice band: continuous radio static with stations

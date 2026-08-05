@@ -24,13 +24,41 @@ function initCWSendSheet(opts) {
     context: context,
   });
 
+  // "on air" toggle — appears when a rig is connected (opts.rig.txUrl set
+  // and rigReady(true) called by the rig panel)
+  const rigWrap = document.getElementById("cw-sheet-rig-wrap");
+  const rigCheck = document.getElementById("cw-sheet-rig");
+
+  function rigReady(ready) {
+    if (!rigWrap || !opts.rig) return;
+    rigWrap.style.display = ready ? "" : "none";
+    if (!ready && rigCheck) rigCheck.checked = false;
+  }
+
+  function rigTransmit(data, row) {
+    return fetch(opts.rig.txUrl, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: data.id }),
+    })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, data: j.data || j })))
+      .then(({ ok, data: tx }) => {
+        const tag = document.createElement("span");
+        tag.className = ok ? "cw-badge cw-badge-tx" : "cw-errors";
+        tag.textContent = ok ? "ON AIR" : (tx.error || "TX failed");
+        if (row) row.insertBefore(tag, row.lastChild);
+      })
+      .catch(() => {});
+  }
+
   // Every send lands in the on-page transmission log (newest first) so the
   // operator can see what actually went out without leaving the tape.
   const txLog = document.getElementById("cw-txlog");
   const txRows = document.getElementById("cw-txlog-rows");
 
   function logSent(data) {
-    if (!txLog || !txRows) return;
+    if (!txLog || !txRows) return null;
     const row = document.createElement("div");
     row.className = "cw-txrow";
     const when = document.createElement("time");
@@ -61,6 +89,7 @@ function initCWSendSheet(opts) {
     row.append(when, text, play, link);
     txRows.prepend(row);
     txLog.classList.add("has-rows");
+    return row;
   }
 
   function open(replyCall) {
@@ -132,8 +161,12 @@ function initCWSendSheet(opts) {
         link.textContent = "session #" + data.id + " ↦";
         row.append(audio, link);
         result.appendChild(row);
-        audio.play().catch(() => {});
-        logSent(data);
+        const logRow = logSent(data);
+        if (rigCheck && rigCheck.checked && opts.rig) {
+          rigTransmit(data, logRow);  // the rig plays it — don't double-play locally
+        } else {
+          audio.play().catch(() => {});
+        }
         ta.value = "";
         replyBadge.style.display = "none";
         delete context.call;
@@ -144,5 +177,5 @@ function initCWSendSheet(opts) {
       });
   });
 
-  return { open, close, macroCtl };
+  return { open, close, macroCtl, rigReady };
 }

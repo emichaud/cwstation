@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from django.urls import path
 
-from .api import live_ingest, macros, sim_control
+from .api import live_ingest, macros, rig, rig_tx, sim_control
 from .views import (
     CWSessionCRUDView,
     DecodeView,
@@ -20,6 +20,8 @@ urlpatterns = [
     path("cw/sim/", SimulatorView.as_view(), name="cw-sim"),
     path("cw/sim/control/", sim_control, name="cw-sim-control"),
     path("cw/macros/", macros, name="cw-macros"),
+    path("cw/rig/", rig, name="cw-rig"),
+    path("cw/rig/tx/", rig_tx, name="cw-rig-tx"),
     path("cw/decode/", DecodeView.as_view(), name="cw-decode"),
     path("cw/send/", SendView.as_view(), name="cw-send"),
     path("cw/sessions/<int:pk>/audio.wav", session_audio, name="cw-session-audio"),

@@ -28,6 +28,10 @@ Requires cw.css + macros.js + sendsheet.js. Wire with initCWSendSheet().
         </div>
         <div class="cw-keycaps" id="cw-sheet-keycaps"></div>
         <div class="cw-sheet-row">
+            <label class="cw-sheet-knob" id="cw-sheet-rig-wrap" style="display: none;" title="Key PTT and play the audio into the rig">
+                <input type="checkbox" id="cw-sheet-rig" style="accent-color: var(--error-fg);">
+                <span style="color: var(--error-fg); font-weight: 700;">on air</span>
+            </label>
             <label class="cw-sheet-knob">wpm
                 <input type="range" name="wpm" min="5" max="60" step="1" value="20"
                        oninput="this.parentNode.querySelector('b').textContent = this.value">

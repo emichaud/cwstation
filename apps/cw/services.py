@@ -123,6 +123,19 @@ def apply_receiver_controls(
         source.paused_signals = control.paused_signals  # type: ignore[attr-defined]
 
 
+def session_audio_float(session: CWSession) -> tuple["object", int]:
+    """Regenerate the session's audio as (float32 samples, sample_rate) —
+    the transmit path plays this out the sound device into the rig."""
+    if not session.has_audio:
+        raise ValueError("Audio for uploaded-recording sessions is not stored.")
+    source_text = session.truth or session.text
+    synth = synthesize_cw(
+        source_text, wpm=session.wpm or 20.0, tone_hz=session.tone_hz, sample_rate=8000,
+        snr_db=session.snr_db,
+    )
+    return synth.audio, synth.sample_rate
+
+
 def session_wav_bytes(session: CWSession) -> bytes:
     """Regenerate the session's audio as WAV bytes.
 

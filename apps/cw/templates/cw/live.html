@@ -41,6 +41,7 @@
 </div>
 
 <div class="cw-form-grid" style="margin-top: 24px;">
+    {% include "cw/_rig_panel.html" %}
     {% include "cw/_receiver_controls.html" %}
 
     <div class="card">
@@ -71,12 +72,19 @@ uv run python manage.py cw_monitor_live --stream {{ request.user.username }} --s
 <script src="{% static 'cw/monitor.js' %}"></script>
 <script src="{% static 'cw/macros.js' %}"></script>
 <script src="{% static 'cw/sendsheet.js' %}"></script>
+<script src="{% static 'cw/rigpanel.js' %}"></script>
 <script>
     (function () {
         const sheet = initCWSendSheet({
             sendUrl: "{% url 'cw-send' %}",
             macrosUrl: "{% url 'cw-macros' %}",
+            rig: { txUrl: "{% url 'cw-rig-tx' %}" },
             context: { mycall: "{{ request.user.username|upper|escapejs }}", rst: "599" },
+        });
+
+        initCWRigPanel({
+            url: "{% url 'cw-rig' %}",
+            onState: function (state) { sheet.rigReady(!!state.connected); },
         });
 
         const pill = document.getElementById("cw-live-pill");

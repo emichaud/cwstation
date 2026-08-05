@@ -1,0 +1,53 @@
+{% comment %}
+Rig panel — Hamlib rigctld state + control. Wired by static/cw/rigpanel.js.
+{% endcomment %}
+<div class="card">
+    <div class="card-header" style="display: flex; align-items: center; justify-content: space-between;">
+        <h2>Rig</h2>
+        <span class="cw-live-pill" id="rig-pill" data-state="off">no rig</span>
+    </div>
+    <div class="card-body">
+        <div class="cw-rig-state" id="rig-state" style="display: none;">
+            <div class="cw-rig-freq">
+                <span class="cw-mono" id="rig-freq">–</span>
+                <span class="cw-rig-unit">MHz</span>
+                <span class="cw-badge cw-badge-call" id="rig-mode">–</span>
+                <span class="cw-badge cw-badge-tx" id="rig-ptt" style="display: none;">ON AIR</span>
+            </div>
+            <div class="cw-rig-tune">
+                <input type="text" inputmode="decimal" id="rig-set-freq" class="cw-mono"
+                       placeholder="14.055" aria-label="Frequency in MHz">
+                <button type="button" class="btn-tint" id="rig-tune">Tune</button>
+                <button type="button" class="btn-tint" id="rig-cw-mode">CW mode</button>
+            </div>
+        </div>
+        <div class="cw-rig-err cw-errors" id="rig-err"></div>
+        <details id="rig-setup">
+            <summary style="cursor: pointer; color: var(--body-quiet-color); font-size: 0.8rem; padding: 4px 0;">rigctld setup</summary>
+            <p style="color: var(--text-muted); font-size: 0.78rem;">
+                Run Hamlib's daemon on the machine wired to the radio —
+                <code>rigctld -m 1</code> (dummy rig, for testing) or e.g.
+                <code>rigctld -m 3085 -r /dev/ttyUSB0</code> for an IC-7300.
+            </p>
+            <div class="cw-bank-row" style="grid-template-columns: auto 1fr 90px;">
+                <label style="display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--body-quiet-color);">
+                    <input type="checkbox" id="rig-enabled" style="accent-color: var(--primary);"> enabled
+                </label>
+                <input type="text" id="rig-host" class="cw-bank-text cw-mono" placeholder="127.0.0.1" aria-label="rigctld host">
+                <input type="text" id="rig-port" class="cw-bank-text cw-mono" placeholder="4532" aria-label="rigctld port">
+            </div>
+            <div class="cw-bank-row" style="grid-template-columns: auto 1fr auto; margin-top: 8px;">
+                <label style="display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--body-quiet-color);"
+                       title="Off = rely on the rig's VOX">
+                    <input type="checkbox" id="rig-use-ptt" style="accent-color: var(--primary);"> CAT PTT
+                </label>
+                <input type="text" id="rig-audio-out" class="cw-bank-text cw-mono"
+                       placeholder="TX audio device (blank = default)" aria-label="TX audio device">
+                <label style="display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--body-quiet-color);"
+                       title="Delay between PTT-on and audio">
+                    lead <input type="text" id="rig-lead" class="cw-bank-text cw-mono" style="width: 52px;" placeholder="150"> ms
+                </label>
+            </div>
+        </details>
+    </div>
+</div>

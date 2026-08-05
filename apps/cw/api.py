@@ -11,7 +11,8 @@ from django.http import HttpRequest
 from apps.smallstack.api import api_error, api_view
 
 from .consumers import live_group_name
-from .models import CWMacro, CWSimControl
+from .models import CWMacro, CWRig, CWSession, CWSimControl
+from .rigctl import RigctldClient, RigError
 
 MACRO_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,23}$")
 
@@ -87,6 +88,79 @@ def macros(request: HttpRequest) -> dict[str, Any] | Any:
         return api_error("Both name and text are required", 400)
     macro.save()
     return _macro_dict(macro)
+
+
+_RIG_CONFIG_FIELDS = ("enabled", "host", "port", "use_ptt", "audio_output", "ptt_lead_ms")
+VALID_MODES = {"CW", "CWR", "USB", "LSB", "AM", "FM", "RTTY", "PKTUSB", "PKTLSB"}
+
+
+@api_view(methods=["GET", "POST"], require_auth=True)
+def rig(request: HttpRequest) -> dict[str, Any] | Any:
+    """The operator's rig: config + live CAT state.
+
+    GET  → config + probe (freq/mode/PTT when rigctld is reachable)
+    POST → partial config update, and/or CAT commands:
+           {freq_hz: 14055000} tunes the rig, {mode: "CW"} sets mode
+    """
+    config, _ = CWRig.objects.get_or_create(user=request.user)
+
+    if request.method == "POST":
+        data = request.json
+        if not isinstance(data, dict):
+            return api_error("Expected a JSON object", 400)
+        for name in _RIG_CONFIG_FIELDS:
+            if name in data:
+                setattr(config, name, data[name])
+        config.port = min(max(int(config.port or 4532), 1), 65535)
+        config.ptt_lead_ms = min(max(int(config.ptt_lead_ms or 0), 0), 2000)
+        config.save()
+        # CAT commands ride the same POST so the panel is one form
+        if config.enabled and ("freq_hz" in data or "mode" in data):
+            try:
+                with RigctldClient(config.host, config.port) as client:
+                    if data.get("freq_hz"):
+                        client.set_freq(int(data["freq_hz"]))
+                    if data.get("mode"):
+                        mode = str(data["mode"]).upper()
+                        if mode not in VALID_MODES:
+                            return api_error(f"Unknown mode {mode!r}", 400)
+                        client.set_mode(mode)
+            except (RigError, ValueError) as e:
+                return api_error(str(e), 502)
+
+    payload: dict[str, Any] = {name: getattr(config, name) for name in _RIG_CONFIG_FIELDS}
+    payload["connected"] = False
+    if config.enabled:
+        try:
+            with RigctldClient(config.host, config.port, timeout=1.5) as client:
+                payload.update(client.status())
+                payload["connected"] = True
+        except RigError as e:
+            payload["error"] = str(e)
+    from .transmit import tx_state
+
+    payload["tx"] = tx_state()
+    return payload
+
+
+@api_view(methods=["POST"], require_auth=True)
+def rig_tx(request: HttpRequest) -> dict[str, Any] | Any:
+    """Key a stored session through the rig: PTT on → audio → PTT off."""
+    from . import transmit
+
+    config = CWRig.objects.filter(user=request.user, enabled=True).first()
+    if config is None:
+        return api_error("No rig configured — enable it on the Live page first.", 400)
+    data = request.json
+    if not isinstance(data, dict) or not data.get("session_id"):
+        return api_error("session_id is required", 400)
+    session = CWSession.objects.filter(user=request.user, pk=data["session_id"]).first()
+    if session is None:
+        return api_error("No such session", 404)
+    try:
+        return transmit.transmit_session(config, session)
+    except RigError as e:
+        return api_error(str(e), 409)
 
 
 _CONTROL_FIELDS = ("noise_level", "input_gain", "squelch_db", "afc", "paused_signals")

@@ -349,6 +349,34 @@
 }
 .cw-bank-add:hover { color: var(--primary); border-color: var(--primary); }
 
+/* ── rig panel ───────────────────────────────────────────────────────── */
+.cw-rig-freq {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+.cw-rig-freq > .cw-mono:first-child {
+    font-size: 1.9rem;
+    font-weight: 700;
+    color: var(--primary);
+    letter-spacing: 0.04em;
+}
+.cw-rig-unit { color: var(--body-quiet-color); font-size: 0.8rem; }
+.cw-rig-tune { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.cw-rig-tune input {
+    width: 110px;
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    color: var(--body-fg);
+    padding: 6px 9px;
+    font-size: 0.9rem;
+}
+.cw-rig-tune input:focus { outline: none; border-color: var(--input-focus-border); }
+.cw-rig-err:empty { display: none; }
+.cw-rig-err { margin-bottom: 8px; }
+
 /* ── sent log: what went out, under the tape ─────────────────────────── */
 .cw-txlog { margin-top: 16px; display: none; }
 .cw-txlog.has-rows { display: block; }
