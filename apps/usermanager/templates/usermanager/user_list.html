@@ -1,0 +1,55 @@
+{% extends "smallstack/base.html" %}
+{% load theme_tags crud_tags %}
+
+{% block title %}User Manager{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% comment %}Table, sort, and pagination styles are in components.css{% endcomment %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions" style="display: flex; align-items: flex-start; justify-content: space-between;">
+    <div class="page-header-content">
+        <h1>Users</h1>
+        <p class="page-subtitle">Manage user accounts and profiles</p>
+        <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
+            <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            <span style="color: var(--body-fg);">Users</span>
+        </nav>
+    </div>
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <a href="{% url 'manage/users-timezones' %}" class="btn-tint">
+            Timezones
+        </a>
+        {% if create_view_url %}
+        <a href="{{ create_view_url }}" class="btn-tint">+ Add User</a>
+        {% endif %}
+        <a href="{% url 'accounts:invite' %}" class="btn-primary">✉ Invite User</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Dashboard stat cards ({% templatetag openblock %} stat_card {% templatetag closeblock %} tag) -->
+{% if dashboard_stats %}
+<div class="stat-cards" style="margin-bottom: 24px;">
+    {% stat_card value=dashboard_stats.recent label="Recent · 30d" title="Recent Users (30 Days)" detail_url="manage/users-stat-detail" detail_arg="recent" %}
+    {% stat_card value=dashboard_stats.total label="Total Users" title="All Active Users" detail_url="manage/users-stat-detail" detail_arg="total" %}
+    {% stat_card value=dashboard_stats.staff label="Staff" title="Staff Users" detail_url="manage/users-stat-detail" detail_arg="staff" %}
+    {% stat_card value=dashboard_stats.unique_tz label="Timezones" title="Unique Timezones" detail_url="manage/users-stat-detail" detail_arg="timezones" %}
+</div>
+{% endif %}
+
+<div class="card" id="crud-content">
+    <div class="card-body">
+        {# Framework toolbar: ?q= search reuses the model's search_fields #}
+        {% include "smallstack/crud/includes/list_toolbar.html" %}
+        <div id="crud-list-content">
+            {% include "smallstack/crud/object_list_content.html" %}
+        </div>
+    </div>
+</div>
+
+{% include "smallstack/crud/includes/delete_modal.html" %}
+{% endblock %}

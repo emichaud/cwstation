@@ -1,0 +1,65 @@
+{% extends "smallstack/base.html" %}
+{% load theme_tags %}
+
+{% block title %}Mint API Token{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed">
+  <div class="page-header-content">
+    <h1>Mint API Token</h1>
+    <p class="page-subtitle">Generate a new bearer token for API authentication.</p>
+    <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
+      <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
+      <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+      <a href="{% url 'tokenmgr:tokens-list' %}" style="color: var(--body-quiet-color); text-decoration: none;">API Tokens</a>
+      <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+      <span style="color: var(--body-fg);">Mint</span>
+    </nav>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 640px;">
+  <div class="card-body" style="padding: 24px;">
+    <form method="post" class="crud-form" novalidate>
+      {% csrf_token %}
+      {% for field in form %}
+      <div class="crud-field{% if field.errors %} has-error{% endif %}" {% if field.is_hidden %}style="display: none;"{% endif %}>
+        {% if not field.is_hidden %}
+        <label class="crud-label" for="{{ field.id_for_label }}">
+          {{ field.label }}
+          {% if field.field.required %}<span class="required">*</span>{% endif %}
+        </label>
+        {% endif %}
+        {{ field }}
+        {% if field.help_text %}
+          <div class="crud-help">{{ field.help_text }}</div>
+        {% endif %}
+        {% if field.errors %}
+          <div class="crud-error">{{ field.errors.0 }}</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+
+      <div style="
+        margin-top: 1rem;
+        padding: 12px 16px;
+        background: color-mix(in srgb, var(--message-warning-bg, orange) 12%, var(--card-bg));
+        border-left: 3px solid var(--message-warning-bg, orange);
+        border-radius: 6px;
+        font-size: 0.85rem;
+      ">
+        <strong>Heads up:</strong> the raw key is shown <em>once</em> on the next page and never again. Have somewhere ready to paste it (password manager, .env file, etc.).
+      </div>
+
+      <div class="crud-actions" style="margin-top: 1.25rem;">
+        <button type="submit" class="btn-primary">Create Token</button>
+        <a href="{% url 'tokenmgr:tokens-list' %}" class="btn-outline">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,18 @@
+{% if available_displays|length > 1 %}
+<div class="display-palette">
+    {% for display in available_displays %}
+    <button
+        class="display-palette-btn{% if display.name == active_display %} active{% endif %}"
+        hx-get="?display={{ display.name }}"
+        hx-target="#crud-display-area"
+        hx-swap="innerHTML swap:150ms"
+        hx-push-url="true"
+        data-display="{{ display.name }}"
+        title="{{ display.name|title }}"
+        onclick="this.closest('.display-palette').querySelectorAll('.display-palette-btn').forEach(b => b.classList.remove('active')); this.classList.add('active');"
+    >
+        {{ display.icon|safe }}
+    </button>
+    {% endfor %}
+</div>
+{% endif %}

@@ -1,0 +1,38 @@
+{% load theme_tags %}
+<div style="padding: 16px 18px;">
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+    <div style="text-align: center;">
+      <div style="font-size: 1.5rem; font-weight: 700; color: var(--primary);">{{ stats.total_requests }}</div>
+      <div style="color: var(--body-quiet-color); font-size: 0.8rem;">Requests</div>
+    </div>
+    <div style="text-align: center;">
+      <div style="font-size: 1.5rem; font-weight: 700; color: var(--primary);">{{ stats.avg_response_time_ms }}<span style="font-size: 0.85rem;">ms</span></div>
+      <div style="color: var(--body-quiet-color); font-size: 0.8rem;">Avg response</div>
+    </div>
+  </div>
+
+  {% if stats.status_breakdown %}
+  <div style="margin-top: 14px; display: flex; gap: 6px; flex-wrap: wrap;">
+    {% for code, count in stats.status_breakdown.items %}
+      <span style="
+        display: inline-block; padding: 2px 9px; border-radius: 10px;
+        font-size: 0.75rem; font-weight: 600;
+        {% if code >= 500 %}
+          background: color-mix(in srgb, var(--delete-button-bg, red) 15%, var(--card-bg));
+          color: var(--delete-button-bg, red);
+        {% elif code >= 400 %}
+          background: color-mix(in srgb, var(--message-warning-bg, orange) 18%, var(--card-bg));
+          color: var(--message-warning-bg, orange);
+        {% else %}
+          background: color-mix(in srgb, var(--success-fg) 15%, var(--card-bg));
+          color: var(--success-fg);
+        {% endif %}
+      ">{{ code }}: {{ count }}</span>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p style="margin-top: 14px; color: var(--body-quiet-color); font-size: 0.85rem; text-align: center;">
+    No requests in the last {{ selected_hours }}h.
+  </p>
+  {% endif %}
+</div>

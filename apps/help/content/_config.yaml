@@ -1,0 +1,55 @@
+# Help System Configuration
+# This file defines YOUR project's documentation structure
+# SmallStack docs are bundled separately and auto-injected when enabled
+
+title: "Help & Documentation"
+
+# Variables available in markdown files using {{ variable }} syntax
+variables:
+  version: "1.0.0"
+  project_name: "Your Project"
+  python_version: "3.12"
+  django_version: "6.0"
+
+# Your project's documentation sections
+sections:
+  # Root section (project-specific docs)
+  - slug: ""
+    title: "Project Documentation"
+    description: "Your project's documentation"
+    pages:
+      - slug: index
+        title: "Welcome"
+        description: "Project documentation home"
+        icon: "home"
+      - slug: getting-started
+        title: "Getting Started"
+        description: "First-run setup, branding, pages, and deployment basics"
+        icon: "rocket"
+      - slug: quick-setup
+        title: "Quick Setup (TL;DR)"
+        description: "Clone to deploy in 8 steps"
+        icon: "rocket"
+      - slug: theme-public-no-login
+        title: "Scenario A: Public Site, No User Login"
+        description: "Use your own theme for public pages. Staff-only login for admin tools."
+        icon: "palette"
+      - slug: theme-public-with-login
+        title: "Scenario B: Public Site with User Login"
+        description: "Users log in and use your app with your theme."
+        icon: "palette"
+      - slug: theme-build-on-smallstack
+        title: "Scenario C: Build on SmallStack's Theme"
+        description: "Use SmallStack's built-in theme for everything."
+        icon: "palette"
+
+  # Add your own sections here:
+  # - slug: guides
+  #   title: "User Guides"
+  #   description: "How to use this application"
+  #   # Create folder: apps/help/content/guides/
+  #   # Add pages: apps/help/content/guides/your-page.md
+
+# Note: SmallStack reference docs are bundled in apps/help/smallstack/
+# and appear automatically when SMALLSTACK_DOCS_ENABLED=True (default)
+# To hide them, set SMALLSTACK_DOCS_ENABLED=False in settings

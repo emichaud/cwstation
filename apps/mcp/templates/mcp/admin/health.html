@@ -1,0 +1,84 @@
+{% extends "smallstack/base.html" %}
+{% load theme_tags %}
+
+{% block title %}MCP — Health{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions" style="display: flex; align-items: center; justify-content: space-between;">
+  <div class="page-header-content">
+    <h1>MCP</h1>
+    <p class="page-subtitle">Model Context Protocol — server diagnostics, tool registry, and request activity.</p>
+    <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
+      <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
+      <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+      <span style="color: var(--body-fg);">MCP</span>
+      <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+      <span style="color: var(--body-fg);">Health</span>
+    </nav>
+  </div>
+  <div style="display: flex; gap: 12px; align-items: stretch;">
+    <form method="post"
+          action="{% url 'mcp_admin:self_test' %}"
+          hx-post="{% url 'mcp_admin:self_test' %}"
+          hx-target="#self-test-result"
+          hx-swap="outerHTML"
+          style="margin: 0;">
+      {% csrf_token %}
+      <button type="submit" class="action-card" style="padding: 0;">
+        <div class="action-card-body">
+          <svg viewBox="0 0 24 24" class="action-card-icon">
+            <path d="M8 5v14l11-7z"/>
+          </svg>
+          <div style="text-align: left;">
+            <div class="action-card-title">Run Self-Test</div>
+            <div class="action-card-subtitle">tools/list · ping · notif</div>
+          </div>
+        </div>
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+{% include "mcp/admin/_nav.html" %}
+
+{# ── Stat cards: PASS / WARN / FAIL / Tools ({% templatetag openblock %} stat_card {% templatetag closeblock %} tag) ──── #}
+<div class="stat-cards" style="margin-bottom: 24px;">
+  {% stat_card value=pass_count label="Passing checks" title="Passing Checks" state="success" detail_url="mcp_admin:stat_detail" detail_arg="pass" %}
+  {% stat_card value=warn_count label="Warnings" title="Warnings" state=warn_count|yesno:"warning,muted" detail_url="mcp_admin:stat_detail" detail_arg="warn" %}
+  {% stat_card value=fail_count label="Failures" title="Failures" state=fail_count|yesno:"danger,muted" detail_url="mcp_admin:stat_detail" detail_arg="fail" %}
+  {% stat_card value=tools_count label="Registered tools" title="Registered Tools" detail_url="mcp_admin:stat_detail" detail_arg="tools" %}
+</div>
+
+{# ── Self-test result swap target ──────────────────────────────── #}
+<div id="self-test-result"></div>
+
+{# ── Diagnostics ───────────────────────────────────────────────── #}
+<div class="card">
+  <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+    <h2>Diagnostics</h2>
+    <span style="font-size: 0.8rem; color: var(--body-quiet-color);">
+      Same checks as <code>manage.py mcp_doctor</code> — refresh to re-run.
+    </span>
+  </div>
+  <div class="card-body" style="padding: 0;">
+    <table class="table-plain" style="width: 100%; border-collapse: collapse;">
+      <thead>
+        <tr>
+          <th style="text-align: left; padding: 10px 16px; width: 110px;">Status</th>
+          <th style="text-align: left; padding: 10px 16px;">Check</th>
+          <th style="text-align: left; padding: 10px 16px;">Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in report %}
+          {% include "mcp/admin/_health_row.html" with entry=entry %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

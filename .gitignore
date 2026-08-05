@@ -1,0 +1,59 @@
+
+ai_cowork/
+
+# Secrets - NEVER commit these
+.kamal/secrets
+.env
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Environment variables
+.env
+
+# Django
+*.sqlite3
+db.sqlite3
+# SQLite WAL-mode sidecar files (created when journal_mode=WAL)
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite3-journal
+staticfiles/
+media/
+backups/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.claude/
+
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Coverage
+.coverage
+htmlcov/
+
+# Testing
+.pytest_cache/
+
+# Logs
+*.log
+
+# UV
+# uv.lock is tracked for reproducible Docker builds
+
+# Persisted dev SECRET_KEY (config/settings/development.py)
+.secret_key

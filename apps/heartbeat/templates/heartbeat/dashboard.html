@@ -1,0 +1,158 @@
+{% extends "smallstack/base.html" %}
+{% load theme_tags %}
+
+{% block title %}Heartbeat Dashboard{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Sortable log-table headers (sortable_th tag) */
+    .crud-table thead th[hx-get]:hover { color: var(--primary); }
+    .tab-bar {
+        margin-top: 12px;
+        margin-bottom: 0;
+    }
+
+
+    /* JSON display */
+    .json-display {
+        background: color-mix(in srgb, var(--primary) 4%, var(--body-bg));
+        border-radius: 6px;
+        padding: 20px;
+        font-family: monospace;
+        font-size: 0.85rem;
+        line-height: 1.6;
+        white-space: pre;
+        overflow-x: auto;
+        color: var(--body-fg);
+    }
+</style>
+{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions">
+    <div class="page-header-content">
+        <h1>Site Timeline</h1>
+        <p class="page-subtitle">Database connectivity &middot; {{ total_heartbeats }} record{{ total_heartbeats|pluralize }} &middot; {{ retention_days }}-day retention &middot; {{ expected_interval }}s interval</p>
+        <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
+            <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            <a href="{% url 'heartbeat:status_overview' %}" style="color: var(--body-quiet-color); text-decoration: none;">Status</a>
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            <span style="color: var(--body-fg);">Site timeline</span>
+        </nav>
+    </div>
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <a href="{% url 'heartbeat:status' %}" class="btn-tint">
+            Public Status
+        </a>
+        <a href="{% url 'heartbeat:sla' %}" class="btn-tint">
+            SLA
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+{% include "heartbeat/_status_banners.html" %}
+<!-- Summary stats ({% templatetag openblock %} stat_card {% templatetag closeblock %} tag) -->
+<div class="stat-cards" style="margin-bottom: 24px;">
+    {% stat_card value=status_label label=status_card_label title="Recent Incidents" state=status_state detail_url="heartbeat:incidents" %}
+    {% stat_card value=uptime_overall_display label=overall_label state=uptime_overall_state %}
+    {% stat_card value=uptime_24h_display label="Uptime (24h)" state=uptime_24h_state %}
+    {% stat_card value=uptime_7d_display label="Uptime (7d)" state=uptime_7d_state %}
+    {% stat_card value=response_time_ms label="Last Response" unit="ms" %}
+    {% stat_card value=avg_response_time label="Avg Response" unit="ms" %}
+</div>
+
+<!-- Top-level view switcher -->
+<div class="card">
+    <div class="card-header" style="padding-bottom: 0;">
+        <div class="view-bar">
+            <button class="view-btn{% if active_view == 'timelines' %} active{% endif %}" onclick="switchView('timelines', this)">Timelines</button>
+            <button class="view-btn{% if active_view == 'log' %} active{% endif %}" onclick="switchView('log', this)">Heartbeat Log</button>
+            <button class="view-btn{% if active_view == 'json' %} active{% endif %}" onclick="switchView('json', this)">JSON</button>
+        </div>
+    </div>
+
+    <!-- Timelines panel -->
+    <div id="view-timelines" class="view-panel{% if active_view == 'timelines' %} active{% endif %}">
+        <div class="card-body">
+            {# Public-status style stacked 1d / 7d / 90d uptime bars for the site. #}
+            {% include "heartbeat/_site_timelines.html" %}
+        </div>
+    </div>
+
+    <!-- Heartbeat Log panel -->
+    <div id="view-log" class="view-panel{% if active_view == 'log' %} active{% endif %}">
+        <div class="card-body" style="padding: 0 0 0 0;">
+            <div style="padding: 0 16px;">
+                <div class="tab-bar">
+                    <button class="tab-btn{% if active_tab == 'all' %} active{% endif %}"
+                            hx-get="{% url 'heartbeat:dashboard' %}?tab=all"
+                            hx-target="#tab-content"
+                            hx-swap="innerHTML"
+                            onclick="setActiveTab(this)">
+                        All <span class="tab-count">{{ total_heartbeats }}</span>
+                    </button>
+                    <button class="tab-btn{% if active_tab == 'ok' %} active{% endif %}"
+                            hx-get="{% url 'heartbeat:dashboard' %}?tab=ok"
+                            hx-target="#tab-content"
+                            hx-swap="innerHTML"
+                            onclick="setActiveTab(this)">
+                        OK <span class="tab-count">{{ ok_count }}</span>
+                    </button>
+                    <button class="tab-btn{% if active_tab == 'fail' %} active{% endif %}"
+                            hx-get="{% url 'heartbeat:dashboard' %}?tab=fail"
+                            hx-target="#tab-content"
+                            hx-swap="innerHTML"
+                            onclick="setActiveTab(this)">
+                        Failures <span class="tab-count" {% if fail_count %}style="background: color-mix(in srgb, var(--error-fg) 15%, var(--card-bg)); color: var(--error-fg);"{% endif %}>{{ fail_count }}</span>
+                    </button>
+                </div>
+            </div>
+            <div style="overflow-x: auto;">
+                <div id="tab-content">
+                    {% include tab_partial %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JSON panel -->
+    <div id="view-json" class="view-panel{% if active_view == 'json' %} active{% endif %}">
+        <div class="card-body">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <div style="font-size: 0.8rem; color: var(--body-quiet-color);">
+                    <code>GET {% url 'heartbeat:status_json' %}</code>
+                </div>
+                <button onclick="copyJson()" style="background: color-mix(in srgb, var(--primary) 20%, var(--body-bg)); color: var(--primary); padding: 0.4rem 0.8rem; border: none; border-radius: var(--radius-sm, 4px); cursor: pointer; font-size: 0.8rem;" id="copy-json-btn">Copy</button>
+            </div>
+            <div class="json-display" id="json-content">{{ status_json }}</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function switchView(viewName, btn) {
+    document.querySelectorAll('.view-panel').forEach(function(p) { p.classList.remove('active'); });
+    document.querySelectorAll('.view-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.getElementById('view-' + viewName).classList.add('active');
+    btn.classList.add('active');
+}
+function setActiveTab(btn) {
+    document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+}
+function copyJson() {
+    var text = document.getElementById('json-content').textContent;
+    navigator.clipboard.writeText(text);
+    var btn = document.getElementById('copy-json-btn');
+    btn.textContent = 'Copied!';
+    setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+}
+</script>
+{% endblock %}

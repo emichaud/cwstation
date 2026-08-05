@@ -1,0 +1,16 @@
+{% comment %}
+Dashboard stat card — render via {% load theme_tags %} then {% stat_card ... %}.
+Do not author this markup by hand; the tag generates the clickable wiring and the
+drill-down modal lives in base.html. See docs/skills/dashboard-cards.md.
+{% endcomment %}
+{% if mode == "link" %}
+<a class="stat-card stat-card-clickable{% if state %} stat-card--{{ state }}{% endif %}" href="{{ href }}" style="text-decoration: none;">
+    <div class="stat-card-value">{{ value }}{% if unit %}<span class="stat-card-unit">{{ unit }}</span>{% endif %}</div>
+    <div class="stat-card-label">{{ label }}</div>
+</a>
+{% else %}
+<div class="stat-card{% if state %} stat-card--{{ state }}{% endif %}{% if mode == "modal" %} stat-card-clickable{% endif %}"{% if mode == "modal" %} hx-get="{{ href }}" hx-target="#stat-modal-body" hx-swap="innerHTML" onclick="openStatModal('{{ title|escapejs }}')"{% endif %}>
+    <div class="stat-card-value">{{ value }}{% if unit %}<span class="stat-card-unit">{{ unit }}</span>{% endif %}</div>
+    <div class="stat-card-label">{{ label }}</div>
+</div>
+{% endif %}

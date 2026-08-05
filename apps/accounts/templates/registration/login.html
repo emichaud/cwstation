@@ -1,0 +1,40 @@
+{% extends "registration/auth_base.html" %}
+
+{% block title %}Login{% endblock %}
+
+{% block auth_content %}
+<div class="auth-header">
+    <h1>Welcome Back</h1>
+    <p>Sign in to your account</p>
+</div>
+
+{% if form.errors %}
+<div class="message error">
+    <span class="message-text">Invalid username or password. Please try again.</span>
+</div>
+{% endif %}
+
+<form method="post" class="auth-form">
+    {% csrf_token %}
+    <div class="form-group">
+        <label for="id_username">Username or email</label>
+        <input type="text" name="username" id="id_username" class="vTextField" autofocus autocapitalize="none" autocomplete="username" required>
+    </div>
+    <div class="form-group">
+        <label for="id_password">Password</label>
+        <input type="password" name="password" id="id_password" class="vTextField" autocomplete="current-password" required>
+    </div>
+    <input type="hidden" name="next" value="{{ next }}">
+    <button type="submit" class="btn-primary">Sign In</button>
+</form>
+
+<div class="auth-footer-links">
+    {% if smallstack_passwordless_login %}
+    <a href="{% url 'accounts:passwordless_login' %}">Email me a sign-in code instead</a>
+    {% endif %}
+    <a href="{% url 'password_reset' %}">Forgot your password?</a>
+    {% if smallstack_signup_enabled %}
+    <a href="{% url 'signup' %}">Don't have an account? Sign up</a>
+    {% endif %}
+</div>
+{% endblock %}

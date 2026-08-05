@@ -1,0 +1,74 @@
+{% extends "smallstack/base.html" %}
+{% load theme_tags %}
+
+{% block title %}API Tokens{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions" style="display: flex; align-items: center; justify-content: space-between;">
+  <div class="page-header-content">
+    <h1>API Tokens</h1>
+    <p class="page-subtitle">
+      {% if request.user.is_staff %}
+        Manage every API token on the system — mint, audit, revoke.
+      {% else %}
+        Manage the tokens that belong to you — mint, view, revoke.
+      {% endif %}
+    </p>
+    <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
+      <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
+      <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+      <span style="color: var(--body-fg);">API Tokens</span>
+    </nav>
+  </div>
+  <div class="action-cards">
+    <a href="{% url 'tokenmgr:token-create' %}" class="action-card">
+      <div class="action-card-body">
+        <svg viewBox="0 0 24 24" class="action-card-icon">
+          <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z"/>
+        </svg>
+        <div style="text-align: left;">
+          <div class="action-card-title">Mint Token</div>
+          <div class="action-card-subtitle">Create a new API key</div>
+        </div>
+      </div>
+    </a>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+{# ── Stat cards ({% templatetag openblock %} stat_card {% templatetag closeblock %} tag → drill-down modal) ──────────────── #}
+<div class="stat-cards" style="margin-bottom: 24px;">
+  {% stat_card value=overview_stats.total_tokens label=request.user.is_staff|yesno:"All tokens,Your tokens" title=request.user.is_staff|yesno:"All Tokens,Your Tokens" detail_url="tokenmgr:token-stat-detail" detail_arg="total" %}
+  {% stat_card value=overview_stats.active_tokens label="Active" title="Active Tokens" state="success" detail_url="tokenmgr:token-stat-detail" detail_arg="active" %}
+  {% stat_card value=overview_stats.revoked_tokens label="Revoked" title="Revoked Tokens" state="muted" detail_url="tokenmgr:token-stat-detail" detail_arg="revoked" %}
+  {% stat_card value=overview_stats.volume_24h label="Requests · 24h" title="API Requests · 24h" detail_url="tokenmgr:token-stat-detail" detail_arg="volume" %}
+</div>
+
+<div class="card" id="crud-content">
+  <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+    <h2>{% if request.user.is_staff %}All Tokens{% else %}Your Tokens{% endif %}</h2>
+    <span style="
+      display: inline-block;
+      padding: 2px 10px;
+      background: color-mix(in srgb, var(--primary) 15%, var(--card-bg));
+      color: var(--primary);
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    ">{% if paginator %}{{ paginator.count }}{% else %}{{ object_list|length }}{% endif %} record{% if paginator %}{{ paginator.count|pluralize }}{% else %}{{ object_list|length|pluralize }}{% endif %}</span>
+  </div>
+  <div class="card-body" style="padding: 0;">
+    {# Search + filter dropdowns from the CRUDView toolbar machinery. #}
+    {% include "smallstack/crud/includes/list_toolbar.html" %}
+
+    {# Swap target — toolbar HTMX updates innerHTML on filter changes. #}
+    <div id="crud-list-content">
+      {% include "tokenmgr/crud/apitoken_list_content.html" %}
+    </div>
+  </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,101 @@
+{% extends "smallstack/base.html" %}
+{% load theme_tags %}
+
+{% block title %}API — Endpoints{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions" style="display: flex; align-items: center; justify-content: space-between;">
+  <div class="page-header-content">
+    <h1>API</h1>
+    <p class="page-subtitle">Services and the models exposed over the REST API.</p>
+    <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
+      <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
+      <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+      <span style="color: var(--body-fg);">API</span>
+      <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+      <span style="color: var(--body-fg);">Endpoints</span>
+    </nav>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+{% include "api/admin/_nav.html" %}
+
+{# ── API Services ──────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom: 24px;">
+  <div class="card-header">
+    <h2>API Services</h2>
+  </div>
+  <div class="card-body">
+    {% if services %}
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px;">
+      {% for svc in services %}
+        <a href="{{ svc.url }}" target="_blank" rel="noopener"
+           style="display: flex; flex-direction: column; gap: 3px; padding: 12px 14px;
+                  background: var(--card-bg); border: 1px solid var(--card-border);
+                  {% if svc.kind == 'primary' %}border-left: 3px solid var(--primary);{% endif %}
+                  border-radius: 8px; text-decoration: none;">
+          <span style="font-weight: 600; color: var(--body-fg);">{{ svc.label }} <span style="color: var(--primary);">↗</span></span>
+          <span style="font-size: 0.78rem; color: var(--body-quiet-color);">{{ svc.desc }}</span>
+          <code style="font-size: 0.75rem; color: var(--primary); margin-top: 2px;">{{ svc.url }}</code>
+        </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p style="color: var(--body-quiet-color); margin: 0;">No API service routes are wired. Check <code>manage.py api_doctor</code>.</p>
+    {% endif %}
+  </div>
+</div>
+
+{# ── API Resources (enable_api models) ─────────────────────────── #}
+<div class="card">
+  <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+    <h2>API Resources <span style="color: var(--body-quiet-color); font-weight: 400;">({{ resources|length }})</span></h2>
+    <span style="font-size: 0.8rem; color: var(--body-quiet-color);">
+      Models with <code>enable_api = True</code> on their CRUDView.
+    </span>
+  </div>
+  <div class="card-body" style="padding: 0;">
+    <table class="table-plain" style="width: 100%; border-collapse: collapse;">
+      <thead>
+        <tr>
+          <th style="text-align: left; padding: 10px 16px;">Model</th>
+          <th style="text-align: left; padding: 10px 16px;">List endpoint</th>
+          <th style="text-align: left; padding: 10px 16px;">Methods</th>
+          <th style="text-align: right; padding: 10px 16px; width: 80px;">Filters</th>
+          <th style="text-align: right; padding: 10px 16px; width: 80px;">Search</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in resources %}
+        <tr>
+          <td style="padding: 12px 16px; vertical-align: top;">
+            <div style="font-weight: 600; color: var(--body-fg);">{{ r.verbose_name }}</div>
+            <code style="font-size: 0.75rem; color: var(--body-quiet-color);">{{ r.model }}</code>
+          </td>
+          <td style="padding: 12px 16px; vertical-align: top;">
+            <a href="{{ r.list_url }}" target="_blank" rel="noopener"
+               style="font-family: var(--font-monospace, ui-monospace, Menlo, monospace); font-size: 0.8rem; color: var(--link-color, var(--primary));">{{ r.list_url }}</a>
+          </td>
+          <td style="padding: 12px 16px; vertical-align: top;">
+            {% for m in r.methods %}<span class="badge badge-info" style="margin: 0 4px 4px 0;">{{ m }}</span>{% endfor %}
+          </td>
+          <td style="padding: 12px 16px; vertical-align: top; text-align: right; color: var(--body-quiet-color);">{{ r.filter_count }}</td>
+          <td style="padding: 12px 16px; vertical-align: top; text-align: right; color: var(--body-quiet-color);">{{ r.search_count }}</td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="5" style="padding: 24px 16px; text-align: center; color: var(--body-quiet-color);">
+            No CRUDViews have <code>enable_api = True</code> — the API surface is empty and Swagger will show no resources.<br>
+            Add <code>enable_api = True</code> to a CRUDView subclass to expose its model here.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

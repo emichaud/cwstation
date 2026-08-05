@@ -1,0 +1,16 @@
+{% extends "email/base_email.html" %}
+{% block subject %}You're invited to {{ site_name }}{% endblock %}
+{% block preheader %}<div style="display:none; max-height:0; overflow:hidden; opacity:0; color:#f4f5f7;">Set your password to finish joining {{ site_name }}.</div>{% endblock %}
+{% block content %}
+  <p style="margin:0 0 16px;">Hi{% if user.first_name %} {{ user.first_name }}{% endif %},</p>
+  <p style="margin:0 0 16px;">{% if inviter %}<strong>{{ inviter }}</strong> has invited you{% else %}You've been invited{% endif %} to join <strong>{{ site_name }}</strong>. Click the button below to set your password and get started:</p>
+  <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0;">
+    <tr><td style="border-radius:6px; background:{{ brand_accent }};">
+      <a href="{{ accept_url }}" style="display:inline-block; padding:12px 28px; color:#ffffff; font-size:15px; font-weight:600; text-decoration:none; border-radius:6px;">Set your password</a>
+    </td></tr>
+  </table>
+  <p style="margin:0 0 6px; color:#5a6169; font-size:13px;">Or copy and paste this link into your browser:</p>
+  <p style="margin:0 0 20px; font-size:13px; word-break:break-all;"><a href="{{ accept_url }}" style="color:{{ brand_accent }};">{{ accept_url }}</a></p>
+  <p style="margin:0; color:#5a6169; font-size:13px;">This invitation link expires in 24 hours. If you weren't expecting this, you can ignore this email.</p>
+{% endblock %}
+{% block footer %}You're receiving this because you were invited to {{ site_name }}.{% endblock %}

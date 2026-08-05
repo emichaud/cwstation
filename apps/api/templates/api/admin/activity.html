@@ -1,0 +1,224 @@
+{% extends "smallstack/base.html" %}
+{% load theme_tags %}
+
+{% block title %}API — Activity{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed">
+  <div class="page-header-content">
+    <h1>API</h1>
+    <p class="page-subtitle">Per-endpoint operational view + threat signals derived from <code>RequestLog</code> and django-axes.</p>
+    <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
+      <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
+      <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+      <span style="color: var(--body-fg);">API</span>
+      <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+      <span style="color: var(--body-fg);">Activity</span>
+    </nav>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+{% include "api/admin/_nav.html" %}
+
+{% if not activity_app_installed %}
+  <div class="card" style="margin-bottom: 24px; border-left: 4px solid var(--message-warning-bg, orange);">
+    <div class="card-body" style="padding: 14px 18px;">
+      <strong>Activity tracking is disabled.</strong>
+      <p style="margin: 6px 0 0 0; color: var(--body-quiet-color);">
+        Add <code>"apps.activity"</code> to <code>INSTALLED_APPS</code> to capture API request history.
+        Without it, the per-endpoint summary, threat panel, and request log on this page have nothing to read.
+      </p>
+    </div>
+  </div>
+{% endif %}
+
+{# ── Region 1: Per-endpoint summary ─────────────────────────────── #}
+<div class="card" style="margin-bottom: 24px;">
+  <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+    <h2>Top endpoints — {{ current.since }}</h2>
+    <span style="font-size: 0.8rem; color: var(--body-quiet-color);">
+      Hits, average latency, error rate across the selected window.
+    </span>
+  </div>
+  <div class="card-body" style="padding: 0;">
+    {% if per_endpoint %}
+    <table class="table-plain" style="width: 100%; border-collapse: collapse;">
+      <thead>
+        <tr>
+          <th style="text-align: left; padding: 10px 16px;">Path</th>
+          <th style="text-align: right; padding: 10px 16px; width: 90px;">Hits</th>
+          <th style="text-align: right; padding: 10px 16px; width: 100px;">Avg ms</th>
+          <th style="text-align: right; padding: 10px 16px; width: 90px;">Errors</th>
+          <th style="text-align: right; padding: 10px 16px; width: 110px;">Error rate</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in per_endpoint %}
+        <tr>
+          <td style="padding: 10px 16px; font-family: var(--font-monospace, ui-monospace, Menlo, monospace); font-size: 0.85rem;">{{ row.path }}</td>
+          <td style="padding: 10px 16px; text-align: right;">{{ row.hits }}</td>
+          <td style="padding: 10px 16px; text-align: right;">{{ row.avg_ms }}</td>
+          <td style="padding: 10px 16px; text-align: right; {% if row.errors %}color: var(--delete-button-bg, red);{% endif %}">{{ row.errors }}</td>
+          <td style="padding: 10px 16px; text-align: right; {% if row.error_rate >= 10 %}color: var(--delete-button-bg, red); font-weight: 600;{% elif row.error_rate >= 1 %}color: var(--message-warning-bg, orange);{% endif %}">{{ row.error_rate|floatformat:1 }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="padding: 20px; color: var(--body-quiet-color);">No /api requests in the selected window.</div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Region 2: Threat panel ─────────────────────────────────────── #}
+<div class="card" style="margin-bottom: 24px;">
+  <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+    <h2>Threat signals</h2>
+    <span style="font-size: 0.8rem; color: var(--body-quiet-color);">
+      Heuristics over RequestLog + axes. We surface, you act.
+    </span>
+  </div>
+  <div class="card-body" style="padding: 0;">
+    {% if threats %}
+      <table class="table-plain" style="width: 100%; border-collapse: collapse;">
+        <thead>
+          <tr>
+            <th style="text-align: left; padding: 10px 16px; width: 90px;">Severity</th>
+            <th style="text-align: left; padding: 10px 16px;">Signal</th>
+            <th style="text-align: left; padding: 10px 16px; width: 150px;">IP</th>
+            <th style="text-align: left; padding: 10px 16px;">Sample paths</th>
+            <th style="text-align: left; padding: 10px 16px; width: 140px;">Last seen</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for signal in threats %}
+          <tr>
+            <td style="padding: 10px 16px; vertical-align: top;">
+              {% if signal.severity == "high" %}
+                <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; background: color-mix(in srgb, var(--delete-button-bg, red) 15%, var(--card-bg)); color: var(--delete-button-bg, red);">HIGH</span>
+              {% elif signal.severity == "medium" %}
+                <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; background: color-mix(in srgb, var(--message-warning-bg, orange) 18%, var(--card-bg)); color: var(--message-warning-bg, orange);">MEDIUM</span>
+              {% else %}
+                <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; background: color-mix(in srgb, var(--body-fg) 12%, var(--card-bg)); color: var(--body-quiet-color);">LOW</span>
+              {% endif %}
+            </td>
+            <td style="padding: 10px 16px; vertical-align: top;">
+              <div>{{ signal.label }}</div>
+              {% if signal.extra.user_agent %}
+                <div style="font-family: var(--font-monospace, ui-monospace, Menlo, monospace); font-size: 0.75rem; color: var(--body-quiet-color); margin-top: 4px;">{{ signal.extra.user_agent }}</div>
+              {% endif %}
+              {% if signal.extra.token %}
+                <div style="font-family: var(--font-monospace, ui-monospace, Menlo, monospace); font-size: 0.75rem; color: var(--body-quiet-color); margin-top: 4px;">token: {{ signal.extra.token }}</div>
+              {% endif %}
+            </td>
+            <td style="padding: 10px 16px; vertical-align: top;">
+              {% if signal.ip %}
+                <a href="?ip={{ signal.ip }}" style="font-family: var(--font-monospace, ui-monospace, Menlo, monospace); font-size: 0.85rem;">{{ signal.ip }}</a>
+              {% else %}
+                <span style="color: var(--body-quiet-color);">—</span>
+              {% endif %}
+            </td>
+            <td style="padding: 10px 16px; vertical-align: top; font-family: var(--font-monospace, ui-monospace, Menlo, monospace); font-size: 0.8rem;">
+              {% for p in signal.sample_paths %}{{ p }}{% if not forloop.last %}<br>{% endif %}{% endfor %}
+            </td>
+            <td style="padding: 10px 16px; vertical-align: top; font-size: 0.8rem; color: var(--body-quiet-color);">
+              {% if signal.last_seen %}{{ signal.last_seen|date:"M j, H:i" }}{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div style="padding: 20px; color: var(--body-quiet-color);">
+        ✓ No threat signals in the last 24h.
+        <span style="font-size: 0.85rem;">
+          (Detects: axes lockouts, auth-failure bursts, path scanning, request bursts, scanner user-agents, revoked-token use.)
+        </span>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Region 3: Filterable request log ───────────────────────────── #}
+<div class="card">
+  <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+    <h2>Recent /api requests</h2>
+    <span style="font-size: 0.8rem; color: var(--body-quiet-color);">
+      {% if paginator %}{{ paginator.count }} total{% else %}—{% endif %}
+    </span>
+  </div>
+  <div class="card-body" style="padding: 0;">
+    <form method="get" style="padding: 12px 16px; display: grid; grid-template-columns: repeat(6, auto); gap: 8px; align-items: end; border-bottom: 1px solid color-mix(in srgb, var(--body-fg) 8%, transparent);">
+      <label style="font-size: 0.8rem;">
+        <span style="color: var(--body-quiet-color); display: block; margin-bottom: 4px;">Since</span>
+        <select name="since">{% for v, l in filters_since %}<option value="{{ v }}"{% if v == current.since %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+      </label>
+      <label style="font-size: 0.8rem;">
+        <span style="color: var(--body-quiet-color); display: block; margin-bottom: 4px;">Method</span>
+        <select name="method">{% for v, l in filters_method %}<option value="{{ v }}"{% if v == current.method %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+      </label>
+      <label style="font-size: 0.8rem;">
+        <span style="color: var(--body-quiet-color); display: block; margin-bottom: 4px;">Status</span>
+        <select name="status_class">{% for v, l in filters_status %}<option value="{{ v }}"{% if v == current.status_class %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+      </label>
+      <label style="font-size: 0.8rem;">
+        <span style="color: var(--body-quiet-color); display: block; margin-bottom: 4px;">IP</span>
+        <input type="text" name="ip" value="{{ current.ip }}" placeholder="198.51.100.7" style="width: 140px;">
+      </label>
+      <label style="font-size: 0.8rem;">
+        <span style="color: var(--body-quiet-color); display: block; margin-bottom: 4px;">User</span>
+        <input type="text" name="user" value="{{ current.user }}" placeholder="username" style="width: 120px;">
+      </label>
+      <label style="font-size: 0.8rem; display: flex; align-items: center; gap: 6px; padding-bottom: 6px;">
+        <input type="checkbox" name="scanner_only"{% if current.scanner_only %} checked{% endif %}>
+        Scanner UA only
+      </label>
+      <button type="submit" class="btn-primary btn-sm" style="grid-column: 1 / -1; justify-self: start;">Apply</button>
+    </form>
+    {% if entries %}
+    <table class="table-plain" style="width: 100%; border-collapse: collapse;">
+      <thead>
+        <tr>
+          <th style="text-align: left; padding: 10px 16px; width: 140px;">Time</th>
+          <th style="text-align: left; padding: 10px 16px; width: 60px;">Method</th>
+          <th style="text-align: left; padding: 10px 16px;">Path</th>
+          <th style="text-align: left; padding: 10px 16px; width: 70px;">Status</th>
+          <th style="text-align: left; padding: 10px 16px; width: 80px;">ms</th>
+          <th style="text-align: left; padding: 10px 16px; width: 130px;">IP</th>
+          <th style="text-align: left; padding: 10px 16px;">User / token</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+        <tr>
+          <td style="padding: 8px 16px; font-size: 0.8rem; color: var(--body-quiet-color);">{{ entry.timestamp|date:"M j, H:i:s" }}</td>
+          <td style="padding: 8px 16px; font-family: var(--font-monospace, ui-monospace, Menlo, monospace); font-size: 0.8rem;">{{ entry.method }}</td>
+          <td style="padding: 8px 16px; font-family: var(--font-monospace, ui-monospace, Menlo, monospace); font-size: 0.8rem;">{{ entry.path }}</td>
+          <td style="padding: 8px 16px; font-family: var(--font-monospace, ui-monospace, Menlo, monospace); font-size: 0.8rem; {% if entry.status_code >= 500 %}color: var(--delete-button-bg, red);{% elif entry.status_code >= 400 %}color: var(--message-warning-bg, orange);{% endif %}">{{ entry.status_code }}</td>
+          <td style="padding: 8px 16px; font-size: 0.8rem;">{{ entry.response_time_ms }}</td>
+          <td style="padding: 8px 16px; font-family: var(--font-monospace, ui-monospace, Menlo, monospace); font-size: 0.8rem;">{{ entry.ip_address|default:"—" }}</td>
+          <td style="padding: 8px 16px; font-size: 0.8rem;">
+            {% if entry.user %}{{ entry.user.username }}{% endif %}
+            {% if entry.api_token %}<span style="color: var(--body-quiet-color); font-family: var(--font-monospace, ui-monospace, Menlo, monospace); font-size: 0.75rem;">{{ entry.api_token.prefix }}</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if paginator.num_pages > 1 %}
+    <div style="padding: 12px 16px; display: flex; gap: 12px; align-items: center; border-top: 1px solid color-mix(in srgb, var(--body-fg) 8%, transparent); font-size: 0.85rem;">
+      <span style="color: var(--body-quiet-color);">Page {{ page_obj.number }} of {{ paginator.num_pages }}</span>
+      {% if page_obj.has_previous %}<a href="?{% for k,v in request.GET.items %}{% if k != 'page' %}{{ k }}={{ v }}&{% endif %}{% endfor %}page={{ page_obj.previous_page_number }}">← Prev</a>{% endif %}
+      {% if page_obj.has_next %}<a href="?{% for k,v in request.GET.items %}{% if k != 'page' %}{{ k }}={{ v }}&{% endif %}{% endfor %}page={{ page_obj.next_page_number }}">Next →</a>{% endif %}
+    </div>
+    {% endif %}
+    {% else %}
+    <div style="padding: 20px; color: var(--body-quiet-color);">No /api requests match the current filters.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

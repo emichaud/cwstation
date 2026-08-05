@@ -1,0 +1,8 @@
+<div id="messages-container" class="messages-container" hx-swap-oob="true">
+    {% for message in messages %}
+    <div class="message {% if message.tags %}{{ message.tags }}{% endif %}" role="alert">
+        <span class="message-text">{{ message }}</span>
+        <button type="button" class="message-close" aria-label="Close">&times;</button>
+    </div>
+    {% endfor %}
+</div>

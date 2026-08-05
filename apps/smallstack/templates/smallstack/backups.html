@@ -1,0 +1,201 @@
+{% extends "smallstack/base.html" %}
+{% load theme_tags %}
+
+{% block title %}Backups{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions" style="display: flex; align-items: center; justify-content: space-between;">
+    <div class="page-header-content">
+        <h1>Backups</h1>
+        <p class="page-subtitle">Database backup management</p>
+        <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
+            <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            <span style="color: var(--body-fg);">Backups</span>
+        </nav>
+    </div>
+    <div style="display: flex; gap: 12px; align-items: stretch;">
+        <!-- Scheduled Backups Status -->
+        {% if not is_sqlite %}
+        <div class="action-card action-card-danger">
+            <div class="action-card-body">
+                <svg viewBox="0 0 24 24" class="action-card-icon">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                </svg>
+                <div>
+                    <div class="action-card-title">Not Protected</div>
+                    <div class="action-card-subtitle">SQLite-only — see below</div>
+                </div>
+            </div>
+        </div>
+        {% elif backup_cron_enabled %}
+        <div class="action-card action-card-success">
+            <div class="action-card-body">
+                <svg viewBox="0 0 24 24" class="action-card-icon">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                </svg>
+                <div>
+                    <div class="action-card-title">Scheduled</div>
+                    <div class="action-card-subtitle">Cron enabled</div>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="action-card action-card-danger">
+            <div class="action-card-body">
+                <svg viewBox="0 0 24 24" class="action-card-icon">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                </svg>
+                <div>
+                    <div class="action-card-title">Not Scheduled</div>
+                    <div class="action-card-subtitle"><a href="{% url 'help:section_detail' 'smallstack' 'database-backups' %}" style="color: inherit;">Set up cron</a></div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Backup Now -->
+        {% if is_sqlite %}
+        <div class="action-card" id="backup-now-card" onclick="backupNow()">
+            <div class="action-card-body">
+                <svg id="backup-icon" viewBox="0 0 24 24" class="action-card-icon">
+                    <path d="M5 4v2h14V4H5zm0 10h4v6h6v-6h4l-7-7-7 7z"/>
+                </svg>
+                <div>
+                    <div id="backup-label" class="action-card-title">Backup Now</div>
+                    <div class="action-card-subtitle">Save to storage</div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Download -->
+        {% if is_sqlite and backup_download_enabled %}
+        <div class="action-card" id="download-card" onclick="downloadBackup()">
+            <div class="action-card-body">
+                <svg viewBox="0 0 24 24" class="action-card-icon">
+                    <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+                </svg>
+                <div>
+                    <div id="download-label" class="action-card-title">Download</div>
+                    <div class="action-card-subtitle">Save to browser</div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+{% if not is_sqlite %}
+<div class="card" role="alert" style="
+    margin-bottom: 1.25rem;
+    border-left: 4px solid var(--error-fg);
+    background: color-mix(in srgb, var(--error-fg) 8%, var(--card-bg));
+">
+    <strong style="color: var(--error-fg);">This database is not protected by the built-in backup system.</strong>
+    <p style="margin: 0.4rem 0 0 0; color: var(--body-fg);">
+        The bundled backup tools (<code>make backup</code>, the scheduled cron, and Backup&nbsp;Now)
+        only support <strong>SQLite</strong> — they snapshot the <code>.sqlite3</code> file. This
+        deployment runs on <strong>{{ engine }}</strong>, so they do nothing and the history below
+        will stay empty even if a nightly cron is configured. Back this database up with
+        <code>pg_dump</code> or your managed provider's snapshots instead. See
+        <a href="{% url 'help:section_detail' 'smallstack' 'database-postgresql' %}">PostgreSQL &rarr; Backups</a>.
+    </p>
+</div>
+{% endif %}
+<div id="backup-page-content">
+    {% include "smallstack/partials/backup_page_content.html" %}
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function _getCSRFToken() {
+    var el = document.querySelector('[name=csrfmiddlewaretoken]');
+    if (el) return el.value;
+    var match = document.cookie.match(/csrftoken=([^;]+)/);
+    return match ? match[1] : '';
+}
+
+function backupNow() {
+    var card = document.getElementById('backup-now-card');
+    if (card.dataset.busy) return;
+    card.dataset.busy = '1';
+    var label = document.getElementById('backup-label');
+    if (label) label.textContent = 'Creating\u2026';
+
+    fetch("{% url 'smallstack:backup_now' %}", {
+        method: 'POST',
+        headers: { 'X-CSRFToken': _getCSRFToken() },
+        credentials: 'same-origin'
+    })
+    .then(function(response) {
+        if (label) label.textContent = 'Backup Now';
+        delete card.dataset.busy;
+        htmx.ajax('GET', "{% url 'smallstack:backups' %}", {
+            target: '#backup-page-content',
+            swap: 'innerHTML'
+        });
+    })
+    .catch(function(err) {
+        if (label) label.textContent = 'Failed';
+        setTimeout(function() {
+            if (label) label.textContent = 'Backup Now';
+            delete card.dataset.busy;
+        }, 2000);
+    });
+}
+
+function downloadBackup() {
+    var card = document.getElementById('download-card');
+    if (card.dataset.busy) return;
+    card.dataset.busy = '1';
+    var label = document.getElementById('download-label');
+    if (label) label.textContent = 'Creating\u2026';
+
+    fetch("{% url 'smallstack:backup_download' %}", {
+        method: 'POST',
+        headers: { 'X-CSRFToken': _getCSRFToken() },
+        credentials: 'same-origin'
+    })
+    .then(function(response) {
+        if (!response.ok) throw new Error('Download failed');
+        var disposition = response.headers.get('Content-Disposition') || '';
+        var filenameMatch = disposition.match(/filename="?([^"]+)"?/);
+        var filename = filenameMatch ? filenameMatch[1] : 'backup.sqlite3';
+        return response.blob().then(function(blob) {
+            return {blob: blob, filename: filename};
+        });
+    })
+    .then(function(result) {
+        var url = URL.createObjectURL(result.blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = result.filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        if (label) label.textContent = 'Download';
+        delete card.dataset.busy;
+        htmx.ajax('GET', "{% url 'smallstack:backups' %}", {
+            target: '#backup-page-content',
+            swap: 'innerHTML'
+        });
+    })
+    .catch(function(err) {
+        if (label) label.textContent = 'Failed';
+        setTimeout(function() {
+            if (label) label.textContent = 'Download';
+            delete card.dataset.busy;
+        }, 2000);
+    });
+}
+</script>
+{% endblock %}

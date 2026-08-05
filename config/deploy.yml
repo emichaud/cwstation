@@ -1,0 +1,86 @@
+# Kamal deployment configuration
+# Reference: https://kamal-deploy.org/docs/configuration
+#
+# SETUP: Before deploying, update the following:
+#   1. service: your app name (lowercase, no spaces)
+#   2. servers > web: your VPS IP address
+#   3. volumes: update paths to use your app name
+#   4. proxy > hosts: your domain(s)
+#   5. .kamal/secrets: copy from secrets.example and fill in values
+
+service: myapp
+
+# Docker image name (usually same as service)
+image: myapp
+
+# Production server(s) - add your VPS IP address
+servers:
+  web:
+    - 123.45.67.89  # Replace with your VPS IP
+  # Separate worker role (optional, for high-traffic sites).
+  # By default, the web container runs db_worker inline via WORKER_INLINE=true.
+  # To use a separate worker instead:
+  #   1. Add WORKER_INLINE: "false" to env > clear below
+  #   2. Uncomment the worker block below
+  # See docs/skills/background-tasks.md for trade-offs.
+  #
+  # worker:
+  #   hosts:
+  #     - 123.45.67.89  # Same VPS as web
+  #   cmd: python manage.py db_worker --queue-name "*"
+  #   proxy: false
+  #   options:
+  #     health-cmd: "true"
+
+# SSH configuration
+ssh:
+  user: root
+
+# Container runs as non-root (USER app), so it needs time for
+# migrations + collectstatic before gunicorn starts
+deploy_timeout: 90
+
+# Persistent volumes for data and media
+# IMPORTANT: Update paths to match your app name
+volumes:
+  - /root/myapp_data/media:/app/media
+  - /root/myapp_data/db:/app/data
+
+# Environment variables
+env:
+  clear:
+    DJANGO_SETTINGS_MODULE: config.settings.production
+    # (No DJANGO_DEBUG here — production.py hardcodes DEBUG=False. A no-op env
+    # var would falsely imply you can flip debug on in prod by changing it.)
+    BACKUP_CRON_ENABLED: "true"
+  secret:
+    - ALLOWED_HOSTS
+    - CSRF_TRUSTED_ORIGINS
+
+# Optional: wrap each deploy in a maintenance window so the container-swap
+# downtime is SLA-excluded on /status/. Opt-in — set MAINTENANCE_ON_DEPLOY=true
+# (and optionally MAINTENANCE_WINDOW_MINUTES) in .kamal/secrets. The .kamal/hooks/
+# pre-deploy + post-deploy hooks open/close it via `kamal app exec` (no extra
+# token). Left unset, the hooks no-op. See docs/skills/status-monitors.md.
+
+# Kamal proxy configuration
+# IMPORTANT: Update hosts with your domain(s)
+proxy:
+  ssl: true
+  app_port: 8000
+  hosts:
+    - myapp.com       # Replace with your domain
+    - www.myapp.com   # Replace with your www subdomain
+  healthcheck:
+    path: /health/
+    interval: 3
+    timeout: 5
+
+# Local Docker registry (Kamal manages SSH port forwarding)
+# No external registry account needed - images transfer via SSH
+registry:
+  server: localhost:5555
+
+# Builder configuration
+builder:
+  arch: amd64

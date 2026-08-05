@@ -1,0 +1,14 @@
+{% extends "email/base_email.html" %}
+{% block subject %}Your {{ site_name }} sign-in code{% endblock %}
+{% block preheader %}<div style="display:none; max-height:0; overflow:hidden; opacity:0; color:#f4f5f7;">Your sign-in code is {{ code }} (expires in {{ ttl_minutes }} minutes).</div>{% endblock %}
+{% block content %}
+  <p style="margin:0 0 16px;">Hi {{ user.get_username }},</p>
+  <p style="margin:0 0 20px;">Enter this code to finish signing in to <strong>{{ site_name }}</strong>:</p>
+  <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 20px;">
+    <tr><td style="background:#f4f5f7; border:1px solid #e6e8eb; border-radius:8px; padding:18px 28px;">
+      <span style="font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-size:32px; font-weight:700; letter-spacing:8px; color:#1a1d21;">{{ code }}</span>
+    </td></tr>
+  </table>
+  <p style="margin:0; color:#5a6169; font-size:13px;">This code expires in {{ ttl_minutes }} minutes and can be used once. If you didn't try to sign in, you can safely ignore this email.</p>
+{% endblock %}
+{% block footer %}You're receiving this because a sign-in code was requested for your {{ site_name }} account.{% endblock %}

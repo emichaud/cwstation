@@ -1,0 +1,42 @@
+{% extends "smallstack/base.html" %}
+{% load theme_tags %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions">
+    <div class="page-header-content">
+        <h1>Dashboard</h1>
+        <p class="page-subtitle">System overview at a glance</p>
+        <div style="margin-top: 0.5rem; font-size: 0.8rem;">
+            <nav>
+                <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
+                <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+                <span style="color: var(--body-fg);">Dashboard</span>
+            </nav>
+        </div>
+    </div>
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <a href="{% url 'help:section_index' 'smallstack' %}" class="btn-tint">Docs</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+
+{% if widgets %}
+<div class="dashboard-widget-grid">
+    {% for ctx in widgets %}
+        {% include "smallstack/widgets/"|add:ctx.widget.widget_type|add:".html" %}
+    {% endfor %}
+</div>
+{% else %}
+{% include "smallstack/includes/empty_state.html" with
+   title="No dashboard widgets available"
+   body="Add a <code>DashboardWidget</code> subclass and register it in your app's <code>AppConfig.ready()</code> via <code>dashboard.register(...)</code>. Built-in widgets in <code>apps/smallstack/dashboard_widgets.py</code> are good starting templates."
+   cta_url="/smallstack/help/smallstack/dashboard-widgets/"
+   cta_label="Read the widget docs" %}
+{% endif %}
+{% endblock %}

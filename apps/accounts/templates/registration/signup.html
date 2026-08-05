@@ -1,0 +1,67 @@
+{% extends "registration/auth_base.html" %}
+
+{% block title %}Sign Up{% endblock %}
+
+{% block auth_content %}
+<div class="auth-header">
+    <h1>Create Account</h1>
+    <p>Sign up to get started</p>
+</div>
+
+{% if form.errors %}
+<div class="message error">
+    <span class="message-text">Please correct the errors below.</span>
+</div>
+{% endif %}
+
+<form method="post" class="auth-form">
+    {% csrf_token %}
+    <div class="form-group">
+        <label for="id_username">Username</label>
+        <input type="text" name="username" id="id_username" class="vTextField"
+               value="{{ form.username.value|default:'' }}"
+               autofocus autocapitalize="none" autocomplete="username" required
+               maxlength="150">
+        {% if form.username.errors %}
+        <ul class="errorlist">
+            {% for error in form.username.errors %}
+            <li>{{ error }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+        <span class="helptext">Required. 150 characters or fewer. Letters, digits and @/./+/-/_ only.</span>
+    </div>
+    <div class="form-group">
+        <label for="id_password1">Password</label>
+        <input type="password" name="password1" id="id_password1" class="vTextField" autocomplete="new-password" required>
+        {% if form.password1.errors %}
+        <ul class="errorlist">
+            {% for error in form.password1.errors %}
+            <li>{{ error }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+    <div class="form-group">
+        <label for="id_password2">Confirm Password</label>
+        <input type="password" name="password2" id="id_password2" class="vTextField" autocomplete="new-password" required>
+        {% if form.password2.errors %}
+        <ul class="errorlist">
+            {% for error in form.password2.errors %}
+            <li>{{ error }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+    {% if brand.signup_terms_notice %}
+    <p class="terms-notice">By signing up, you agree to our
+        {% if brand.terms_url %}<a href="{{ brand.terms_url }}" target="_blank">Terms of Service</a>{% endif %}{% if brand.terms_url and brand.privacy_url %} and {% endif %}{% if brand.privacy_url %}<a href="{{ brand.privacy_url }}" target="_blank">Privacy Policy</a>{% endif %}.
+    </p>
+    {% endif %}
+    <button type="submit" class="btn-primary">Sign Up</button>
+</form>
+
+<div class="auth-footer-links">
+    <a href="{% url 'login' %}">Already have an account? Sign in</a>
+</div>
+{% endblock %}

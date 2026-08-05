@@ -1,0 +1,194 @@
+{% load theme_tags %}
+<!-- ── Tab navigation ─────────────────────────────────────────── -->
+<div class="tab-bar">
+    <button type="button" id="tab-activity" class="tab-btn active" onclick="switchBackupTab('activity')">
+        Backup Activity
+    </button>
+    <button type="button" id="tab-files" class="tab-btn" onclick="switchBackupTab('files')">
+        Files
+        <span class="tab-count">{{ backup_files|length }}</span>
+    </button>
+    <button type="button" id="tab-config" class="tab-btn" onclick="switchBackupTab('config')">
+        Configuration
+        <span style="display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: {% if email_is_console or not admins %}var(--error-fg){% else %}var(--success-fg){% endif %};"></span>
+    </button>
+</div>
+
+<!-- ── Tab: Backup Activity (default) ─────────────────────────── -->
+<div id="panel-activity">
+    <!-- Top-level stats -->
+    <div class="stat-cards" style="margin-bottom: 24px;">
+        {% stat_card value=recent_count label="Recent (24h)" title="Recent Backups (24h)" detail_url="smallstack:backup_stat_detail" detail_arg="recent" %}
+        {% stat_card value=success_count label="Successful" title="Successful Backups" state="success" detail_url="smallstack:backup_stat_detail" detail_arg="success" %}
+        {% stat_card value=failed_count label="Failed" title="Failed Backups" state=failed_count|yesno:"danger," detail_url="smallstack:backup_stat_detail" detail_arg="failed" %}
+        {% stat_card value=pruned_count label="Pruned" title="Pruned Backups" detail_url="smallstack:backup_stat_detail" detail_arg="pruned" %}
+        {% stat_card value=avg_duration label="Avg Duration" unit="ms" %}
+        {% stat_card value=total_backup_size|filesizeformat label="Total Size" %}
+    </div>
+
+    <!-- Backup History -->
+    <div class="card">
+        <div class="card-header"><h2>Backup History</h2></div>
+        <div class="card-body" style="padding: 0;" id="backup-history">
+            {% include "smallstack/partials/backup_history.html" %}
+        </div>
+    </div>
+</div>
+
+<!-- ── Tab: Files ─────────────────────────────────────────────── -->
+<div id="panel-files" style="display: none;">
+    <div class="card">
+        <div class="card-header"><h2>Backup Files on Disk</h2></div>
+        <div class="card-body" style="padding: 0;">
+            {% include "smallstack/partials/backup_files.html" %}
+        </div>
+    </div>
+</div>
+
+<!-- ── Tab: Configuration ─────────────────────────────────────── -->
+<div id="panel-config" style="display: none;">
+    <!-- Status Cards -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;">
+        <!-- Email Status -->
+        {% if email_is_console %}
+        <a href="{% url 'help:section_detail' 'smallstack' 'email-auth' %}" class="config-status-card config-status-warning">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+            </svg>
+            <div>
+                <div class="config-status-title">Email Not Configured</div>
+                <div class="config-status-detail">Setup SMTP for failure alerts</div>
+            </div>
+        </a>
+        {% else %}
+        <div class="config-status-card config-status-ok">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+            </svg>
+            <div>
+                <div class="config-status-title">SMTP Configured</div>
+                <div class="config-status-detail">Email delivery active</div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Admins Status -->
+        {% if admins %}
+        <div class="config-status-card config-status-ok" style="cursor: pointer;" onclick="openStatModal('Notify Admins');document.getElementById('stat-modal-body').innerHTML=document.getElementById('admins-table-source').innerHTML">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+            </svg>
+            <div>
+                <div class="config-status-title">{{ admins|length }} Admin{{ admins|length|pluralize }}</div>
+                <div class="config-status-detail">Receiving failure alerts</div>
+            </div>
+        </div>
+        <template id="admins-table-source">
+            <table class="table-plain" style="width:100%">
+                <tbody>
+                    {% for name, email in admins %}
+                    <tr>
+                        <td style="padding:10px 16px;font-weight:600">{{ name }}</td>
+                        <td style="padding:10px 16px">{{ email }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </template>
+        {% else %}
+        <a href="{% url 'help:section_detail' 'smallstack' 'database-backups' %}" class="config-status-card config-status-warning">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+            </svg>
+            <div>
+                <div class="config-status-title">No Admins</div>
+                <div class="config-status-detail">Configure alert recipients</div>
+            </div>
+        </a>
+        {% endif %}
+    </div>
+
+    <!-- Settings Tables -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <div class="card" style="margin: 0;">
+            <div class="card-header"><h2 style="font-size: 0.95rem;">Database</h2></div>
+            <div class="card-body" style="padding: 0;">
+                <table class="table-plain" style="width: 100%;">
+                    <tbody>
+                        <tr>
+                            <td class="config-label">Engine</td>
+                            <td>{{ engine }}</td>
+                        </tr>
+                        {% if is_sqlite %}
+                        <tr>
+                            <td class="config-label">Path</td>
+                            <td><code style="font-size: 0.8rem;">{{ db_path }}</code> <button type="button" onclick="navigator.clipboard.writeText('{{ db_path }}')" title="Copy path" class="config-copy-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg></button></td>
+                        </tr>
+                        <tr>
+                            <td class="config-label">Size</td>
+                            <td>{{ db_size|filesizeformat }}</td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card" style="margin: 0;">
+            <div class="card-header"><h2 style="font-size: 0.95rem;">Backup Settings</h2></div>
+            <div class="card-body" style="padding: 0;">
+                <table class="table-plain" style="width: 100%;">
+                    <tbody>
+                        <tr>
+                            <td class="config-label">Directory</td>
+                            <td><code style="font-size: 0.8rem;">{{ backup_dir }}</code> <button type="button" onclick="navigator.clipboard.writeText('{{ backup_dir }}')" title="Copy path" class="config-copy-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg></button></td>
+                        </tr>
+                        <tr>
+                            <td class="config-label">Retention</td>
+                            <td>{{ settings_info.backup_retention }} files</td>
+                        </tr>
+                        <tr>
+                            <td class="config-label">Scheduled</td>
+                            <td>
+                                {% if not is_sqlite %}
+                                <span style="color: var(--error-fg);">Not effective (SQLite-only)</span>
+                                {% elif settings_info.backup_cron_enabled %}
+                                <span style="color: var(--success-fg);">Enabled</span>
+                                {% else %}
+                                <span style="color: var(--body-quiet-color);">Disabled</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="config-label">Downloads</td>
+                            <td>
+                                {% if settings_info.backup_download_enabled %}
+                                <span style="color: var(--success-fg);">Enabled</span>
+                                {% else %}
+                                <span style="color: var(--body-quiet-color);">Disabled</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function switchBackupTab(tab) {
+    var tabs = ['activity', 'files', 'config'];
+    tabs.forEach(function(t) {
+        var panel = document.getElementById('panel-' + t);
+        var btn = document.getElementById('tab-' + t);
+        if (t === tab) {
+            panel.style.display = '';
+            btn.classList.add('active');
+        } else {
+            panel.style.display = 'none';
+            btn.classList.remove('active');
+        }
+    });
+}
+</script>

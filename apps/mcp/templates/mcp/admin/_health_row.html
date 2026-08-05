@@ -1,0 +1,50 @@
+{% comment %}
+One row in the Diagnostics table. Expects `entry` (a dict with
+name / status / detail and optional tools / orphans).
+Status badge uses the canonical status colors used by Backups.
+{% endcomment %}
+<tr>
+  <td style="padding: 12px 16px; vertical-align: top;">
+    {% load theme_tags %}
+    {% if entry.status == "PASS" %}{% status_badge "✓ PASS" "success" %}
+    {% elif entry.status == "WARN" %}{% status_badge "⚠ WARN" "warning" %}
+    {% else %}{% status_badge "✗ FAIL" "error" %}{% endif %}
+  </td>
+  <td style="padding: 12px 16px; vertical-align: top; font-weight: 600;">
+    {{ entry.name }}
+  </td>
+  <td style="padding: 12px 16px; vertical-align: top; font-size: 0.85rem;">
+    {% if entry.detail|stringformat:"s"|slice:":1" == "{" %}
+      <dl style="margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 2px 16px; font-family: var(--font-monospace, ui-monospace, Menlo, monospace); font-size: 0.8rem;">
+        {% for k, v in entry.detail.items %}
+          <dt style="color: var(--body-quiet-color);">{{ k }}</dt>
+          <dd style="margin: 0;">{{ v }}</dd>
+        {% endfor %}
+      </dl>
+    {% else %}
+      <div style="color: var(--body-fg); line-height: 1.45;">{{ entry.detail }}</div>
+    {% endif %}
+
+    {% if entry.tools %}
+      <div style="margin-top: 8px; font-size: 0.8rem; color: var(--body-quiet-color);">
+        Tools: <span style="font-family: var(--font-monospace, ui-monospace, Menlo, monospace);">{{ entry.tools|join:", " }}{% if entry.tools|length >= 20 %}…{% endif %}</span>
+      </div>
+    {% endif %}
+
+    {% if entry.orphans %}
+      <div style="
+        margin-top: 8px; padding: 8px 12px;
+        background: color-mix(in srgb, var(--message-warning-bg, orange) 12%, var(--card-bg));
+        border-radius: var(--radius-sm, 4px);
+        font-size: 0.8rem;
+      ">
+        <strong>Orphan files:</strong>
+        <ul style="margin: 4px 0 0 18px; padding: 0;">
+          {% for path in entry.orphans %}
+            <li><code>{{ path }}</code></li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+  </td>
+</tr>

@@ -1,0 +1,47 @@
+{% load crud_tags theme_tags %}
+
+{% if object_list %}
+    {% crud_table %}
+    {% if page_obj.paginator.num_pages > 1 %}
+    <div class="paginator">
+        <span class="paginator-info">
+            Showing {{ page_obj.showing_start }}&ndash;{{ page_obj.showing_end }} of {{ page_obj.total_count }}
+        </span>
+        <nav class="paginator-nav" aria-label="Pagination">
+            <a class="paginator-btn{% if not page_obj.has_previous %} disabled{% endif %}"
+               {% if page_obj.has_previous %}
+               hx-get="{{ related_tab_content_url }}?page=1"
+               hx-target="#related-tab-content"
+               hx-swap="innerHTML"
+               {% endif %}
+               title="First page" aria-label="First page">&laquo;</a>
+            <a class="paginator-btn{% if not page_obj.has_previous %} disabled{% endif %}"
+               {% if page_obj.has_previous %}
+               hx-get="{{ related_tab_content_url }}?page={{ page_obj.previous_page_number }}"
+               hx-target="#related-tab-content"
+               hx-swap="innerHTML"
+               {% endif %}
+               title="Previous page" aria-label="Previous page">&lsaquo;</a>
+            <span class="paginator-current">{{ page_obj.number }}<span class="paginator-of">of</span>{{ page_obj.paginator.num_pages }}</span>
+            <a class="paginator-btn{% if not page_obj.has_next %} disabled{% endif %}"
+               {% if page_obj.has_next %}
+               hx-get="{{ related_tab_content_url }}?page={{ page_obj.next_page_number }}"
+               hx-target="#related-tab-content"
+               hx-swap="innerHTML"
+               {% endif %}
+               title="Next page" aria-label="Next page">&rsaquo;</a>
+            <a class="paginator-btn{% if not page_obj.has_next %} disabled{% endif %}"
+               {% if page_obj.has_next %}
+               hx-get="{{ related_tab_content_url }}?page={{ page_obj.paginator.num_pages }}"
+               hx-target="#related-tab-content"
+               hx-swap="innerHTML"
+               {% endif %}
+               title="Last page" aria-label="Last page">&raquo;</a>
+        </nav>
+    </div>
+    {% endif %}
+{% else %}
+    <div style="padding: 2rem; text-align: center; color: var(--body-quiet-color);">
+        No related records found.
+    </div>
+{% endif %}

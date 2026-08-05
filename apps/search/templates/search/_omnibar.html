@@ -1,0 +1,57 @@
+{% comment %}
+Topbar omnibar — matches the editorial aesthetic of the dedicated
+search page (italic serif, mono labels, hairline rules) but compact
+enough to feel like a command palette. Mount inside the topbar.
+
+The trigger opens the overlay; Ctrl+K / Cmd+K is the keyboard route.
+omnibar.js wires Esc / arrow nav / Enter.
+{% endcomment %}
+<button type="button"
+        class="omnibar-trigger"
+        aria-label="Open search (Ctrl+K)"
+        onclick="window.__smallstackOmnibar && window.__smallstackOmnibar.open()">
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" class="omnibar-trigger-icon">
+    <path d="M15.5 14h-.79l-.28-.27A6.5 6.5 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16
+             c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14
+             5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+  </svg>
+  <span class="omnibar-hint">Search</span>
+  <kbd class="omnibar-kbd">⌘K</kbd>
+</button>
+
+<div id="search-omnibar" class="omnibar-overlay" hidden>
+  <div class="omnibar-modal" role="dialog" aria-label="Site search">
+    <div class="omnibar-eyebrow">
+      <span class="dot" aria-hidden="true"></span>
+      <span class="eyebrow-label">Quick search</span>
+      <span class="eyebrow-coda">type to find anything</span>
+    </div>
+
+    <div class="omnibar-input-row">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"
+           class="omnibar-search-icon" aria-hidden="true">
+        <path d="M15.5 14h-.79l-.28-.27A6.5 6.5 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16
+                 c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14
+                 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+      </svg>
+      <input type="search"
+             id="omnibar-input"
+             autocomplete="off"
+             placeholder="Find anything…">
+      <span class="omnibar-input-caret" aria-hidden="true"></span>
+    </div>
+
+    <div id="omnibar-results" class="omnibar-results"></div>
+
+    <div class="omnibar-footer">
+      <span class="omnibar-keynav">
+        <span class="key-hint"><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+        <span class="key-hint"><kbd>↵</kbd> open</span>
+        <span class="key-hint"><kbd>esc</kbd> close</span>
+      </span>
+      <a href="{% url 'search:page' %}" id="omnibar-fullpage-link" class="omnibar-fullpage">
+        Full search <span class="arrow">→</span>
+      </a>
+    </div>
+  </div>
+</div>

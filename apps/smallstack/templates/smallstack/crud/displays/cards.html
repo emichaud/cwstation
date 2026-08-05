@@ -1,0 +1,16 @@
+{% load theme_tags %}
+{% if cards %}
+<div class="card-grid">
+    {% for card in cards %}
+        {% include item_template %}
+    {% endfor %}
+</div>
+{% else %}
+<p style="color: var(--body-quiet-color); padding: 2rem 0; text-align: center;">
+    No {{ object_verbose_name_plural }} found.
+</p>
+{% endif %}
+
+{% if is_paginated %}
+{% render_paginator page_obj "#crud-display-area" %}
+{% endif %}

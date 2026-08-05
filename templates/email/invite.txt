@@ -1,0 +1,10 @@
+Hi{% if user.first_name %} {{ user.first_name }}{% endif %},
+
+{% if inviter %}{{ inviter }} has invited you{% else %}You've been invited{% endif %} to join {{ site_name }}.
+
+Set your password to get started:
+{{ accept_url }}
+
+This invitation link expires in 24 hours. If you weren't expecting this, you can ignore this email.
+
+— {{ brand_name }}

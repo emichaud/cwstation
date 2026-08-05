@@ -1,0 +1,50 @@
+{% extends "smallstack/base.html" %}
+{% load theme_tags %}
+
+{% block title %}Invite User{% endblock %}
+{% block breadcrumbs %}{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions" style="display: flex; align-items: center; justify-content: space-between;">
+    <div class="page-header-content">
+        <h1>Invite User</h1>
+        <p class="page-subtitle">Send an email invitation — the new user sets their own password.</p>
+        <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
+            <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            <a href="{% url 'manage/users-list' %}" style="color: var(--body-quiet-color); text-decoration: none;">Users</a>
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            <span style="color: var(--body-fg);">Invite</span>
+        </nav>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 640px;">
+    <div class="card-body" style="padding: 24px;">
+        {% if form.non_field_errors %}
+        <div class="message error" style="margin-bottom: 16px;"><span class="message-text">{{ form.non_field_errors|join:" " }}</span></div>
+        {% endif %}
+        <form method="post">
+            {% csrf_token %}
+            {% for field in form %}
+            <div class="form-group" style="margin-bottom: 18px;">
+                <label for="{{ field.id_for_label }}" style="display: block; margin-bottom: 6px; font-weight: 600; font-size: 0.9rem;">
+                    {{ field.label }}{% if field.field.required %} <span style="color: var(--error-fg);">*</span>{% endif %}
+                </label>
+                {{ field }}
+                {% if field.help_text %}<span class="helptext" style="display:block; margin-top:4px; font-size:0.8rem; color:var(--body-quiet-color);">{{ field.help_text }}</span>{% endif %}
+                {% if field.errors %}
+                <ul class="errorlist">{% for error in field.errors %}<li>{{ error }}</li>{% endfor %}</ul>
+                {% endif %}
+            </div>
+            {% endfor %}
+            <div style="margin-top: 24px;">
+                <button type="submit" class="btn-primary">Send invitation</button>
+                <a href="{% url 'manage/users-list' %}" class="btn-outline" style="margin-left: 8px;">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

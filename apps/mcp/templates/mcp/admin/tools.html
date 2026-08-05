@@ -1,0 +1,106 @@
+{% extends "smallstack/base.html" %}
+{% load theme_tags %}
+
+{% block title %}MCP — Tools{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions">
+  <div class="page-header-content">
+    <h1>MCP</h1>
+    <p class="page-subtitle">Browseable registry of every tool exposed to MCP clients.</p>
+    <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
+      <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
+      <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+      <a href="{% url 'mcp_admin:health' %}" style="color: var(--body-quiet-color); text-decoration: none;">MCP</a>
+      <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+      <span style="color: var(--body-fg);">Tools</span>
+    </nav>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+{% include "mcp/admin/_nav.html" %}
+
+{% if not tools %}
+  {% include "smallstack/includes/empty_state.html" with
+     title="No tools registered yet"
+     body="Opt a <code>CRUDView</code> in with <code>enable_mcp = True</code>, or add a custom tool via <code>@tool</code> in your app's <code>mcp_tools.py</code>."
+     cta_url="/smallstack/help/smallstack/mcp-enable-models/"
+     cta_label="Read the opt-in guide" %}
+{% else %}
+  {# ── Stat cards: total / read / write ───────────────────────── #}
+  {% with read_count=tools|length %}
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px;">
+    <div class="card">
+      <div class="card-body" style="text-align: center; padding: 14px 8px;">
+        <div style="font-size: 1.75rem; font-weight: 700; color: var(--primary);">{{ tools|length }}</div>
+        <div style="color: var(--body-quiet-color); font-size: 0.8rem;">Total tools</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-body" style="text-align: center; padding: 14px 8px;">
+        <div style="font-size: 1.75rem; font-weight: 700; color: var(--success-fg);">{{ read_only_count }}</div>
+        <div style="color: var(--body-quiet-color); font-size: 0.8rem;">Read-only</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-body" style="text-align: center; padding: 14px 8px;">
+        <div style="font-size: 1.75rem; font-weight: 700; color: var(--message-warning-bg, orange);">{{ write_count }}</div>
+        <div style="color: var(--body-quiet-color); font-size: 0.8rem;">Write tools</div>
+      </div>
+    </div>
+  </div>
+  {% endwith %}
+
+  <div class="card">
+    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+      <h2>Registered Tools</h2>
+      <span style="font-size: 0.8rem; color: var(--body-quiet-color);">
+        Same list as <code>tools/list</code> over JSON-RPC.
+      </span>
+    </div>
+    <div class="card-body" style="padding: 0; overflow-x: auto;">
+      <table class="table-plain" style="width: 100%; border-collapse: collapse;">
+        <thead>
+          <tr>
+            <th style="text-align: left; padding: 8px 16px;">Name</th>
+            <th style="text-align: left; padding: 8px 16px;">Description</th>
+            <th style="text-align: left; padding: 8px 16px;">Write</th>
+            <th style="text-align: left; padding: 8px 16px;">Access</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for tool in tools %}
+            <tr>
+              <td style="padding: 8px 16px; font-family: var(--font-monospace, ui-monospace, Menlo, monospace); font-size: 0.85rem;">
+                <a href="{% url 'mcp_admin:tool_detail' name=tool.name %}">{{ tool.name }}</a>
+              </td>
+              <td style="padding: 8px 16px; font-size: 0.85rem; color: var(--body-fg);">
+                {{ tool.description|default:""|truncatechars:80 }}
+              </td>
+              <td style="padding: 8px 16px;">
+                {% if tool.write %}
+                  <span style="
+                    display: inline-block; padding: 1px 7px; border-radius: 10px;
+                    font-size: 0.7rem; font-weight: 700;
+                    background: color-mix(in srgb, var(--message-warning-bg, orange) 18%, var(--card-bg));
+                    color: var(--message-warning-bg, orange);
+                  ">write</span>
+                {% else %}
+                  <span style="color: var(--body-quiet-color); font-size: 0.85rem;">read</span>
+                {% endif %}
+              </td>
+              <td style="padding: 8px 16px; font-size: 0.85rem; color: var(--body-quiet-color);">
+                {{ tool.requires_access|default:"any" }}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

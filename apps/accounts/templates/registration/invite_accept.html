@@ -1,0 +1,31 @@
+{% extends "registration/auth_base.html" %}
+
+{% block title %}Set your password{% endblock %}
+
+{% block auth_content %}
+<div class="auth-header">
+    <h1>{% if valid %}Set your password{% else %}Link not valid{% endif %}</h1>
+    <p>{% if valid %}Choose a password to finish setting up your account.{% else %}This invitation link is invalid or has expired.{% endif %}</p>
+</div>
+
+{% if valid %}
+<form method="post" class="auth-form">
+    {% csrf_token %}
+    {% for field in form %}
+    <div class="form-group">
+        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% if field.errors %}
+        <ul class="errorlist">{% for error in field.errors %}<li>{{ error }}</li>{% endfor %}</ul>
+        {% endif %}
+        {% if field.help_text %}<span class="helptext">{{ field.help_text|safe }}</span>{% endif %}
+    </div>
+    {% endfor %}
+    <button type="submit" class="btn-primary">Set password &amp; continue</button>
+</form>
+{% else %}
+<div class="auth-footer-links">
+    <a href="{% url 'password_reset' %}">Request a new link</a>
+</div>
+{% endif %}
+{% endblock %}

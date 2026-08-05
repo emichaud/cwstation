@@ -1,0 +1,124 @@
+{% load static theme_tags %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{% endblock %} | {{ brand.name }}</title>
+
+    <!-- Blocking theme/sidebar/palette script — prevents flash of wrong theme or sidebar state -->
+    <script>
+    (function() {
+        var theme = localStorage.getItem('smallstack-theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', theme);
+        var palette = localStorage.getItem('smallstack-palette') || '{{ color_palette }}' || 'django';
+        // Always set data-palette so palette-specific CSS rules (including
+        // the explicit dark-mode override for the default django palette)
+        // can target every state — including the default.
+        document.documentElement.setAttribute('data-palette', palette);
+        // Suppress sidebar transition on initial load
+        document.documentElement.classList.add('no-sidebar-transition');
+    })();
+    </script>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="{% static brand.favicon %}">
+
+    <!-- OpenGraph / Social Preview -->
+    <meta property="og:title" content="{% block og_title %}{{ brand.name }}{% endblock %}">
+    <meta property="og:description" content="{% block og_description %}{{ brand.tagline }}{% endblock %}">
+    <meta property="og:image" content="{% if site.use_https %}https{% else %}http{% endif %}://{{ site.domain }}{% static brand.social_image %}">
+    <meta property="og:type" content="website">
+    <meta name="twitter:card" content="summary_large_image">
+
+    <!-- Django Admin CSS as foundation -->
+    <link rel="stylesheet" href="{% static 'admin/css/base.css' %}">
+    <link rel="stylesheet" href="{% static 'admin/css/forms.css' %}">
+
+    <!-- Custom theme CSS -->
+    <link rel="stylesheet" href="{% static 'smallstack/css/theme.css' %}">
+    <link rel="stylesheet" href="{% static 'smallstack/css/palettes.css' %}">
+    <link rel="stylesheet" href="{% static 'smallstack/css/components.css' %}">
+    <link rel="stylesheet" href="{% static 'search/css/search.css' %}">
+
+    {% block extra_css %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}"
+      data-sidebar-state="{% block sidebar_state %}{{ sidebar_state|default:smallstack_sidebar_default }}{% endblock %}"
+      data-topbar-nav="{% block topbar_nav_mode %}{% if smallstack_topbar_nav_always %}always{% else %}auto{% endif %}{% endblock %}"
+      {% if sidebar_state_forced %}data-sidebar-forced{% endif %}
+      hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+    <div class="wrapper">
+        <!-- Top Navigation Bar -->
+        {% block topbar %}{% include "smallstack/includes/topbar.html" %}{% endblock %}
+
+        <div class="main-container">
+            <!-- Sidebar Navigation -->
+            {% block sidebar %}
+            {% if smallstack_sidebar_enabled %}
+            {% include "smallstack/includes/sidebar.html" %}
+            {% endif %}
+            {% endblock %}
+
+            <!-- Main Content Area -->
+            <main class="main-content" id="main-content">
+                <!-- Breadcrumbs -->
+                {% block breadcrumbs %}
+                    {% include "smallstack/includes/breadcrumbs.html" %}
+                {% endblock %}
+
+                <!-- Messages -->
+                {% include "smallstack/includes/messages.html" %}
+
+                <!-- Full-bleed page header (outside max-width wrapper) -->
+                {% block page_header %}{% endblock %}
+
+                <!-- Page Content -->
+                <div class="content-wrapper">
+                    {% block content %}{% endblock %}
+                </div>
+            </main>
+        </div>
+
+        <!-- Footer -->
+        <footer class="site-footer">
+            <div class="footer-content">
+                <span>&copy; {% now "Y" %} {{ brand.name }}</span>
+                {% if brand.privacy_url %}<a href="{{ brand.privacy_url }}" class="footer-link">Privacy</a>{% endif %}
+                {% if brand.terms_url %}<a href="{{ brand.terms_url }}" class="footer-link">Terms</a>{% endif %}
+                {% if smallstack_version %}<span class="footer-version">v{{ smallstack_version }}</span>{% endif %}
+            </div>
+        </footer>
+
+        <!-- Cookie Consent Banner -->
+        {% include "smallstack/includes/cookie_banner.html" %}
+    </div>
+
+    {# Shared stat-card drill-down modal — always present so {% stat_card %} just works #}
+    {% include "smallstack/includes/stat_modal.html" %}
+
+    <!-- Theme configuration -->
+    <script>
+        window.SMALLSTACK = {
+            userTheme: {% if user.is_authenticated and user.profile %}'{{ user.profile.theme_preference }}'{% else %}null{% endif %},
+            userPalette: {% if user.is_authenticated and user.profile %}'{{ user.profile.color_palette }}'{% else %}null{% endif %},
+            colorPalette: '{{ color_palette }}',
+            isAuthenticated: {% if user.is_authenticated %}true{% else %}false{% endif %},
+            sidebarEnabled: {{ smallstack_sidebar_enabled|yesno:"true,false" }},
+            sidebarDefault: '{{ smallstack_sidebar_default }}',
+            topbarNavEnabled: {{ smallstack_topbar_nav_enabled|yesno:"true,false" }},
+            urls: {
+                themePreference: '{% url "theme_preference" %}',
+                palettePreference: '{% url "palette_preference" %}'
+            }
+        };
+    </script>
+    <!-- htmx -->
+    <script src="{% static 'smallstack/js/htmx.min.js' %}" defer></script>
+    <!-- Theme toggle script -->
+    <script src="{% static 'smallstack/js/theme.js' %}"></script>
+    <script src="{% static 'search/js/omnibar.js' %}" defer></script>
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

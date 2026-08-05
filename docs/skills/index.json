@@ -1,0 +1,486 @@
+{
+  "name": "smallstack-skills",
+  "version": "0.8.7",
+  "description": "AI skill index for Django SmallStack. Read the relevant skill before modifying the corresponding part of the codebase.",
+  "skills": [
+    {
+      "id": "django-apps",
+      "file": "django-apps.md",
+      "name": "Django Apps & CRUDView",
+      "description": "Creating new Django apps, CRUDView configuration, django-tables2 integration, title bar pattern. See also: api skill for REST API and auth management.",
+      "keywords": [
+        "app",
+        "model",
+        "crud",
+        "view",
+        "tables2",
+        "management",
+        "admin page"
+      ],
+      "use_when": "Creating a new app, adding a model, building management pages, or wiring up CRUDView."
+    },
+    {
+      "id": "testing",
+      "file": "testing.md",
+      "name": "Testing",
+      "description": "pytest/pytest-django stack (config.settings.test, locmem email, axes off). Patterns for testing email flows (mail.outbox), multi-step + token auth flows (invite, passwordless, reset, email login), CRUDView management pages, privilege guardrails, and regression guards. Documents the form.is_valid()-mutates-instance and Django-6 DeleteView gotchas.",
+      "keywords": [
+        "test",
+        "pytest",
+        "tests",
+        "mail.outbox",
+        "locmem",
+        "fixture",
+        "client",
+        "force_login",
+        "coverage",
+        "regression"
+      ],
+      "use_when": "Writing or changing tests \u2014 especially for auth, email, CRUDView, or User Manager work."
+    },
+    {
+      "id": "templates",
+      "file": "templates.md",
+      "name": "Template System",
+      "description": "Template inheritance, available blocks (title, content, extra_css, extra_js, breadcrumbs), includes, and the thin-wrapper pattern for merge-safe customization.",
+      "keywords": [
+        "template",
+        "html",
+        "block",
+        "extend",
+        "include",
+        "base.html",
+        "wrapper"
+      ],
+      "use_when": "Creating or modifying HTML templates, understanding block inheritance, or adding includes."
+    },
+    {
+      "id": "theming-system",
+      "file": "theming-system.md",
+      "name": "Theming System Reference",
+      "description": "Complete CSS variable definitions for light/dark modes, color palette system (django, high-contrast, dark-blue, orange, purple), palette precedence, JavaScript API, dark mode persistence contract, and responsive breakpoints.",
+      "keywords": [
+        "theme",
+        "css",
+        "variable",
+        "palette",
+        "dark mode",
+        "light mode",
+        "color",
+        "primary"
+      ],
+      "use_when": "Understanding the theming architecture, adding a new palette, or debugging theme/palette issues."
+    },
+    {
+      "id": "adding-your-own-theme",
+      "file": "adding-your-own-theme.md",
+      "name": "Adding a Custom Theme",
+      "description": "Step-by-step tutorial for adding a custom CSS framework (Bootstrap, Tailwind, Tabler) alongside SmallStack's built-in theme. Covers the required template pieces (blocking script, SMALLSTACK config, theme.js), CSS override file, navbar partial, and static asset placement.",
+      "keywords": [
+        "bootstrap",
+        "tailwind",
+        "custom theme",
+        "css framework",
+        "mytheme",
+        "parallel theme"
+      ],
+      "use_when": "The user wants to use their own CSS framework for public pages while keeping SmallStack's theme for admin tools."
+    },
+    {
+      "id": "theme-scenarios",
+      "file": "theme-scenarios.md",
+      "name": "Theme Integration Scenarios",
+      "description": "Decision tree and step-by-step for three scenarios: (A) public site with no user login, (B) public site with user login, (C) build on SmallStack's theme. Includes settings, file placement, and common mistakes.",
+      "keywords": [
+        "scenario",
+        "public site",
+        "login",
+        "custom theme",
+        "integration",
+        "LOGIN_REDIRECT_URL"
+      ],
+      "use_when": "The user is deciding how to integrate their theme, or an AI needs to understand which approach to take."
+    },
+    {
+      "id": "authentication",
+      "file": "authentication.md",
+      "name": "Authentication",
+      "description": "Custom User model (settings.AUTH_USER_MODEL), auth views, LoginRequiredMixin, signup control (SMALLSTACK_SIGNUP_ENABLED), login/logout URLs, and protecting views.",
+      "keywords": [
+        "auth",
+        "login",
+        "signup",
+        "user",
+        "password",
+        "session",
+        "permission",
+        "staff"
+      ],
+      "use_when": "Working with auth views, protecting pages, configuring signup, or extending the User model."
+    },
+    {
+      "id": "htmx-patterns",
+      "file": "htmx-patterns.md",
+      "name": "htmx Patterns",
+      "description": "htmx setup (vendored, no CDN), CSRF handling via hx-headers, partial templates, dual-response views (full page vs htmx partial), OOB swaps, and inline form submissions.",
+      "keywords": [
+        "htmx",
+        "hx-get",
+        "hx-post",
+        "partial",
+        "swap",
+        "csrf",
+        "ajax",
+        "inline"
+      ],
+      "use_when": "Adding htmx interactions, building partials, or implementing inline updates."
+    },
+    {
+      "id": "help-documentation",
+      "file": "help-documentation.md",
+      "name": "Help & Documentation System",
+      "description": "File-based help system with markdown rendering, _config.yaml structure, sections, categories, variables, FAQ pages, app-contributed docs, and search index.",
+      "keywords": [
+        "help",
+        "docs",
+        "markdown",
+        "content",
+        "_config.yaml",
+        "section",
+        "category"
+      ],
+      "use_when": "Adding or editing help pages, creating new doc sections, or configuring the help system."
+    },
+    {
+      "id": "settings",
+      "file": "settings.md",
+      "name": "Settings & Configuration",
+      "description": "Split settings (base/development/production/test), environment variables via python-decouple, BRAND_* settings, SMALLSTACK_* feature flags, and .env file usage.",
+      "keywords": [
+        "settings",
+        "config",
+        "env",
+        "environment",
+        "BRAND",
+        "SMALLSTACK",
+        "feature flag"
+      ],
+      "use_when": "Changing settings, adding environment variables, or understanding the split settings architecture."
+    },
+    {
+      "id": "timezones",
+      "file": "timezones.md",
+      "name": "Timezone Handling",
+      "description": "TimezoneMiddleware, per-user timezone via UserProfile, localtime_tooltip template tag, and the CSS-only timezone tooltip.",
+      "keywords": [
+        "timezone",
+        "localtime",
+        "tooltip",
+        "middleware",
+        "utc",
+        "datetime"
+      ],
+      "use_when": "Working with dates/times, adding timezone-aware displays, or understanding the timezone middleware."
+    },
+    {
+      "id": "background-tasks",
+      "file": "background-tasks.md",
+      "name": "Background Tasks",
+      "description": "Django Tasks framework with django-tasks-db backend. Task definition, enqueuing, the db_worker management command, inline vs separate worker deployment, and scaling guidance.",
+      "keywords": [
+        "task",
+        "background",
+        "worker",
+        "queue",
+        "async",
+        "scheduled",
+        "cron",
+        "db_worker",
+        "WORKER_INLINE",
+        "inline"
+      ],
+      "use_when": "Adding background jobs, configuring the worker deployment (inline vs separate), or understanding the task queue."
+    },
+    {
+      "id": "activity-tracking",
+      "file": "activity-tracking.md",
+      "name": "Activity Tracking",
+      "description": "HTTP request logging middleware, RequestLog model, auto-pruning (configurable row cap), excluded paths, and the staff-only activity dashboard.",
+      "keywords": [
+        "activity",
+        "request",
+        "logging",
+        "middleware",
+        "dashboard",
+        "RequestLog",
+        "pruning"
+      ],
+      "use_when": "Configuring request logging, excluding paths, or working with the activity dashboard."
+    },
+    {
+      "id": "logging-audit",
+      "file": "logging-audit.md",
+      "name": "Logging & Audit Trail",
+      "description": "Django logging configuration, log levels, audit trail patterns, and structured logging.",
+      "keywords": [
+        "logging",
+        "audit",
+        "log",
+        "logger",
+        "debug",
+        "info",
+        "warning",
+        "error"
+      ],
+      "use_when": "Configuring logging, adding audit trails, or debugging log output."
+    },
+    {
+      "id": "screenshot-workflow",
+      "file": "screenshot-workflow.md",
+      "name": "Screenshot Workflow",
+      "description": "Visual verification using shot-scraper CLI and the screenshot_auth management command for authenticated screenshots. Light/dark mode, element selectors, and CI usage.",
+      "keywords": [
+        "screenshot",
+        "shot-scraper",
+        "visual",
+        "verify",
+        "auth",
+        "playwright"
+      ],
+      "use_when": "Taking screenshots to verify UI changes, especially in both light and dark modes."
+    },
+    {
+      "id": "docker-deployment",
+      "file": "docker-deployment.md",
+      "name": "Docker Deployment",
+      "description": "Docker Compose setup, multi-service configuration (web, worker, cron), volumes, health checks, and environment variables for containerized deployment.",
+      "keywords": [
+        "docker",
+        "compose",
+        "container",
+        "volume",
+        "health check",
+        "worker"
+      ],
+      "use_when": "Setting up Docker, modifying the Dockerfile, or configuring container services."
+    },
+    {
+      "id": "kamal-deployment",
+      "file": "kamal-deployment.md",
+      "name": "Kamal Deployment",
+      "description": "Zero-downtime VPS deployment with Kamal. deploy.yml configuration, secrets, SSL, volumes, accessories, and common commands.",
+      "keywords": [
+        "kamal",
+        "deploy",
+        "vps",
+        "ssl",
+        "production",
+        "server",
+        "zero-downtime"
+      ],
+      "use_when": "Deploying to production, configuring Kamal, or troubleshooting deployment issues."
+    },
+    {
+      "id": "development-workflow",
+      "file": "development-workflow.md",
+      "name": "Development Workflow",
+      "description": "Branching strategy, testing with pytest, coverage targets, commit style, and code quality with ruff.",
+      "keywords": [
+        "git",
+        "branch",
+        "test",
+        "pytest",
+        "coverage",
+        "ruff",
+        "lint",
+        "commit"
+      ],
+      "use_when": "Understanding development conventions, running tests, or preparing commits."
+    },
+    {
+      "id": "release-process",
+      "file": "release-process.md",
+      "name": "Release Process",
+      "description": "Semantic versioning, release checklist, version bumping in pyproject.toml and _config.yaml, GitHub releases.",
+      "keywords": [
+        "release",
+        "version",
+        "semver",
+        "changelog",
+        "tag",
+        "github"
+      ],
+      "use_when": "Preparing a release, bumping the version, or creating a GitHub release."
+    },
+    {
+      "id": "api",
+      "file": "api.md",
+      "name": "REST API",
+      "description": "CRUDView JSON API layer with Bearer token auth, token types (login/manual), access levels (auth/staff/readonly), auth management endpoints (register, me, password, deactivate), FK expansion, date filtering, aggregation, and CORS.",
+      "keywords": [
+        "api",
+        "rest",
+        "bearer",
+        "token",
+        "crud",
+        "json",
+        "auth",
+        "register",
+        "access level",
+        "cors"
+      ],
+      "use_when": "Building or consuming REST API endpoints, managing tokens, or configuring API authentication and access levels."
+    },
+    {
+      "id": "card-displays",
+      "file": "card-displays.md",
+      "name": "Card & Calendar Displays",
+      "description": "Card-grid list display protocol. CardDisplay (zero-config key-value), AvatarCardDisplay (avatar+title+subtitle+pill), authoring new card variants via item_template + build_card() subclasses, and generalizing the pattern to new list-display families.",
+      "keywords": [
+        "card",
+        "cards",
+        "display",
+        "grid",
+        "avatar",
+        "list",
+        "keyvalue",
+        "CardDisplay",
+        "AvatarCardDisplay",
+        "item_template"
+      ],
+      "use_when": "Building list displays that render as card grids, configuring CardDisplay/AvatarCardDisplay for a model, or authoring a new card variant or list display family."
+    },
+    {
+      "id": "calendar-displays",
+      "file": "calendar-displays.md",
+      "name": "Calendar Displays",
+      "description": "Month-grid calendar list display. CalendarDisplay configuration (date_field, end_field, title_field, month_param), single-date vs ranged events, month navigation, timezone handling, hover tooltips, and authoring new date-based displays.",
+      "keywords": [
+        "calendar",
+        "month",
+        "date",
+        "datetime",
+        "event",
+        "schedule",
+        "maintenance window",
+        "booking",
+        "CalendarDisplay",
+        "date_field",
+        "end_field"
+      ],
+      "use_when": "Adding a month-grid calendar view to a model, configuring CalendarDisplay for date-ranged events, or authoring a new date-based list display (week, gantt, timeline)."
+    },
+    {
+      "id": "frontend-integration",
+      "file": "frontend-integration.md",
+      "name": "Frontend Integration",
+      "description": "Using SmallStack as a headless API backend for React, Vue, Next.js, or Svelte frontends. Covers system tokens, user lifecycle (register, login, password change, deactivate), CORS setup, and token architecture.",
+      "keywords": [
+        "react",
+        "vue",
+        "next",
+        "svelte",
+        "frontend",
+        "spa",
+        "api",
+        "cors",
+        "system token",
+        "headless"
+      ],
+      "use_when": "Setting up SmallStack as a backend API for a frontend framework, or understanding the system token + login token architecture."
+    },
+    {
+      "id": "integration-workflow",
+      "file": "integration-workflow.md",
+      "name": "Upstream Integration",
+      "description": "Pulling upstream SmallStack changes into downstream projects, resolving merge conflicts, and deploying after integration.",
+      "keywords": [
+        "upstream",
+        "downstream",
+        "merge",
+        "pull",
+        "integrate",
+        "conflict"
+      ],
+      "use_when": "Merging upstream SmallStack updates into a downstream project like opshugger or smallstack_web."
+    },
+    {
+      "id": "merge-0.12.0",
+      "file": "merge-0.12.0.md",
+      "name": "Merge v0.12.0",
+      "description": "Merging the v0.12.0 release into an older SmallStack base. Covers the BREAKING django-tables2 removal (points to UPGRADING.md) and the additive status-monitoring subsystem's integration points: the three surface toggles, the /status/ + /api/* + /mcp route gating in config/urls.py, the views autodiscover that moved to SmallStackConfig.ready(), INSTALLED_APPS, heartbeat migrations 0007-0011, and the search-breaks-without-autodiscover gotcha.",
+      "keywords": [
+        "merge",
+        "upgrade",
+        "0.12.0",
+        "status monitoring",
+        "surface toggle",
+        "autodiscover",
+        "tables2",
+        "downstream",
+        "migration"
+      ],
+      "use_when": "Bringing a downstream project up to v0.12.0 \u2014 reconciling the status-monitoring subsystem and surface toggles against a customized settings/urls/apps layout."
+    },
+    {
+      "id": "runbook-documents",
+      "file": "runbook-documents.md",
+      "name": "Runbook & Dynamic Documents",
+      "description": "Driving versioned markdown documents from the web UI, service layer, MCP, REST, and CLI; FTS search registration, locking, retention, ownership, and anti-patterns.",
+      "keywords": [
+        "runbook",
+        "document",
+        "markdown",
+        "versioned",
+        "knowledge base",
+        "bundle",
+        "mcp",
+        "retention"
+      ],
+      "use_when": "Creating or writing runbook documents any way other than the web UI, or wiring runbook search/MCP/export."
+    },
+    {
+      "id": "runbook-cli",
+      "file": "runbook-cli.md",
+      "name": "Runbook CLI",
+      "description": "The manage.py runbook / rb unix-style CLI over the document service \u2014 verbs, stdin piping, JSON output, provenance, locking.",
+      "keywords": [
+        "runbook",
+        "cli",
+        "rb",
+        "manage.py",
+        "stdin",
+        "pipe"
+      ],
+      "use_when": "Browsing or editing runbook pages from the shell."
+    },
+    {
+      "id": "sc-cli",
+      "file": "sc-cli.md",
+      "name": "sc — framework CLI",
+      "description": "The manage.py sc / sc console CLI: generic CRUD over any CRUDView (ls, get, describe, new, set, rm) with the same form validation + log_write audit as REST/MCP, plus operational verbs (doctor, backup, token, status, index) and 'sc commands' discovery. Model addressing by token; --json on every read; staff-gated writes.",
+      "keywords": [
+        "sc",
+        "cli",
+        "crudview",
+        "crud",
+        "ls",
+        "get",
+        "describe",
+        "doctor",
+        "manage.py",
+        "registry",
+        "json"
+      ],
+      "use_when": "Inspecting, querying, or mutating any CRUDView model from the shell, discovering the model/command surface, or health-checking the framework — instead of ad-hoc manage.py shell snippets."
+    },
+    {
+      "id": "report-card",
+      "file": "report-card.md",
+      "name": "Quality Report Card",
+      "description": "Generate a consistent, evidence-backed project quality report card committed to docs/report-cards/. Defines the rubric (8 graded areas A–F: Security, Code Quality, Testing & Coverage, Documentation & Skills, Architecture & Design, Operability & Release, Accessibility & Theming, Locality of Behavior), the change taxonomy (security/feature/enhancement/fix/refactor/docs/chore), the data-gathering commands (ruff, pytest coverage, pip-audit, doctors, git log), BLOCKER/MAJOR grade caps, and honesty rules. Snapshots are immutable, one file per commit.",
+      "keywords": ["report card", "scorecard", "quality", "audit", "grade", "rubric", "review", "release", "metrics", "coverage"],
+      "use_when": "After a feature branch, release, or audit cycle — to record the resulting quality state (graded areas + changes-by-category + findings) as a committable indicator in docs/report-cards/."
+    }
+  ]
+}

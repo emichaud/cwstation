@@ -1,0 +1,87 @@
+{% extends "smallstack/base.html" %}
+{% load static theme_tags %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'smallstack/help/css/help.css' %}">
+{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions">
+    <div class="page-header-content">
+        <h1>{{ section.title }}</h1>
+        {% if section.description %}
+        <p class="page-subtitle">{{ section.description }}</p>
+        {% endif %}
+        <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
+            <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            <a href="{% url 'help:index' %}" style="color: var(--body-quiet-color); text-decoration: none;">Help</a>
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            <span style="color: var(--body-fg);">{{ section.title }}</span>
+        </nav>
+    </div>
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <a href="{% url 'help:section_toc' section.slug %}" class="btn-tint">
+            Table of Contents
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="help-index">
+
+    <!-- Search Box -->
+    <div class="help-search-wrapper">
+        <input type="text"
+               id="help-search"
+               class="help-search-input"
+               placeholder="Search documentation..."
+               data-index-url="{% url 'help:search_index' %}"
+               autocomplete="off">
+        <div id="help-search-results" class="help-search-results"></div>
+    </div>
+
+    {% if grouped_pages %}
+    {% for group in grouped_pages %}
+    <div class="help-section">
+        {% if group.category %}
+        <h2 class="help-category-title">{{ group.category }}</h2>
+        {% endif %}
+        <div class="help-cards-grid">
+            {% for page in group.pages %}
+            <a href="{% url 'help:section_detail' section.slug page.slug %}" class="help-card">
+                {% include "help/includes/help_card_icon.html" %}
+                <div class="help-card-content">
+                    <h3>{{ page.title }}</h3>
+                    {% if page.description %}
+                    <p>{{ page.description }}</p>
+                    {% endif %}
+                </div>
+                <div class="help-card-arrow">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                        <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
+                    </svg>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="card">
+        <div class="card-body">
+            <p>No documentation available in this section yet.</p>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'smallstack/help/js/help.js' %}"></script>
+{% endblock %}

@@ -1,0 +1,122 @@
+{% load theme_tags %}
+{% comment %}
+Inner table fragment for the API tokens list. Swapped into
+#crud-list-content via HTMX when a filter or search input changes.
+
+Reads:
+- object_list — current page of APITokens (filtered + searched)
+- paginator / page_obj / is_paginated — Django ListView vars
+- request — for is_staff branch in column rendering
+{% endcomment %}
+
+{% if object_list %}
+<div style="overflow-x: auto;">
+  <table class="table-plain" style="width: 100%; border-collapse: collapse;">
+    <thead>
+      <tr>
+        <th style="text-align: left; padding: 8px 16px;">Name</th>
+        <th style="text-align: left; padding: 8px 16px;">Prefix</th>
+        {% if request.user.is_staff %}<th style="text-align: left; padding: 8px 16px;">Owner</th>{% endif %}
+        <th style="text-align: left; padding: 8px 16px;">Access</th>
+        <th style="text-align: left; padding: 8px 16px;">Status</th>
+        <th style="text-align: right; padding: 8px 16px;">Requests</th>
+        <th style="text-align: left; padding: 8px 16px;">Last used</th>
+        <th style="text-align: right; padding: 8px 16px;">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for token in object_list %}
+        <tr>
+          <td style="padding: 8px 16px;">
+            <a href="{% url 'tokenmgr:tokens-detail' pk=token.pk %}">{{ token.name|truncatechars:40 }}</a>
+          </td>
+          <td style="padding: 8px 16px;">
+            <code style="
+              padding: 1px 7px; border-radius: 4px;
+              background: color-mix(in srgb, var(--body-fg) 6%, var(--card-bg));
+              font-size: 0.78rem;
+              color: var(--body-quiet-color);
+            ">{{ token.prefix }}…</code>
+          </td>
+          {% if request.user.is_staff %}
+          <td style="padding: 8px 16px; font-size: 0.85rem;">{{ token.user.username }}</td>
+          {% endif %}
+          <td style="padding: 8px 16px;">
+            {% if token.access_level == 'auth' %}{% status_badge token.access_level "error" %}
+            {% elif token.access_level == 'staff' %}{% status_badge token.access_level "warning" %}
+            {% else %}{% status_badge token.access_level "success" %}{% endif %}
+          </td>
+          <td style="padding: 8px 16px;">
+            {% if token.is_active %}{% status_badge "active" "success" %}{% else %}{% status_badge "revoked" "neutral" %}{% endif %}
+          </td>
+          <td style="padding: 8px 16px; text-align: right; font-size: 0.85rem;">{{ token.request_count }}</td>
+          <td style="padding: 8px 16px; font-size: 0.8rem; color: var(--body-quiet-color);">
+            {% if token.last_used_at %}{% localtime_tooltip token.last_used_at "M d g:i A" %}{% else %}—{% endif %}
+          </td>
+          <td style="padding: 8px 16px; text-align: right;">
+            {% if token.is_active %}
+              <form method="post" action="{% url 'tokenmgr:token-revoke' pk=token.pk %}" style="display: inline; margin: 0;"
+                    onsubmit="return confirm('Revoke {{ token.name|escapejs }}? Any client using this key will start getting 401s immediately.');">
+                {% csrf_token %}
+                <button type="submit" style="
+                  background: none; border: none; cursor: pointer;
+                  padding: 0; font-size: 0.82rem;
+                  color: var(--delete-button-bg, red);
+                ">✕ Revoke</button>
+              </form>
+            {% else %}
+              <span style="font-size: 0.82rem; color: var(--body-quiet-color);">—</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if is_paginated %}
+  <div style="display: flex; gap: 8px; margin-top: 12px; padding: 12px 16px; font-size: 0.85rem; align-items: center;">
+    {% if page_obj.has_previous %}
+      <a class="btn-outline btn-sm" href="?page={{ page_obj.previous_page_number }}">← Prev</a>
+    {% endif %}
+    <span style="color: var(--body-quiet-color);">Page {{ page_obj.number }} of {{ paginator.num_pages }}</span>
+    {% if page_obj.has_next %}
+      <a class="btn-outline btn-sm" href="?page={{ page_obj.next_page_number }}">Next →</a>
+    {% endif %}
+  </div>
+{% endif %}
+
+{% else %}
+<div style="padding: 32px 24px; text-align: center;">
+  {% if toolbar_search_query or toolbar_has_active_filter %}
+    <div style="font-size: 1rem; font-weight: 600; margin-bottom: 4px;">No matches</div>
+    <p style="margin: 0 auto; max-width: 480px; color: var(--body-quiet-color); font-size: 0.9rem;">
+      Try adjusting your search or filters.
+      <a href="{% url 'tokenmgr:tokens-list' %}" style="margin-left: 6px;">Clear all</a>
+    </p>
+  {% else %}
+    <div style="font-size: 1.05rem; font-weight: 600; margin-bottom: 6px;">No tokens yet</div>
+    <p style="margin: 0 auto 16px auto; max-width: 480px; color: var(--body-quiet-color); font-size: 0.9rem;">
+      {% if request.user.is_staff %}
+        Mint a token for CI, scripts, or Claude — or wait for OAuth users to mint their own.
+      {% else %}
+        Mint a token to authenticate scripts and tools against this server's API.
+      {% endif %}
+    </p>
+    <a href="{% url 'tokenmgr:token-create' %}" class="btn-primary btn-sm">Mint your first token</a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% comment %}
+Custom list_content (this app overrides the generic partial), so it needs its own
+out-of-band toolbar-count refresh — otherwise the "N Records" count freezes while
+htmx search/filter swaps this fragment. Guarded by request.htmx so the in-page
+render (apitoken_list.html includes this on full load) doesn't emit a duplicate.
+{% endcomment %}
+{% if show_toolbar and request.htmx %}
+<span class="list-toolbar-count" id="list-toolbar-count" hx-swap-oob="true">
+    <span class="list-toolbar-count-value">{{ toolbar_total_count }}</span>
+    <span class="list-toolbar-count-label">Record{{ toolbar_total_count|pluralize }}</span>
+</span>
+{% endif %}

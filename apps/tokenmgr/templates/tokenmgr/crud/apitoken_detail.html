@@ -1,0 +1,125 @@
+{% extends "smallstack/base.html" %}
+{% load theme_tags %}
+
+{% block title %}{{ object.name }} · API Tokens{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions" style="display: flex; align-items: center; justify-content: space-between;">
+  <div class="page-header-content">
+    <h1>{{ object.name }}</h1>
+    <p class="page-subtitle">
+      <span style="font-family: var(--font-monospace, ui-monospace, Menlo, monospace);">{{ object.prefix }}…</span>
+      · {{ object.user.username }} · {{ object.access_level }}
+    </p>
+    <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
+      <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
+      <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+      <a href="{% url 'tokenmgr:tokens-list' %}" style="color: var(--body-quiet-color); text-decoration: none;">API Tokens</a>
+      <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+      <span style="color: var(--body-fg);">{{ object.name|truncatechars:30 }}</span>
+    </nav>
+  </div>
+  {% if object.is_active %}
+  <div style="display: flex; gap: 12px; align-items: stretch;">
+    <form method="post" action="{% url 'tokenmgr:token-revoke' pk=object.pk %}" style="margin: 0;"
+          onsubmit="return confirm('Revoke {{ object.name|escapejs }}? Any client using this key will start getting 401s immediately.');">
+      {% csrf_token %}
+      <button type="submit" class="action-card action-card-danger" style="padding: 0;">
+        <div class="action-card-body">
+          <svg viewBox="0 0 24 24" class="action-card-icon">
+            <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+          </svg>
+          <div style="text-align: left;">
+            <div class="action-card-title">Revoke</div>
+            <div class="action-card-subtitle">Soft-delete this key</div>
+          </div>
+        </div>
+      </button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block content %}
+<div style="display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap;">
+  {% if object.is_active %}
+    <span style="
+      display: inline-block; padding: 4px 10px; border-radius: 4px;
+      font-size: 0.75rem; font-weight: 700; letter-spacing: 0.03em;
+      background: color-mix(in srgb, var(--success-fg) 15%, var(--card-bg));
+      color: var(--success-fg);
+    ">ACTIVE</span>
+  {% else %}
+    <span style="
+      display: inline-block; padding: 4px 10px; border-radius: 4px;
+      font-size: 0.75rem; font-weight: 700; letter-spacing: 0.03em;
+      background: color-mix(in srgb, var(--body-fg) 10%, var(--card-bg));
+      color: var(--body-quiet-color);
+    ">REVOKED</span>
+  {% endif %}
+  <span style="
+    display: inline-block; padding: 4px 10px; border-radius: 4px;
+    font-size: 0.75rem; font-weight: 700; letter-spacing: 0.03em;
+    background: color-mix(in srgb, var(--primary) 12%, var(--card-bg));
+    color: var(--primary);
+  ">{{ object.access_level }}</span>
+  <span style="
+    display: inline-block; padding: 4px 10px; border-radius: 4px;
+    font-size: 0.75rem; font-weight: 700; letter-spacing: 0.03em;
+    background: color-mix(in srgb, var(--body-fg) 6%, var(--card-bg));
+    color: var(--body-quiet-color);
+  ">{{ object.token_type }}</span>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+  <div class="card">
+    <div class="card-header"><h2>Details</h2></div>
+    <div class="card-body" style="padding: 0;">
+      <table class="table-plain" style="width: 100%; border-collapse: collapse;">
+        <tbody>
+          <tr>
+            <td style="padding: 8px 16px; color: var(--body-quiet-color); width: 40%;">Description</td>
+            <td style="padding: 8px 16px;">{{ object.description|default:"—" }}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 16px; color: var(--body-quiet-color);">Owner</td>
+            <td style="padding: 8px 16px;">{{ object.user.username }}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 16px; color: var(--body-quiet-color);">Prefix</td>
+            <td style="padding: 8px 16px; font-family: var(--font-monospace, ui-monospace, Menlo, monospace);">{{ object.prefix }}…</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 16px; color: var(--body-quiet-color);">Created</td>
+            <td style="padding: 8px 16px;">{% localtime_tooltip object.created_at "M d, Y g:i A" %}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 16px; color: var(--body-quiet-color);">Expires</td>
+            <td style="padding: 8px 16px;">
+              {% if object.expires_at %}{% localtime_tooltip object.expires_at "M d, Y g:i A" %}{% else %}Never{% endif %}
+            </td>
+          </tr>
+          {% if object.revoked_at %}
+          <tr>
+            <td style="padding: 8px 16px; color: var(--body-quiet-color);">Revoked</td>
+            <td style="padding: 8px 16px;">{% localtime_tooltip object.revoked_at "M d, Y g:i A" %}</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+      <h2>Usage (last 24h)</h2>
+    </div>
+    <div class="card-body" style="padding: 0;" id="stats-cards">
+      {% include "tokenmgr/includes/stats_cards.html" with stats=token_stats token=object selected_hours=selected_hours %}
+    </div>
+  </div>
+</div>
+{% endblock %}

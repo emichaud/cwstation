@@ -1,0 +1,140 @@
+{% extends "smallstack/base.html" %}
+{% load static theme_tags %}
+
+{% block title %}{{ page.title }} - Help{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'smallstack/help/css/help.css' %}">
+{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions" style="display: flex; align-items: flex-end; justify-content: space-between;">
+    <div class="page-header-content">
+        <h1 style="margin: 0; font-size: 1.5rem; font-weight: 600;">{{ page.title }}</h1>
+        {% if page.description %}
+        <p style="margin: 0.35rem 0 0; font-size: 0.88rem; color: color-mix(in srgb, var(--body-fg) 70%, transparent);">{{ page.description }}</p>
+        {% endif %}
+        <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
+            <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            <a href="{% url 'help:index' %}" style="color: var(--body-quiet-color); text-decoration: none;">Help</a>
+            {% if current_section %}
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            {% for section in sections %}
+            {% if section.slug == current_section %}
+            <a href="{% url 'help:section_index' current_section %}" style="color: var(--body-quiet-color); text-decoration: none;">{{ section.title }}</a>
+            {% endif %}
+            {% endfor %}
+            {% endif %}
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            <span style="color: var(--body-fg);">{{ page.title }}</span>
+        </nav>
+    </div>
+    <div style="display: flex; align-items: center;">
+        <button type="button" id="focus-toggle" onclick="toggleFocusMode()" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border: 1px solid color-mix(in srgb, var(--primary) 40%, transparent); border-radius: var(--radius-sm, 4px); background: color-mix(in srgb, var(--primary) 10%, var(--body-bg)); color: var(--primary); font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: background 0.15s, border-color 0.15s;" onmouseover="this.style.background='color-mix(in srgb, var(--primary) 20%, var(--body-bg))';this.style.borderColor='var(--primary)'" onmouseout="if(!document.body.classList.contains('help-focus-mode')){this.style.background='color-mix(in srgb, var(--primary) 10%, var(--body-bg))';this.style.borderColor='color-mix(in srgb, var(--primary) 40%, transparent)'}">
+            <svg id="focus-icon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                <path d="M3 5v4h2V5h4V3H5c-1.1 0-2 .9-2 2zm2 10H3v4c0 1.1.9 2 2 2h4v-2H5v-4zm14 4h-4v2h4c1.1 0 2-.9 2-2v-4h-2v4zm0-16h-4v2h4v4h2V5c0-1.1-.9-2-2-2z"/>
+            </svg>
+            <span id="focus-label">Focus</span>
+        </button>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="help-layout">
+    <!-- Help Sidebar Navigation -->
+    <aside class="help-sidebar">
+        {% include "help/includes/help_sidebar.html" %}
+    </aside>
+
+    <!-- Main Help Content -->
+    <div class="help-main">
+        <article class="help-article">
+
+            <div class="help-content markdown-body {% if page.is_faq %}faq-content{% endif %}">
+                {{ page.content|safe }}
+            </div>
+
+            <!-- Prev/Next Navigation -->
+            <nav class="help-nav-footer">
+                {% if prev_page %}
+                <a href="{% if current_section %}{% url 'help:section_detail' current_section prev_page.slug %}{% else %}{% url 'help:detail' prev_page.slug %}{% endif %}" class="help-nav-link help-nav-prev">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                        <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+                    </svg>
+                    <div>
+                        <span class="help-nav-label">Previous</span>
+                        <span class="help-nav-title">{{ prev_page.title }}</span>
+                    </div>
+                </a>
+                {% else %}
+                <div></div>
+                {% endif %}
+
+                {% if next_page %}
+                <a href="{% if current_section %}{% url 'help:section_detail' current_section next_page.slug %}{% else %}{% url 'help:detail' next_page.slug %}{% endif %}" class="help-nav-link help-nav-next">
+                    <div>
+                        <span class="help-nav-label">Next</span>
+                        <span class="help-nav-title">{{ next_page.title }}</span>
+                    </div>
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                        <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
+                    </svg>
+                </a>
+                {% endif %}
+            </nav>
+        </article>
+    </div>
+
+    <!-- On This Page TOC (right sidebar) -->
+    {% if page.toc and not page.is_faq %}
+    <aside class="help-toc-sidebar">
+        <nav class="help-toc">
+            <h4>On This Page</h4>
+            {{ page.toc|safe }}
+        </nav>
+    </aside>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'smallstack/help/js/help.js' %}"></script>
+<script>
+function toggleFocusMode() {
+    var body = document.body;
+    var btn = document.getElementById('focus-toggle');
+    var label = document.getElementById('focus-label');
+    var icon = document.getElementById('focus-icon');
+    body.classList.toggle('help-focus-mode');
+    var focused = body.classList.contains('help-focus-mode');
+    label.textContent = focused ? 'Expand' : 'Focus';
+    icon.innerHTML = focused
+        ? '<path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>'
+        : '<path d="M3 5v4h2V5h4V3H5c-1.1 0-2 .9-2 2zm2 10H3v4c0 1.1.9 2 2 2h4v-2H5v-4zm14 4h-4v2h4c1.1 0 2-.9 2-2v-4h-2v4zm0-16h-4v2h4v4h2V5c0-1.1-.9-2-2-2z"/>';
+    // Focus temporarily collapses the SmallStack side menu; Expand restores it.
+    // Guarded so it can't get out of sync: only close a sidebar that's open, and
+    // on Expand only re-open the one focus itself closed AND that's still closed
+    // (a manual toggle mid-focus wins). Non-persistent; no-ops with no sidebar.
+    var sb = window.smallstackSidebar;
+    if (focused) {
+        btn.style.background = 'color-mix(in srgb, var(--primary) 25%, var(--body-bg))';
+        btn.style.borderColor = 'var(--primary)';
+        if (sb && sb.getState() === 'open') {
+            sb.setState('closed', false);
+            body.dataset.focusClosedSidebar = '1';
+        }
+    } else {
+        btn.style.background = 'color-mix(in srgb, var(--primary) 10%, var(--body-bg))';
+        btn.style.borderColor = 'color-mix(in srgb, var(--primary) 40%, transparent)';
+        if (sb && body.dataset.focusClosedSidebar === '1' && sb.getState() === 'closed') {
+            sb.setState('open', false);
+        }
+        delete body.dataset.focusClosedSidebar;
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,79 @@
+{% load static theme_tags %}
+
+<!-- Hero -->
+<div class="card">
+    <div class="card-body" style="text-align: center; padding: 2.5rem 1.5rem 2rem;">
+        <h1 style="margin: 0 0 0.5rem; font-size: 1.75rem;">About {{ brand.name }}</h1>
+        <p style="color: var(--body-quiet-color); max-width: 600px; margin: 0 auto; line-height: 1.6;">
+            A minimal Django stack for building and deploying admin-style apps.
+            Production-ready with SQLite, Docker, and zero-downtime Kamal deployment.
+        </p>
+    </div>
+</div>
+
+<!-- Feature Slide Viewer -->
+{% if slides %}
+<div class="card" style="margin-top: 24px;">
+    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <h2 style="margin: 0;">What's Included</h2>
+        <a href="{% url 'help:slides' 'features' %}" style="font-size: 0.8rem; color: var(--body-quiet-color); text-decoration: none;">
+            Open fullscreen &rarr;
+        </a>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        <div class="slides-container" id="slides-container" style="max-width: 100%; padding: 0 1.5rem 1.5rem;">
+            <!-- Progress bar -->
+            <div class="slides-progress">
+                <div class="slides-progress-bar" id="slides-progress-bar"></div>
+            </div>
+
+            <!-- Slides -->
+            <div class="slides-viewport">
+                {% for slide in slides %}
+                <div class="slide{% if forloop.first %} slide--active{% endif %}" data-slide="{{ forloop.counter0 }}">
+                    <div class="slide-content markdown-body">
+                        {{ slide.html|safe }}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            <!-- Navigation -->
+            <div class="slides-nav">
+                <button class="slides-nav-btn slides-nav-prev" id="slides-prev" disabled>
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                        <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+                    </svg>
+                    <span class="slides-nav-btn-text" id="slides-prev-title">Previous</span>
+                </button>
+                <span class="slides-counter" id="slides-counter" style="font-size: 0.85rem; color: var(--body-quiet-color);"></span>
+                <button class="slides-nav-btn slides-nav-next" id="slides-next">
+                    <span class="slides-nav-btn-text" id="slides-next-title">Next</span>
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                        <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <script>
+            window.SLIDE_TITLES = [{% for slide in slides %}"{{ slide.title|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}];
+        </script>
+    </div>
+</div>
+{% endif %}
+
+<!-- Links -->
+<div class="card" style="margin-top: 24px;">
+    <div class="card-body" style="display: flex; gap: 2rem; flex-wrap: wrap; justify-content: center; padding: 1.25rem;">
+        <a href="https://github.com/emichaud/django-smallstack" style="color: var(--link-fg); text-decoration: none; font-weight: 600;">
+            GitHub &rarr;
+        </a>
+        <a href="{% url 'help:section_index' 'smallstack' %}" style="color: var(--link-fg); text-decoration: none; font-weight: 600;">
+            Documentation &rarr;
+        </a>
+        <a href="{% url 'help:slides' 'activity-tracking' %}" style="color: var(--link-fg); text-decoration: none; font-weight: 600;">
+            Activity Tracking Demo &rarr;
+        </a>
+    </div>
+</div>

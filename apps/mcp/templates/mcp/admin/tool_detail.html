@@ -1,0 +1,108 @@
+{% extends "smallstack/base.html" %}
+{% load theme_tags %}
+
+{% block title %}MCP — {{ tool.name }}{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions">
+  <div class="page-header-content">
+    <h1 style="font-family: var(--font-monospace, ui-monospace, Menlo, monospace);">{{ tool.name }}</h1>
+    <p class="page-subtitle">{% if tool.description %}{{ tool.description|truncatechars:120 }}{% else %}One registered MCP tool.{% endif %}</p>
+    <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
+      <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
+      <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+      <a href="{% url 'mcp_admin:health' %}" style="color: var(--body-quiet-color); text-decoration: none;">MCP</a>
+      <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+      <a href="{% url 'mcp_admin:tools' %}" style="color: var(--body-quiet-color); text-decoration: none;">Tools</a>
+      <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+      <span style="color: var(--body-fg);">{{ tool.name }}</span>
+    </nav>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+{% include "mcp/admin/_nav.html" %}
+
+{# ── Quick facts row ───────────────────────────────────────────── #}
+<div style="display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap;">
+  {% if tool.write %}
+    <span style="
+      display: inline-block; padding: 4px 10px; border-radius: 4px;
+      font-size: 0.75rem; font-weight: 700; letter-spacing: 0.03em;
+      background: color-mix(in srgb, var(--message-warning-bg, orange) 18%, var(--card-bg));
+      color: var(--message-warning-bg, orange);
+    ">WRITE</span>
+  {% else %}
+    <span style="
+      display: inline-block; padding: 4px 10px; border-radius: 4px;
+      font-size: 0.75rem; font-weight: 700; letter-spacing: 0.03em;
+      background: color-mix(in srgb, var(--success-fg) 12%, var(--card-bg));
+      color: var(--success-fg);
+    ">READ</span>
+  {% endif %}
+  {% if tool.requires_access %}
+    <span style="
+      display: inline-block; padding: 4px 10px; border-radius: 4px;
+      font-size: 0.75rem; font-weight: 700; letter-spacing: 0.03em;
+      background: color-mix(in srgb, var(--primary) 12%, var(--card-bg));
+      color: var(--primary);
+    ">requires {{ tool.requires_access }}</span>
+  {% else %}
+    <span style="
+      display: inline-block; padding: 4px 10px; border-radius: 4px;
+      font-size: 0.75rem; font-weight: 700; letter-spacing: 0.03em;
+      background: color-mix(in srgb, var(--body-fg) 8%, var(--card-bg));
+      color: var(--body-quiet-color);
+    ">access: any</span>
+  {% endif %}
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+  <div class="card">
+    <div class="card-header"><h2>Description</h2></div>
+    <div class="card-body" style="white-space: pre-wrap; line-height: 1.55; color: var(--body-fg);">{{ tool.description }}</div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h2>inputSchema</h2></div>
+    <div class="card-body" style="padding: 0;">
+      <pre style="
+        margin: 0;
+        padding: 16px 18px;
+        background: color-mix(in srgb, var(--body-fg) 4%, var(--card-bg));
+        font-family: var(--font-monospace, ui-monospace, SFMono-Regular, Menlo, monospace);
+        font-size: 0.8rem;
+        line-height: 1.5;
+        overflow-x: auto;
+      ">{{ schema_json }}</pre>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+    <h2>Sample curl</h2>
+    <button type="button" id="copy-curl" class="btn-outline btn-sm"
+            onclick="(function(b){const t=document.getElementById('curl-snippet').innerText;navigator.clipboard.writeText(t).then(()=>{b.textContent='Copied!';setTimeout(()=>b.textContent='Copy',1500)});})(this)">
+      Copy
+    </button>
+  </div>
+  <div class="card-body" style="padding: 0;">
+    <pre id="curl-snippet" style="
+      margin: 0;
+      padding: 16px 18px;
+      background: color-mix(in srgb, var(--body-fg) 4%, var(--card-bg));
+      font-family: var(--font-monospace, ui-monospace, SFMono-Regular, Menlo, monospace);
+      font-size: 0.8rem;
+      line-height: 1.55;
+      overflow-x: auto;
+    ">curl -s -X POST http://&lt;HOST&gt;/mcp \
+  -H "Authorization: Bearer &lt;TOKEN&gt;" \
+  -H "Content-Type: application/json" \
+  -d '{{ curl_payload|safe }}'</pre>
+  </div>
+</div>
+{% endblock %}

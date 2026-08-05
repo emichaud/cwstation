@@ -1,0 +1,257 @@
+{% extends "smallstack/base.html" %}
+{% load theme_tags %}
+
+{% block title %}Backup #{{ record.pk }}{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .detail-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+        margin-bottom: 24px;
+    }
+    @media (max-width: 768px) {
+        .detail-grid { grid-template-columns: 1fr; }
+    }
+    .detail-table { width: 100%; }
+    .detail-table td {
+        padding: 10px 16px;
+        border: none !important;
+    }
+    .detail-table tr:nth-child(odd) {
+        background-color: color-mix(in srgb, var(--primary) 4%, var(--body-bg)) !important;
+    }
+    .detail-table tr:nth-child(even) {
+        background-color: color-mix(in srgb, var(--primary) 12%, var(--body-bg)) !important;
+    }
+    .detail-table .label-cell {
+        font-weight: 600;
+        color: var(--body-quiet-color);
+        width: 140px;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+    /* Status pills now use the shared .badge system (status_badge tag). */
+
+    /* Timeline */
+    .timeline { position: relative; padding: 0; margin: 0; list-style: none; }
+    .timeline::before {
+        content: '';
+        position: absolute;
+        left: 17px;
+        top: 24px;
+        bottom: 24px;
+        width: 2px;
+        background: var(--hairline-color);
+    }
+    .timeline-item {
+        position: relative;
+        padding: 16px 16px 16px 48px;
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+    }
+    .timeline-dot {
+        position: absolute;
+        left: 10px;
+        top: 20px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1;
+    }
+    .timeline-dot.dot-success { background: var(--success-fg); }
+    .timeline-dot.dot-failed { background: var(--error-fg); }
+    .timeline-dot.dot-pruned { background: var(--body-quiet-color); }
+    .timeline-dot.dot-warning { background: var(--error-fg); }
+    .timeline-dot svg { width: 10px; height: 10px; fill: var(--card-bg); }
+    .timeline-content { flex: 1; }
+    .timeline-label { font-weight: 600; font-size: 0.95rem; }
+    .timeline-detail { color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 2px; }
+    .timeline-time { color: var(--body-quiet-color); font-size: 0.8rem; white-space: nowrap; margin-top: 2px; }
+</style>
+{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions" style="display: flex; align-items: center; justify-content: space-between;">
+    <div class="page-header-content">
+        <h1>Backup #{{ record.pk }}</h1>
+        <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
+            <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            <a href="{% url 'smallstack:backups' %}" style="color: var(--body-quiet-color); text-decoration: none;">Backups</a>
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            <span style="color: var(--body-fg);">#{{ record.pk }}</span>
+        </nav>
+    </div>
+    <div style="display: flex; gap: 12px; align-items: stretch;">
+        <div style="text-align: center; padding: 8px 16px; background: color-mix(in srgb, var(--primary) 10%, var(--body-bg)); border-radius: var(--radius-sm, 6px);">
+            <div style="font-size: 1.1rem; font-weight: 700; color: {% if record.is_pruned %}var(--body-quiet-color){% elif record.status == 'success' %}var(--success-fg){% elif record.status == 'failed' %}var(--error-fg){% else %}var(--body-fg){% endif %};">{% if record.is_pruned %}PRUNED{% else %}{{ record.status|upper }}{% endif %}</div>
+            <div style="font-size: 0.7rem; color: var(--body-quiet-color); text-transform: uppercase; letter-spacing: 0.3px;">Status</div>
+        </div>
+        {% if record.file_size %}
+        <div style="text-align: center; padding: 8px 16px; background: color-mix(in srgb, var(--primary) 10%, var(--body-bg)); border-radius: var(--radius-sm, 6px);">
+            <div style="font-size: 1.1rem; font-weight: 700; color: var(--body-fg);">{{ record.file_size|filesizeformat }}</div>
+            <div style="font-size: 0.7rem; color: var(--body-quiet-color); text-transform: uppercase; letter-spacing: 0.3px;">Size</div>
+        </div>
+        {% endif %}
+        {% if record.status == "success" and record.file_exists and backup_download_enabled %}
+        <a href="{% url 'smallstack:backup_file_download' record.filename %}" class="action-card">
+            <div class="action-card-body">
+                <svg viewBox="0 0 24 24" class="action-card-icon">
+                    <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+                </svg>
+                <div>
+                    <div class="action-card-title">Download</div>
+                    <div class="action-card-subtitle">{{ record.file_size|filesizeformat }}</div>
+                </div>
+            </div>
+        </a>
+        {% elif record.is_pruned %}
+        <div class="card" style="border: 2px solid color-mix(in srgb, var(--body-quiet-color) 30%, transparent); margin: 0; min-width: 160px;">
+            <div class="card-body" style="display: flex; align-items: center; gap: 10px; padding: 12px 16px;">
+                <svg viewBox="0 0 24 24" width="28" height="28" fill="var(--body-quiet-color)">
+                    <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                </svg>
+                <div>
+                    <div style="font-weight: 700; font-size: 0.95rem; color: var(--body-quiet-color);">Pruned</div>
+                    <div style="color: var(--body-quiet-color); font-size: 0.75rem;">File removed</div>
+                </div>
+            </div>
+        </div>
+        {% elif record.status == "success" and not record.file_exists %}
+        <div class="card" style="border: 2px solid color-mix(in srgb, var(--delete-button-bg, red) 40%, transparent); margin: 0; min-width: 160px;">
+            <div class="card-body" style="display: flex; align-items: center; gap: 10px; padding: 12px 16px;">
+                <svg viewBox="0 0 24 24" width="28" height="28" fill="var(--delete-button-bg, red)">
+                    <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
+                </svg>
+                <div>
+                    <div style="font-weight: 700; font-size: 0.95rem; color: var(--delete-button-bg, red);">Missing</div>
+                    <div style="color: var(--body-quiet-color); font-size: 0.75rem;">File not on disk</div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="detail-grid">
+    <!-- Info card -->
+    <div class="card">
+        <div class="card-header"><h2>Details</h2></div>
+        <div class="card-body" style="padding: 0;">
+            <table class="detail-table">
+                <tbody>
+                    <tr>
+                        <td class="label-cell">ID</td>
+                        <td>#{{ record.pk }}</td>
+                    </tr>
+                    <tr>
+                        <td class="label-cell">Created</td>
+                        <td>{% localtime_tooltip record.created_at "M d, Y g:i:s A T" %}</td>
+                    </tr>
+                    <tr>
+                        <td class="label-cell">Filename</td>
+                        <td>
+                            {% if record.filename %}
+                                <code style="font-size: 0.85rem;">{{ record.filename }}</code>
+                            {% else %}
+                                <span style="color: var(--body-quiet-color);">&mdash;</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="label-cell">Size</td>
+                        <td>{% if record.file_size %}{{ record.file_size|filesizeformat }}{% else %}&mdash;{% endif %}</td>
+                    </tr>
+                    <tr>
+                        <td class="label-cell">Duration</td>
+                        <td>{{ record.duration_ms }} ms</td>
+                    </tr>
+                    <tr>
+                        <td class="label-cell">Trigger</td>
+                        <td>{{ record.get_triggered_by_display }}</td>
+                    </tr>
+                    <tr>
+                        <td class="label-cell">Status</td>
+                        <td>
+                            {% if record.is_pruned %}
+                                {% status_badge "pruned" %}
+                            {% else %}
+                                {% status_badge record.status %}
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% if record.is_pruned %}
+                    <tr>
+                        <td class="label-cell">Pruned</td>
+                        <td>{% localtime_tooltip record.pruned_at "M d, Y g:i:s A T" %}</td>
+                    </tr>
+                    {% endif %}
+                    {% if record.error_message %}
+                    <tr>
+                        <td class="label-cell">Error</td>
+                        <td style="color: var(--error-fg);">{{ record.error_message }}</td>
+                    </tr>
+                    {% endif %}
+                    <tr>
+                        <td class="label-cell">File on disk</td>
+                        <td>
+                            {% if record.is_pruned %}
+                                <span style="color: var(--body-quiet-color);">Removed (retention policy)</span>
+                            {% elif record.file_exists %}
+                                <span style="color: var(--success-fg);">Available</span>
+                            {% elif record.filename %}
+                                <span style="color: var(--delete-button-bg, red);">Missing</span>
+                            {% else %}
+                                <span style="color: var(--body-quiet-color);">&mdash;</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Timeline card -->
+    <div class="card">
+        <div class="card-header"><h2>Activity</h2></div>
+        <div class="card-body" style="padding: 8px 0;">
+            <ul class="timeline">
+                {% for event in events %}
+                <li class="timeline-item">
+                    <div class="timeline-dot dot-{{ event.status }}">
+                        {% if event.icon == "backup" %}
+                            <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                        {% elif event.icon == "error" %}
+                            <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                        {% elif event.icon == "pruned" %}
+                            <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12z"/></svg>
+                        {% elif event.icon == "warning" %}
+                            <svg viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+                        {% endif %}
+                    </div>
+                    <div class="timeline-content">
+                        <div class="timeline-label">{{ event.label }}</div>
+                        <div class="timeline-detail">{{ event.detail }}</div>
+                    </div>
+                    {% if event.timestamp %}
+                    <div class="timeline-time">{% localtime_tooltip event.timestamp "M d, Y g:i:s A T" %}</div>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
