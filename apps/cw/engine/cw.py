@@ -46,6 +46,16 @@ class CWConfig:
     hysteresis: float = 0.2  # fraction of range for on/off band
     debounce_ms: float = 3.0  # min consistent time to flip state
     boot_marks: int = 8  # marks to buffer before bootstrapping
+    # -- operator level controls (live-adjustable; read every block) --------
+    input_gain: float = 1.0  # multiply incoming samples
+    squelch_db: float = 0.0  # min SNR estimate before keying opens (0 = off)
+    # -- automatic frequency control ----------------------------------------
+    afc: bool = False  # chase the strongest CW carrier in afc_band
+    afc_interval_s: float = 0.5  # how often to look for a better tone
+    afc_window_s: float = 1.0  # audio window the peak search runs over
+    afc_band: tuple[float, float] = (300.0, 1200.0)
+    afc_min_prominence: float = 6.0  # peak/median gate so noise isn't chased
+    afc_min_shift_hz: float = 15.0  # ignore sub-bin jitter
 
 
 class CWDecoder(AudioDemodulator):
@@ -89,11 +99,19 @@ class CWDecoder(AudioDemodulator):
         self._wpm = float(c.expected_wpm or 0.0)
         self._snr = 0.0
         self._flushed = False
+        # AFC state: rolling raw-audio window + time of last peak search
+        self._afc_buf: FloatArray = np.zeros(0, dtype=np.float32)
+        self._afc_last_s = 0.0
         self.result = DecodeResult(sample_rate=self.fs, tone_hz=c.tone_hz)
 
     # -- public --------------------------------------------------------------
     def process(self, samples: FloatArray) -> list[CharEvent]:
-        buf = np.concatenate([self._carry, np.asarray(samples, dtype=np.float32)])
+        samples = np.asarray(samples, dtype=np.float32)
+        if self.cfg.input_gain != 1.0:
+            samples = samples * self.cfg.input_gain
+        if self.cfg.afc:
+            self._afc_append(samples)
+        buf = np.concatenate([self._carry, samples])
         nb = len(buf) // self.block
         out: list[CharEvent] = []
         for b in range(nb):
@@ -102,7 +120,38 @@ class CWDecoder(AudioDemodulator):
             out += self._step(mag, self._t_samples / self.fs)
             self._t_samples += self.block
         self._carry = buf[nb * self.block :]
+        if self.cfg.afc:
+            self._afc_maybe_retune()
         return out
+
+    # -- automatic frequency control -----------------------------------------
+    def _afc_append(self, samples: FloatArray) -> None:
+        cap = int(self.cfg.afc_window_s * self.fs)
+        self._afc_buf = np.concatenate([self._afc_buf, samples])[-cap:]
+
+    def _afc_maybe_retune(self) -> None:
+        """Chase the strongest carrier in the band — but only between marks
+        (retuning mid-element would corrupt the decode) and only for a clearly
+        prominent peak (so band noise isn't chased)."""
+        from .audio_io import detect_tone_peak
+
+        c = self.cfg
+        now = self._t_samples / self.fs
+        if self._state or (now - self._afc_last_s) < c.afc_interval_s:
+            return
+        if len(self._afc_buf) < int(0.5 * c.afc_window_s * self.fs):
+            return
+        self._afc_last_s = now
+        freq, prominence = detect_tone_peak(
+            self._afc_buf, self.fs, c.afc_band[0], c.afc_band[1]
+        )
+        if prominence < c.afc_min_prominence:
+            return
+        if abs(freq - c.tone_hz) < c.afc_min_shift_hz:
+            return
+        c.tone_hz = freq
+        self._build_twiddles()
+        self.result.tone_hz = freq
 
     def flush(self) -> list[CharEvent]:
         """End-of-stream flush: close a dangling mark, finish bootstrap, and
@@ -150,11 +199,15 @@ class CWDecoder(AudioDemodulator):
         self.result.envelope_mag.append(round(float((e - self._floor) / rng), 4))
         self.result.envelope_thr.append(0.5)
 
+        # squelch: below the SNR gate, the key can't open (noise-only band
+        # fluctuations otherwise cross the adaptive threshold and emit junk)
+        squelched = c.squelch_db > 0.0 and self._snr < c.squelch_db
+
         # candidate state with hysteresis
         cand = self._cand
-        if not self._state and e > hi:
+        if not self._state and e > hi and not squelched:
             cand = True
-        elif self._state and e < lo:
+        elif self._state and (e < lo or squelched):
             cand = False
         # debounce: require the candidate to persist before committing
         if cand != self._state:

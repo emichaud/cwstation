@@ -72,3 +72,42 @@ class CWSession(models.Model):
         if not want:
             return None
         return sum(1 for a, b in zip(got, want) if a == b) / len(want)
+
+
+class CWSimControl(models.Model):
+    """The operator's live knobs for a running simulation (or live monitor).
+
+    The Simulator page writes these; the `cw_simulate` process polls the row
+    about twice a second and applies changes between audio blocks — the DB is
+    the one medium both processes already share.
+    """
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="cw_sim_control"
+    )
+    noise_level = models.FloatField(default=0.08, help_text="Band static level (0–0.5)")
+    input_gain = models.FloatField(default=1.0, help_text="Input level multiplier (0.1–10)")
+    squelch_db = models.FloatField(
+        default=3.0, help_text="SNR gate in dB; below it the key can't open (0 = off)"
+    )
+    afc = models.BooleanField(
+        default=True, help_text="Automatic frequency control — chase the strongest carrier"
+    )
+    paused_signals = models.BooleanField(
+        default=False, help_text="Static only — stop scheduling stations"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "CW Simulator Control"
+
+    def __str__(self) -> str:
+        return f"sim controls for {self.user}"
+
+    def clamped(self) -> "CWSimControl":
+        """Return self with values clamped to safe ranges (defends the
+        decoder from wild slider values)."""
+        self.noise_level = min(max(self.noise_level, 0.0), 0.5)
+        self.input_gain = min(max(self.input_gain, 0.1), 10.0)
+        self.squelch_db = min(max(self.squelch_db, 0.0), 12.0)
+        return self

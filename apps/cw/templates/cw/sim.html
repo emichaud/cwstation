@@ -1,0 +1,173 @@
+{% extends "smallstack/base.html" %}
+{% load static theme_tags %}
+
+{% block title %}Band Simulator{% endblock %}
+{% block breadcrumbs %}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'cw/cw.css' %}">
+{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions" style="display: flex; align-items: flex-start; justify-content: space-between;">
+    <div class="page-header-content">
+        <h1>Band Simulator <span class="cw-live-pill" id="cw-live-pill" data-state="connecting">connecting…</span></h1>
+        <p class="page-subtitle">Radio static with stations hidden in it — work the knobs to pull clean copy out of the noise. No radio required.</p>
+        <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
+            <a href="{% url 'cw-monitor' %}" style="color: var(--body-quiet-color); text-decoration: none;">CW Monitor</a>
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            <span style="color: var(--body-fg);">Simulator</span>
+        </nav>
+    </div>
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <a href="{% url 'cw-live' %}" class="btn-tint">Live</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+{% include "cw/_stage.html" %}
+
+<div class="cw-form-grid" style="margin-top: 24px;">
+    <div class="card">
+        <div class="card-header"><h2>Receiver controls</h2></div>
+        <div class="card-body">
+            <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
+                These steer the running simulation live — moves apply within half a second.
+                Raise the static and watch false characters appear, then bring the
+                <strong>squelch</strong> up until the junk stops without losing real copy.
+            </p>
+            <div class="cw-field">
+                <label>Band static <span class="cw-slider-val" id="v-noise">–</span></label>
+                <div class="cw-slider-row">
+                    <input type="range" id="k-noise" min="0" max="0.5" step="0.01"
+                           data-field="noise_level" data-unit="">
+                </div>
+            </div>
+            <div class="cw-field">
+                <label>Input gain <span class="cw-slider-val" id="v-gain">–</span></label>
+                <div class="cw-slider-row">
+                    <input type="range" id="k-gain" min="0.1" max="10" step="0.1"
+                           data-field="input_gain" data-unit="×">
+                </div>
+            </div>
+            <div class="cw-field">
+                <label>Squelch <span class="cw-slider-val" id="v-squelch">–</span></label>
+                <div class="cw-slider-row">
+                    <input type="range" id="k-squelch" min="0" max="12" step="0.5"
+                           data-field="squelch_db" data-unit=" dB">
+                </div>
+            </div>
+            <div class="cw-field">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="k-afc" data-field="afc" style="accent-color: var(--primary);">
+                    AFC — automatic frequency control
+                    <span style="color: var(--text-muted);">(chases each station's pitch; watch the Tone gauge re-lock)</span>
+                </label>
+            </div>
+            <div class="cw-field" style="margin-bottom: 0;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="k-paused" data-field="paused_signals" style="accent-color: var(--primary);">
+                    Static only <span style="color: var(--text-muted);">(no stations — a false-positive test bench)</span>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h2>Run the simulation</h2></div>
+        <div class="card-body">
+            <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
+                Start the band in a terminal; it streams to this tape. Stations call at random
+                pitches, speeds, and strengths — with AFC on, the decoder re-tunes to each one.
+            </p>
+            <pre style="background: var(--card-header-bg); border: 1px solid var(--card-border); border-radius: 6px; padding: 12px 14px; overflow-x: auto; font-size: 0.8rem; margin: 0 0 10px;"><code>uv run python manage.py cw_simulate --stream {{ request.user.username }} --server {{ request.scheme }}://{{ request.get_host }} --save {{ request.user.username }}</code></pre>
+            <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0;">
+                With <code>--save</code>, Ctrl-C stores the run as a session scored against what
+                the simulated stations actually sent — your accuracy under those knob settings.
+                Turn on the tape's <span title="speaker button">🔊</span> to listen to the band.
+            </p>
+        </div>
+    </div>
+</div>
+
+<script src="{% static 'cw/monitor.js' %}"></script>
+<script>
+    (function () {
+        const pill = document.getElementById("cw-live-pill");
+        const labels = { connecting: "connecting…", live: "● live", off: "feed offline — retrying" };
+        const proto = location.protocol === "https:" ? "wss" : "ws";
+        initCWMonitor({
+            canvas: document.getElementById("cw-scope"),
+            decodedEl: document.getElementById("cw-decoded"),
+            truthEl: document.getElementById("cw-truth"),
+            wpmEl: document.getElementById("cw-g-wpm"),
+            snrEl: document.getElementById("cw-g-snr"),
+            toneEl: document.getElementById("cw-g-tone"),
+            confEl: document.getElementById("cw-g-conf"),
+            playBtn: document.getElementById("cw-play"),
+            restartBtn: document.getElementById("cw-restart"),
+            audioBtn: document.getElementById("cw-audio"),
+            rateInput: document.getElementById("cw-rate"),
+            rateLabel: document.getElementById("cw-rate-lab"),
+            live: {
+                url: proto + "://" + location.host + "/ws/cw/live/",
+                onStatus: function (state) {
+                    pill.dataset.state = state;
+                    pill.textContent = labels[state] || state;
+                },
+            },
+        });
+
+        // ── knobs: GET current values, POST changes (debounced) ──────────
+        const CONTROL_URL = "{% url 'cw-sim-control' %}";
+        const knobs = document.querySelectorAll("[data-field]");
+        const valueLabels = {
+            noise_level: document.getElementById("v-noise"),
+            input_gain: document.getElementById("v-gain"),
+            squelch_db: document.getElementById("v-squelch"),
+        };
+
+        function showValue(field, value) {
+            const label = valueLabels[field];
+            if (!label) return;
+            const unit = document.querySelector('[data-field="' + field + '"]').dataset.unit;
+            label.textContent = (+value).toFixed(field === "noise_level" ? 2 : 1) + unit;
+        }
+
+        let pending = null;
+        function push(field, value) {
+            showValue(field, value);
+            clearTimeout(pending);
+            pending = setTimeout(function () {
+                const body = {};
+                body[field] = typeof value === "boolean" ? value : +value;
+                fetch(CONTROL_URL, {
+                    method: "POST",
+                    credentials: "same-origin",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                });
+            }, 150);
+        }
+
+        fetch(CONTROL_URL, { credentials: "same-origin" })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                const values = data.data || data;
+                knobs.forEach(function (k) {
+                    const field = k.dataset.field;
+                    if (!(field in values)) return;
+                    if (k.type === "checkbox") k.checked = !!values[field];
+                    else { k.value = values[field]; showValue(field, values[field]); }
+                });
+            });
+
+        knobs.forEach(function (k) {
+            k.addEventListener("input", function () {
+                push(k.dataset.field, k.type === "checkbox" ? k.checked : k.value);
+            });
+        });
+    })();
+</script>
+{% endblock %}

@@ -134,6 +134,13 @@ class LiveView(LoginRequiredMixin, TemplateView):
     template_name = "cw/live.html"
 
 
+class SimulatorView(LoginRequiredMixin, TemplateView):
+    """The band simulator — the live tape plus level/AFC knobs that steer a
+    running `cw_simulate` process."""
+
+    template_name = "cw/sim.html"
+
+
 class DecodeView(LoginRequiredMixin, TemplateView):
     """Decode CW — practice (synthesized) or off the air (WAV upload)."""
 

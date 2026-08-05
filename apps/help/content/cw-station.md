@@ -115,6 +115,34 @@ Radio-side tips: tune the signal so its note sits at one steady pitch (the narro
 filter helps), and prefer slow AGC — the decoder rides through fading, but heavily
 pumped audio is hard for anything to copy.
 
+## The band simulator — no radio required
+
+**CW Monitor → Simulator** is a practice band: continuous radio static with stations
+hidden in it, calling at random pitches (450–950 Hz), speeds (14–26 WPM), and signal
+strengths. Start it from a terminal and it streams to the page's live tape:
+
+```bash
+uv run python manage.py cw_simulate --stream yourusername --save yourusername
+```
+
+Two things make it a real workbench rather than a demo:
+
+- **AFC (automatic frequency control)** — the decoder chases the strongest carrier in
+  the band, re-tuning itself to each new station. Watch the Tone gauge re-lock as
+  stations appear at different pitches. AFC only re-tunes between marks and only for a
+  clearly prominent peak, so it doesn't chase noise. Toggle it off and the decoder
+  stays parked at one pitch — off-frequency stations degrade to garble.
+- **Receiver controls, live** — the page's knobs steer the *running* simulation within
+  half a second: **band static** (raise it and watch false characters appear),
+  **input gain**, and **squelch** — an SNR gate below which the key can't open. The
+  classic exercise: turn static up until junk characters appear, then bring squelch up
+  until the junk stops without losing real copy. "Static only" turns off the stations
+  entirely — a pure false-positive test bench.
+
+With `--save`, stopping the simulation stores the run as a session scored against
+what the stations actually transmitted — your copy accuracy under those settings.
+The tape's sidetone toggle lets you listen to the band while you work the knobs.
+
 ## Command line
 
 The same engine runs headless:

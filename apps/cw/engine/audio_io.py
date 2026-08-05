@@ -53,6 +53,31 @@ def load_audio(path_or_stream: str | BinaryIO) -> tuple[FloatArray, int]:
     return data.astype(np.float32), int(fs)
 
 
+def detect_tone_peak(
+    samples: FloatArray,
+    sample_rate: int,
+    lo_hz: float = 300.0,
+    hi_hz: float = 1200.0,
+) -> tuple[float, float]:
+    """Find the strongest spectral peak in the CW band of `samples`.
+
+    Returns (frequency_hz, prominence) where prominence is the peak magnitude
+    over the band's median magnitude — ~1 for flat noise, large for a real
+    carrier. Callers gate on prominence to avoid chasing noise."""
+    if len(samples) < 256:
+        return 600.0, 0.0
+    spectrum = np.abs(np.fft.rfft(samples))
+    freqs = np.fft.rfftfreq(len(samples), 1.0 / sample_rate)
+    band = (freqs >= lo_hz) & (freqs <= hi_hz)
+    if not band.any():
+        return 600.0, 0.0
+    band_mags = spectrum[band]
+    peak_i = int(np.argmax(band_mags))
+    peak = float(band_mags[peak_i])
+    median = float(np.median(band_mags)) + 1e-12
+    return float(freqs[band][peak_i]), peak / median
+
+
 def detect_tone(
     samples: FloatArray,
     sample_rate: int,
@@ -74,9 +99,7 @@ def detect_tone(
         rms = float(np.sqrt(np.mean(seg**2)))
         if rms > best_rms:
             best, best_rms = seg, rms
-    spectrum = np.abs(np.fft.rfft(best))
-    freqs = np.fft.rfftfreq(len(best), 1.0 / sample_rate)
-    band = (freqs >= lo_hz) & (freqs <= hi_hz)
-    if not band.any() or float(spectrum[band].max()) <= 0.0:
+    freq, prominence = detect_tone_peak(best, sample_rate, lo_hz, hi_hz)
+    if prominence <= 0.0:
         return 600.0
-    return float(freqs[band][np.argmax(spectrum[band])])
+    return freq

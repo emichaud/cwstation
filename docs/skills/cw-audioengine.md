@@ -28,20 +28,22 @@ them is the main way changes here go wrong.
 |---|---|
 | `engine/morse.py` | Morse tables, element⇄text, inline prosigns (`<AR>` = one symbol). No DSP. |
 | `engine/events.py` | The event contract + `DecodeResult` (text + replay telemetry). |
-| `engine/cw.py` | `CWDecoder` — streaming: tone DFT → envelope → adaptive threshold → key runs → elements → chars. Fully adaptive WPM with a two-phase bootstrap. |
+| `engine/cw.py` | `CWDecoder` — streaming: tone DFT → envelope → adaptive threshold → key runs → elements → chars. Fully adaptive WPM with a two-phase bootstrap. Operator knobs on `CWConfig` (all live-mutable): `input_gain`, `squelch_db` (SNR gate against noise false-positives), and `afc` (chases the strongest carrier; re-tunes only between marks, gated on peak prominence so noise isn't chased — note the 4 ms blocks give 250 Hz DFT bins, so off-pitch stations are partially heard even without AFC; AFC's value is exact centering). |
 | `engine/synth.py` | `synthesize_cw()` — PARIS timing, raised-cosine edges, controllable SNR. The no-hardware test driver AND the transmit path. |
 | `engine/audio_io.py` | `load_audio()` — WAV via stdlib, MP3/FLAC/OGG via `soundfile`; `detect_tone()` — spectral peak finder so operators don't guess the pitch. |
 | `engine/sources.py` | `ArraySource` / `SyntheticCWSource` / `AudioFileSource` (any format) / `SoundDeviceSource` (guarded optional). |
 | `engine/manager.py` | The seam: `AudioDemodulator`, `NetworkTapEngine`, `AudioEngineManager` (fan-out + subscribers). |
 | `engine/live.py` | `monitor_live()` — open-ended monitoring loop with calibrate-then-replay tone detection. Source-agnostic: tests drive it with `SyntheticCWSource`; `cw_monitor_live` drives it with `SoundDeviceSource`. |
 | `engine/stream.py` | `ResultStreamer` — diffs the accumulating `DecodeResult` into JSON batches via an injected sender. Transport-agnostic (the command POSTs them; tests collect them in a list). |
+| `engine/simulate.py` | `SimulatedBandSource` — infinite noise + scheduled CW stations (random message/pitch/speed/strength, deterministic per seed). `noise_level`/`paused_signals` are live-mutable; `truth` logs what was transmitted. |
 | `engine/bridge.py` | `CWLogBridge` → `QSODraft` (callsign/RST extraction). Framework-agnostic. |
 | `engine/export.py` | `DecodeResult` → session dict the monitor animates. |
 | `engine/wav.py` | float32 ⇄ WAV bytes (uploads in, downloads out). |
 | `services.py` | Engine pass → `CWSession` row. The only Django+engine module. |
 | `models.py` | `CWSession` — per-user; telemetry JSON is the replay; audio never stored. |
 | `views.py` | Monitor / Live / Decode / Send + `CWSessionCRUDView` (per-user scoped, search-visible to owner only). |
-| `consumers.py` / `routing.py` / `api.py` | The live-tape path: `cw_monitor_live --stream` → mints an APIToken → POSTs `ResultStreamer` batches to `/cw/live/ingest/` (`api_view` Bearer auth) → channel-layer group `cw-live-<user pk>` → `LiveTapeConsumer` → `/cw/live/` tab (`monitor.js` live mode follows the data edge). In-memory channel layer = single ASGI process (runserver/daphne); use channels-redis for multi-worker. |
+| `consumers.py` / `routing.py` / `api.py` | The live-tape path: `cw_monitor_live --stream` (or `cw_simulate --stream`) → mints an APIToken → POSTs `ResultStreamer` batches to `/cw/live/ingest/` (`api_view` Bearer auth) → channel-layer group `cw-live-<user pk>` → `LiveTapeConsumer` → `/cw/live/` or `/cw/sim/` tab (`monitor.js` live mode follows the data edge). In-memory channel layer = single ASGI process (runserver/daphne); use channels-redis for multi-worker. |
+| `models.CWSimControl` / `/cw/sim/control/` | The live knobs (noise, gain, squelch, AFC, static-only). The Simulator page POSTs slider moves; the running `cw_simulate` process polls the row ~2×/s and mutates `SimulatedBandSource` + `CWConfig` between blocks — the DB is the cross-process control channel (dev SECRET_KEY is per-process, so signed tokens wouldn't cross). |
 
 ## Working on it
 
