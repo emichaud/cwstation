@@ -52,6 +52,24 @@ class TestResultStreamer:
         assert batches[0]["meta"]["tone_hz"] == 700
         assert batches[0]["meta"]["wpm"] == pytest.approx(20, abs=2.5)
 
+    def test_meta_carries_identified_callsigns(self):
+        src = SyntheticCWSource("CQ DE W1AW K", wpm=20, tone_hz=600, block_size=512)
+        result = monitor_live(src, tone_hz=600)
+        batches: list[dict[str, Any]] = []
+        ResultStreamer(result, batches.append).flush()
+        assert batches[0]["meta"]["calls"] == ["W1AW"]
+
+    def test_partial_trailing_word_is_not_a_callsign(self):
+        # mid-decode "CQ DE W1A" must not spawn a spurious W1A chip — only
+        # completed words (followed by a space) are scanned
+        from apps.cw.engine.events import CharEvent, DecodeResult
+
+        r = DecodeResult(text="CQ DE W1A")
+        r.chars.append(CharEvent("A", ".-", 0.0, 0.1, 20.0, 10.0))
+        batches: list[dict[str, Any]] = []
+        ResultStreamer(r, batches.append).flush()
+        assert batches[0]["meta"]["calls"] == []
+
     def test_empty_tick_sends_nothing(self):
         from apps.cw.engine.events import DecodeResult
 

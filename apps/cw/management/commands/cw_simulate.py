@@ -24,11 +24,11 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.utils import timezone
 
+from apps.cw import services
 from apps.cw.engine import AudioEngineManager, CWConfig, CWDecoder
 from apps.cw.engine.events import CharEvent, DecodeResult
 from apps.cw.engine.simulate import SimulatedBandSource
 from apps.cw.engine.stream import ResultStreamer
-from apps.cw.models import CWSimControl
 
 
 class Command(BaseCommand):
@@ -125,7 +125,7 @@ class Command(BaseCommand):
                 now = time.monotonic()
                 if control_user is not None and now - last_poll > 0.5:
                     last_poll = now
-                    self._apply_controls(control_user, source, cfg)
+                    services.apply_receiver_controls(control_user, cfg, source=source)
         except KeyboardInterrupt:
             pass
         finally:
@@ -140,8 +140,6 @@ class Command(BaseCommand):
         self.stdout.write(f"sent   : {truth}")
         self.stdout.write(f"decoded: {result.text}")
         if save_user is not None and result.text.strip():
-            from apps.cw import services
-
             session = services.save_live_session(save_user, result, result.tone_hz)
             session.truth = truth
             session.save(update_fields=["truth"])
@@ -151,16 +149,3 @@ class Command(BaseCommand):
                 + (f" — accuracy {acc:.2f}" if acc is not None else "")
             ))
 
-    def _apply_controls(
-        self, user: Any, source: SimulatedBandSource, cfg: CWConfig
-    ) -> None:
-        """Pull the operator's slider values and apply them live."""
-        control = CWSimControl.objects.filter(user=user).first()
-        if control is None:
-            return
-        control.clamped()
-        source.noise_level = control.noise_level
-        source.paused_signals = control.paused_signals
-        cfg.input_gain = control.input_gain
-        cfg.squelch_db = control.squelch_db
-        cfg.afc = control.afc

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from .bridge import extract_callsigns
 from .events import DecodeResult
 
 Sender = Callable[[dict[str, Any]], None]
@@ -69,5 +70,12 @@ class ResultStreamer:
                 "tone_hz": r.tone_hz,
                 "wpm": last_char.wpm if last_char else 0.0,
                 "snr": last_char.snr_db if last_char else 0.0,
+                # every callsign heard so far — the live pages render these as
+                # "reply" chips (the responder). Only completed words are
+                # scanned: a station mid-word ("...DE W1A") must not spawn a
+                # spurious chip before its last character lands.
+                "calls": extract_callsigns(
+                    r.text if r.text.endswith(" ") else r.text.rsplit(" ", 1)[0]
+                ),
             },
         }

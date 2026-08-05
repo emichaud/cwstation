@@ -140,6 +140,61 @@ class TestSimControlEndpoint:
 
 
 @pytest.mark.django_db
+class TestApplyReceiverControls:
+    def test_applies_control_row_to_config_and_source(self):
+        from apps.cw import services
+
+        user = User.objects.create_user(username="knob", password="pw")
+        CWSimControl.objects.create(
+            user=user, noise_level=0.3, input_gain=4.0, squelch_db=9.0,
+            afc=False, paused_signals=True,
+        )
+        cfg = CWConfig()
+        src = SimulatedBandSource(seed=1)
+        services.apply_receiver_controls(user, cfg, source=src)
+        assert cfg.input_gain == 4.0
+        assert cfg.squelch_db == 9.0
+        assert cfg.afc is False
+        assert src.noise_level == 0.3
+        assert src.paused_signals is True
+
+    def test_no_row_is_a_noop(self):
+        from apps.cw import services
+
+        user = User.objects.create_user(username="noknob", password="pw")
+        cfg = CWConfig(input_gain=2.0)
+        services.apply_receiver_controls(user, cfg)
+        assert cfg.input_gain == 2.0
+
+
+@pytest.mark.django_db
+class TestResponder:
+    def test_send_prefills_reply_to_identified_caller(self, client):
+        user = User.objects.create_user(username="op9", password="pw")
+        client.force_login(user)
+        response = client.get(reverse("cw-send") + "?to=w1aw")
+        content = response.content.decode()
+        assert response.context["reply_to"] == "W1AW"
+        assert "W1AW DE OP9 OP9 K" in content
+        assert "replying to W1AW" in content
+
+    def test_invalid_callsign_is_ignored(self, client):
+        user = User.objects.create_user(username="op10", password="pw")
+        client.force_login(user)
+        response = client.get(reverse("cw-send") + "?to=<script>")
+        assert "reply_to" not in response.context
+        assert response.status_code == 200
+
+    def test_live_pages_have_heard_chips_container(self, client):
+        user = User.objects.create_user(username="op11", password="pw")
+        client.force_login(user)
+        for name in ("cw-live", "cw-sim"):
+            content = client.get(reverse(name)).content.decode()
+            assert 'id="cw-heard"' in content, name
+            assert 'data-field="squelch_db"' in content, name  # controls on both
+
+
+@pytest.mark.django_db
 class TestSimulatorPage:
     def test_requires_login(self, client):
         assert client.get(reverse("cw-sim")).status_code == 302

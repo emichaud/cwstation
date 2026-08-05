@@ -198,6 +198,44 @@
 }
 .cw-prosign:hover { color: var(--primary); border-color: var(--primary); }
 
+/* "heard on the band" reply chips (the responder) */
+.cw-heard {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-top: 16px;
+    min-height: 34px;
+}
+.cw-heard-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--card-border);
+    background: var(--card-bg);
+    color: var(--body-fg);
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: 0.15s;
+}
+.cw-heard-chip span {
+    font-family: inherit;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--primary);
+}
+.cw-heard-chip:hover {
+    border-color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 10%, var(--card-bg));
+}
+.cw-heard-empty { color: var(--text-muted); font-size: 0.8rem; }
+
 /* live-feed status pill */
 .cw-live-pill {
     display: inline-block;

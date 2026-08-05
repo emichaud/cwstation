@@ -28,7 +28,15 @@
 {% block content %}
 {% include "cw/_stage.html" %}
 
-<div class="card" style="margin-top: 24px;">
+<div class="cw-heard">
+    <span class="cw-lab" style="margin-bottom: 0;">Heard on the band</span>
+    <span class="cw-heard-empty" id="cw-heard-empty">nobody yet — callsigns appear here as the decoder identifies them</span>
+    <span id="cw-heard" style="display: contents;"></span>
+</div>
+
+<div class="cw-form-grid" style="margin-top: 24px;">
+{% include "cw/_receiver_controls.html" %}
+<div class="card">
     <div class="card-header"><h2>Feed the tape</h2></div>
     <div class="card-body">
         <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
@@ -66,6 +74,9 @@ uv run python manage.py cw_monitor_live --stream {{ request.user.username }} --s
             rateLabel: document.getElementById("cw-rate-lab"),
             live: {
                 url: proto + "://" + location.host + "/ws/cw/live/",
+                sendUrl: "{% url 'cw-send' %}",
+                callsEl: document.getElementById("cw-heard"),
+                callsEmptyEl: document.getElementById("cw-heard-empty"),
                 onStatus: function (state) {
                     pill.dataset.state = state;
                     pill.textContent = labels[state] || state;

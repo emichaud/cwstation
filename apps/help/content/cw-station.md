@@ -111,6 +111,12 @@ The command mints its own short-lived API token for the stream and revokes it on
 exit; the Live page shows the exact command to run, pre-filled for your account. The
 status pill on the page tells you when the feed is connected.
 
+The Live page has the same **receiver controls** as the Simulator — input gain,
+squelch, and AFC steer the running monitor within half a second. And when the decoder
+identifies a station, its callsign appears under the tape in **Heard on the band**:
+click **reply** and the Send composer opens pre-filled with a standard answer
+(`W1AW DE YOU YOU K`) ready to key into audio.
+
 Radio-side tips: tune the signal so its note sits at one steady pitch (the narrow CW
 filter helps), and prefer slow AGC — the decoder rides through fading, but heavily
 pumped audio is hard for anything to copy.

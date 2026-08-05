@@ -43,7 +43,8 @@ them is the main way changes here go wrong.
 | `models.py` | `CWSession` — per-user; telemetry JSON is the replay; audio never stored. |
 | `views.py` | Monitor / Live / Decode / Send + `CWSessionCRUDView` (per-user scoped, search-visible to owner only). |
 | `consumers.py` / `routing.py` / `api.py` | The live-tape path: `cw_monitor_live --stream` (or `cw_simulate --stream`) → mints an APIToken → POSTs `ResultStreamer` batches to `/cw/live/ingest/` (`api_view` Bearer auth) → channel-layer group `cw-live-<user pk>` → `LiveTapeConsumer` → `/cw/live/` or `/cw/sim/` tab (`monitor.js` live mode follows the data edge). In-memory channel layer = single ASGI process (runserver/daphne); use channels-redis for multi-worker. |
-| `models.CWSimControl` / `/cw/sim/control/` | The live knobs (noise, gain, squelch, AFC, static-only). The Simulator page POSTs slider moves; the running `cw_simulate` process polls the row ~2×/s and mutates `SimulatedBandSource` + `CWConfig` between blocks — the DB is the cross-process control channel (dev SECRET_KEY is per-process, so signed tokens wouldn't cross). |
+| `models.CWSimControl` / `/cw/sim/control/` | The live knobs (noise, gain, squelch, AFC, static-only). The Simulator AND Live pages POST slider moves (shared include `_receiver_controls.html`); both `cw_simulate` and `cw_monitor_live` poll the row ~2×/s via `services.apply_receiver_controls()` — the DB is the cross-process control channel (dev SECRET_KEY is per-process, so signed tokens wouldn't cross). |
+| The responder | `ResultStreamer` meta carries `calls` (callsigns from *completed* words only — a partial trailing word must not spawn a chip). Live/sim pages render them as "Heard on the band" reply chips → `/cw/send/?to=CALL` prefills `{CALL} DE {USERNAME} {USERNAME} K`. |
 
 ## Working on it
 

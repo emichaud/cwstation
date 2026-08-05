@@ -26,7 +26,7 @@
 
 {% block content %}
 <div class="card" style="max-width: 720px;">
-    <div class="card-header"><h2>Message</h2></div>
+    <div class="card-header"><h2>Message{% if reply_to %} <span class="cw-badge cw-badge-call" style="vertical-align: middle;">replying to {{ reply_to }}</span>{% endif %}</h2></div>
     <div class="card-body">
         <form method="post">
             {% csrf_token %}

@@ -307,10 +307,31 @@ function initCWMonitor(opts) {
   // ── live feed ─────────────────────────────────────────────────────────
   function liveStatus(state) { if (live && live.onStatus) live.onStatus(state); }
 
+  const heardCalls = new Set();
+  function liveHeard(calls) {
+    // "Heard on the band" chips — click one to reply (the responder).
+    if (!live.callsEl) return;
+    for (const call of calls) {
+      if (heardCalls.has(call)) continue;
+      heardCalls.add(call);
+      const chip = document.createElement("a");
+      chip.className = "cw-heard-chip";
+      chip.href = live.sendUrl + "?to=" + encodeURIComponent(call);
+      chip.innerHTML = "";
+      chip.appendChild(document.createTextNode(call));
+      const tag = document.createElement("span");
+      tag.textContent = "reply";
+      chip.appendChild(tag);
+      live.callsEl.appendChild(chip);
+    }
+    if (live.callsEmptyEl && heardCalls.size) live.callsEmptyEl.style.display = "none";
+  }
+
   function liveMerge(b) {
     if (b.meta) {
       if (b.meta.tone_hz && el.toneEl) el.toneEl.textContent = Math.round(b.meta.tone_hz);
       if (b.meta.tone_hz) S.meta.tone_hz = b.meta.tone_hz;
+      if (b.meta.calls) liveHeard(b.meta.calls);
     }
     if (b.env_t && b.env_t.length) { S.env_t.push(...b.env_t); S.env_mag.push(...b.env_mag); }
     if (b.key_runs && b.key_runs.length) S.key_runs.push(...b.key_runs);

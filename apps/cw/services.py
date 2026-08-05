@@ -9,7 +9,7 @@ from typing import BinaryIO
 
 from django.contrib.auth.base_user import AbstractBaseUser
 
-from .engine import CWConfig, decode_array, detect_tone, load_audio, synthesize_cw
+from .engine import CWConfig, decode_array, detect_tone, load_audio, synthesize_cw  # noqa: F401
 from .engine.bridge import extract_callsigns
 from .engine.events import DecodeResult  # noqa: F401 - used in annotations
 from .engine.export import session_from_result
@@ -96,6 +96,31 @@ def save_live_session(
         callsigns=extract_callsigns(result.text),
         telemetry=session_from_result(result),
     )
+
+
+def apply_receiver_controls(
+    user: AbstractBaseUser,
+    cfg: "CWConfig",
+    source: object | None = None,
+) -> None:
+    """Pull the operator's knob values (Simulator/Live page sliders) and apply
+    them to a running decoder — and, when given, a simulated band source.
+
+    Called by `cw_monitor_live` and `cw_simulate` between audio blocks; the DB
+    row is the cross-process control channel.
+    """
+    from .models import CWSimControl
+
+    control = CWSimControl.objects.filter(user=user).first()
+    if control is None:
+        return
+    control.clamped()
+    cfg.input_gain = control.input_gain
+    cfg.squelch_db = control.squelch_db
+    cfg.afc = control.afc
+    if source is not None:
+        source.noise_level = control.noise_level  # type: ignore[attr-defined]
+        source.paused_signals = control.paused_signals  # type: ignore[attr-defined]
 
 
 def session_wav_bytes(session: CWSession) -> bytes:

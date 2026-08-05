@@ -26,6 +26,7 @@ def monitor_live(
     on_char: Callable[[CharEvent], None] | None = None,
     on_tone: Callable[[float], None] | None = None,
     on_tick: Callable[[DecodeResult], None] | None = None,
+    config: CWConfig | None = None,
 ) -> DecodeResult:
     """Decode CW from `source` until it ends (or Ctrl-C on a live stream).
 
@@ -33,6 +34,10 @@ def monitor_live(
     note is detected from their spectrum, and the buffered audio is then
     replayed through the decoder — nothing heard during calibration is lost
     (the same philosophy as the decoder's own WPM bootstrap).
+
+    Pass `config` to keep a reference to the decoder's CWConfig — its
+    live-adjustable fields (input_gain, squelch_db, afc) can then be mutated
+    between blocks (e.g. from the operator's receiver-control knobs).
     """
     fs = source.sample_rate
     blocks = source.blocks()
@@ -50,7 +55,11 @@ def monitor_live(
         if on_tone:
             on_tone(tone_hz)
 
-    decoder = CWDecoder(fs, CWConfig(tone_hz=tone_hz, expected_wpm=expected_wpm))
+    if config is None:
+        config = CWConfig()
+    config.tone_hz = tone_hz
+    config.expected_wpm = expected_wpm
+    decoder = CWDecoder(fs, config)
     mgr = AudioEngineManager(fs).add_demodulator(decoder)
     if on_char:
         mgr.subscribe(on_char)

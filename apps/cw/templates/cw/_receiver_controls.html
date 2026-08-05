@@ -1,0 +1,107 @@
+{% comment %}
+Receiver-controls card. The knobs POST to the sim-control endpoint; the
+running cw_simulate / cw_monitor_live process polls the row ~2x/s.
+Pass show_sim=True to include the simulator-only knobs (band static,
+static-only). Include once per page; wires its own JS.
+{% endcomment %}
+<div class="card">
+    <div class="card-header"><h2>Receiver controls</h2></div>
+    <div class="card-body">
+        <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
+            These steer the running {% if show_sim %}simulation{% else %}monitor{% endif %} live —
+            moves apply within half a second. Bring the <strong>squelch</strong> up until noise
+            junk stops without losing real copy.
+        </p>
+        {% if show_sim %}
+        <div class="cw-field">
+            <label>Band static <span class="cw-slider-val" id="v-noise">–</span></label>
+            <div class="cw-slider-row">
+                <input type="range" id="k-noise" min="0" max="0.5" step="0.01"
+                       data-field="noise_level" data-unit="">
+            </div>
+        </div>
+        {% endif %}
+        <div class="cw-field">
+            <label>Input gain <span class="cw-slider-val" id="v-gain">–</span></label>
+            <div class="cw-slider-row">
+                <input type="range" id="k-gain" min="0.1" max="10" step="0.1"
+                       data-field="input_gain" data-unit="×">
+            </div>
+        </div>
+        <div class="cw-field">
+            <label>Squelch <span class="cw-slider-val" id="v-squelch">–</span></label>
+            <div class="cw-slider-row">
+                <input type="range" id="k-squelch" min="0" max="12" step="0.5"
+                       data-field="squelch_db" data-unit=" dB">
+            </div>
+        </div>
+        <div class="cw-field"{% if not show_sim %} style="margin-bottom: 0;"{% endif %}>
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                <input type="checkbox" id="k-afc" data-field="afc" style="accent-color: var(--primary);">
+                AFC — automatic frequency control
+                <span style="color: var(--text-muted);">(chases each station's pitch; watch the Tone gauge re-lock)</span>
+            </label>
+        </div>
+        {% if show_sim %}
+        <div class="cw-field" style="margin-bottom: 0;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                <input type="checkbox" id="k-paused" data-field="paused_signals" style="accent-color: var(--primary);">
+                Static only <span style="color: var(--text-muted);">(no stations — a false-positive test bench)</span>
+            </label>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+    (function () {
+        const CONTROL_URL = "{% url 'cw-sim-control' %}";
+        const knobs = document.querySelectorAll("[data-field]");
+        const valueLabels = {
+            noise_level: document.getElementById("v-noise"),
+            input_gain: document.getElementById("v-gain"),
+            squelch_db: document.getElementById("v-squelch"),
+        };
+
+        function showValue(field, value) {
+            const label = valueLabels[field];
+            if (!label) return;
+            const unit = document.querySelector('[data-field="' + field + '"]').dataset.unit;
+            label.textContent = (+value).toFixed(field === "noise_level" ? 2 : 1) + unit;
+        }
+
+        let pending = null;
+        function push(field, value) {
+            showValue(field, value);
+            clearTimeout(pending);
+            pending = setTimeout(function () {
+                const body = {};
+                body[field] = typeof value === "boolean" ? value : +value;
+                fetch(CONTROL_URL, {
+                    method: "POST",
+                    credentials: "same-origin",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                });
+            }, 150);
+        }
+
+        fetch(CONTROL_URL, { credentials: "same-origin" })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                const values = data.data || data;
+                knobs.forEach(function (k) {
+                    const field = k.dataset.field;
+                    if (!(field in values)) return;
+                    if (k.type === "checkbox") k.checked = !!values[field];
+                    else { k.value = values[field]; showValue(field, values[field]); }
+                });
+            });
+
+        knobs.forEach(function (k) {
+            k.addEventListener("input", function () {
+                push(k.dataset.field, k.type === "checkbox" ? k.checked : k.value);
+            });
+        });
+    })();
+</script>

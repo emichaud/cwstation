@@ -147,10 +147,31 @@ class Command(BaseCommand):
 
             self.stdout.write(f"stream : {ingest_url} → live tape for {stream_user.username}")
 
+        # Receiver controls: the same knobs as the Simulator page (input gain,
+        # squelch, AFC) steer this decoder live, polled from the DB.
+        import time as _time
+
+        from apps.cw import services
+        from apps.cw.engine.cw import CWConfig
+
+        cfg = CWConfig(afc=False, squelch_db=3.0)
+        control_user = stream_user or user
+        if control_user is not None:
+            services.apply_receiver_controls(control_user, cfg)
+            self.stdout.write(
+                f"knobs  : gain {cfg.input_gain:g}× · squelch {cfg.squelch_db:g} dB · "
+                f"AFC {'on' if cfg.afc else 'off'} — adjust live on /cw/live/"
+            )
+
         streamer = None
+        last_poll = [0.0]
 
         def on_tick(result) -> None:
             nonlocal streamer
+            now = _time.monotonic()
+            if control_user is not None and now - last_poll[0] > 0.5:
+                last_poll[0] = now
+                services.apply_receiver_controls(control_user, cfg)
             if streamer_factory is None:
                 return
             if streamer is None:
@@ -166,6 +187,7 @@ class Command(BaseCommand):
                 on_char=on_char,
                 on_tone=on_tone,
                 on_tick=on_tick,
+                config=cfg,
             )
             if streamer is not None:
                 streamer.flush()

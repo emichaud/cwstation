@@ -192,13 +192,25 @@ class DecodeView(LoginRequiredMixin, TemplateView):
 
 
 class SendView(LoginRequiredMixin, TemplateView):
-    """Compose a message and key it into clean, click-free CW audio."""
+    """Compose a message and key it into clean, click-free CW audio.
+
+    `?to=CALL` prefills a reply to a station the live monitor identified —
+    the responder path from the live/simulator "heard on the band" chips."""
 
     template_name = "cw/send.html"
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        from .engine.bridge import CALLSIGN_RE
+
         context = super().get_context_data(**kwargs)
-        context.setdefault("form", SendForm())
+        if "form" not in context:
+            initial: dict[str, Any] = {}
+            to_call = (self.request.GET.get("to") or "").strip().upper()
+            if CALLSIGN_RE.fullmatch(to_call):
+                my_call = self.request.user.username.upper()
+                initial["text"] = f"{to_call} DE {my_call} {my_call} K"
+                context["reply_to"] = to_call
+            context["form"] = SendForm(initial=initial)
         return context
 
     def post(self, request: HttpRequest, **kwargs: Any) -> HttpResponse:
