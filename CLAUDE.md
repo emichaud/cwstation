@@ -1,6 +1,25 @@
-# CLAUDE.md — SmallStack
+# CLAUDE.md — CW Station (on Django SmallStack)
 
 You're working inside a Django SmallStack project. This file orients you to the codebase and tells you what to read **before** writing code. The most common AI-built-page failure mode in this codebase is hard-coded colors that look fine on the default palette but break the other four; reading the linked skill files prevents it.
+
+## This project: CW Station
+
+A ham-radio CW (Morse) workbench built on the SmallStack base: decode CW from WAV
+recordings or synthesized practice signals, send text as click-free keyed audio, and
+replay every pass on a paper-tape monitor. The product plan and scope decisions live
+in `specs/mvp-cw-decode-design.md` (MVP is sound-card only — no CHIRP, no Hamlib CAT;
+the engine seam keeps those and an ML decoder addable later).
+
+- **`apps/cw/`** is the project's app: `engine/` (Django-free, typed, numpy-only DSP),
+  `services.py` (the only engine↔Django glue), monitor/decode/send views, and the
+  `CWSession` model (per-user, replay telemetry as JSON, audio regenerated on demand).
+- **Before touching `apps/cw/`, read `docs/skills/cw-audioengine.md`** — it has the
+  three hard rules (Django-free engine, one event contract, Python-decodes/JS-renders).
+- Tests are the synthesize→decode→assert loop: `uv run pytest apps/cw/`. The headless
+  CLI is `uv run python manage.py cw_decode --text "CQ" --wpm 20`.
+- Operator-facing docs live in the help system: `apps/help/content/cw-station.md`.
+- Historical/reference material (original research plan, the pre-port reference
+  implementation) is under `specs/` — excluded from lint, not project code.
 
 ## Read-first skills
 

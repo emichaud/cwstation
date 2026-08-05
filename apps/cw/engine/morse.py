@@ -5,6 +5,8 @@ the decoder (elements -> text) and the synthesizer (text -> elements).
 """
 from __future__ import annotations
 
+UNKNOWN_CHAR = "�"
+
 # Character -> dot/dash string. International Morse plus the punctuation and
 # prosigns you actually hit on the air.
 CHAR_TO_MORSE: dict[str, str] = {
@@ -33,17 +35,30 @@ for _ch, _code in CHAR_TO_MORSE.items():
 
 
 def decode_symbol(code: str) -> str:
-    """Map a single dot/dash string to a character, or '\uFFFD' if unknown."""
-    return MORSE_TO_CHAR.get(code, "\ufffd")
+    """Map a single dot/dash string to a character, or UNKNOWN_CHAR if unknown."""
+    return MORSE_TO_CHAR.get(code, UNKNOWN_CHAR)
 
 
 def encode_text(text: str) -> list[str]:
-    """Text -> list of dot/dash symbols (one per character; spaces dropped,
-    callers handle word gaps). Unknown characters are skipped."""
+    """Text -> list of dot/dash symbols (one per character; " " marks a word
+    gap, which callers turn into timing). Unknown characters are skipped.
+    Prosigns may be written inline as `<AR>` etc. and encode as one symbol."""
     out: list[str] = []
-    for ch in text.upper():
+    i = 0
+    up = text.upper()
+    while i < len(up):
+        ch = up[i]
         if ch == " ":
-            out.append(" ")  # marker for word gap
-        elif ch in CHAR_TO_MORSE:
+            out.append(" ")
+            i += 1
+            continue
+        if ch == "<":
+            end = up.find(">", i)
+            if end != -1 and up[i : end + 1] in CHAR_TO_MORSE:
+                out.append(CHAR_TO_MORSE[up[i : end + 1]])
+                i = end + 1
+                continue
+        if ch in CHAR_TO_MORSE:
             out.append(CHAR_TO_MORSE[ch])
+        i += 1
     return out

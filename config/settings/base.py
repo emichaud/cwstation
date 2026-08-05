@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     "apps.heartbeat",
     "apps.usermanager",
     "apps.website",  # Project-specific pages (customize freely)
+    "apps.cw",  # CW Station: Morse decode/send
     "apps.mcp",  # Model Context Protocol server for AI clients
     "apps.tokenmgr",  # User-facing UI for API token management
     "apps.api",  # API admin: /smallstack/api/ health + activity + threat panel

@@ -1,0 +1,89 @@
+"""Glue between the Django-free engine and the web app.
+
+Each function runs one engine pass and persists a `CWSession` carrying the
+full replay telemetry. This is the only module that imports both sides.
+"""
+from __future__ import annotations
+
+from typing import BinaryIO
+
+from django.contrib.auth.base_user import AbstractBaseUser
+
+from .engine import CWConfig, decode_array, synthesize_cw
+from .engine.bridge import extract_callsigns
+from .engine.export import session_from_result
+from .engine.wav import float32_from_wav, wav_bytes_from_float32
+from .models import CWSession
+
+
+def decode_practice(
+    user: AbstractBaseUser,
+    text: str,
+    wpm: float,
+    tone_hz: float,
+    snr_db: float | None,
+) -> CWSession:
+    """Synthesize `text` at the given speed/tone/noise and decode it back."""
+    synth = synthesize_cw(text, wpm=wpm, tone_hz=tone_hz, sample_rate=8000, snr_db=snr_db)
+    result = decode_array(synth.audio, synth.sample_rate, CWConfig(tone_hz=tone_hz))
+    return CWSession.objects.create(
+        user=user,
+        direction=CWSession.Direction.RECEIVED,
+        source=CWSession.Source.SYNTH,
+        text=result.text,
+        truth=synth.text,
+        wpm=wpm,  # requested speed, so audio regenerates exactly; decoded speed lives in telemetry
+        tone_hz=tone_hz,
+        snr_db=snr_db,
+        callsigns=extract_callsigns(result.text),
+        telemetry=session_from_result(result, truth=synth.text),
+    )
+
+
+def decode_wav(user: AbstractBaseUser, stream: BinaryIO, tone_hz: float) -> CWSession:
+    """Decode an uploaded WAV recorded off a receiver."""
+    audio, sample_rate = float32_from_wav(stream)
+    result = decode_array(audio, sample_rate, CWConfig(tone_hz=tone_hz))
+    return CWSession.objects.create(
+        user=user,
+        direction=CWSession.Direction.RECEIVED,
+        source=CWSession.Source.WAV,
+        text=result.text,
+        wpm=result.wpm_final,
+        tone_hz=tone_hz,
+        callsigns=extract_callsigns(result.text),
+        telemetry=session_from_result(result),
+    )
+
+
+def compose_send(user: AbstractBaseUser, text: str, wpm: float, tone_hz: float) -> CWSession:
+    """Key `text` into CW audio. The session self-decodes the generated audio
+    so the monitor can replay exactly what will go out on the air."""
+    synth = synthesize_cw(text, wpm=wpm, tone_hz=tone_hz, sample_rate=8000)
+    result = decode_array(synth.audio, synth.sample_rate, CWConfig(tone_hz=tone_hz))
+    return CWSession.objects.create(
+        user=user,
+        direction=CWSession.Direction.SENT,
+        source=CWSession.Source.TEXT,
+        text=synth.text,
+        wpm=wpm,
+        tone_hz=tone_hz,
+        callsigns=extract_callsigns(synth.text),
+        telemetry=session_from_result(result, truth=synth.text),
+    )
+
+
+def session_wav_bytes(session: CWSession) -> bytes:
+    """Regenerate the session's audio as WAV bytes.
+
+    Deterministic for synthesized sessions (`has_audio`); raises for WAV
+    uploads, whose audio was never stored.
+    """
+    if not session.has_audio:
+        raise ValueError("Audio for uploaded-WAV sessions is not stored.")
+    source_text = session.truth or session.text
+    synth = synthesize_cw(
+        source_text, wpm=session.wpm or 20.0, tone_hz=session.tone_hz, sample_rate=8000,
+        snr_db=session.snr_db,
+    )
+    return wav_bytes_from_float32(synth.audio, synth.sample_rate)

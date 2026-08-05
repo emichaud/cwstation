@@ -1,0 +1,95 @@
+{% extends "smallstack/base.html" %}
+{% load static theme_tags %}
+
+{% block title %}Session · {{ object.text|truncatechars:24 }}{% endblock %}
+{% block breadcrumbs %}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'cw/cw.css' %}">
+{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions" style="display: flex; align-items: flex-start; justify-content: space-between;">
+    <div class="page-header-content">
+        <h1>
+            {% if object.direction == "tx" %}<span class="cw-badge cw-badge-tx">TX</span>{% else %}<span class="cw-badge cw-badge-rx">RX</span>{% endif %}
+            {{ object.get_source_display }}
+        </h1>
+        <p class="page-subtitle">{{ object.created_at }} · {{ object.wpm|floatformat:0 }} wpm · {{ object.tone_hz|floatformat:0 }} Hz{% if object.snr_db %} · {{ object.snr_db|floatformat:0 }} dB SNR{% endif %}</p>
+        <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
+            <a href="{% url 'cw-monitor' %}" style="color: var(--body-quiet-color); text-decoration: none;">CW Monitor</a>
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            <a href="{% url 'cw/sessions-list' %}" style="color: var(--body-quiet-color); text-decoration: none;">Sessions</a>
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            <span style="color: var(--body-fg);">#{{ object.pk }}</span>
+        </nav>
+    </div>
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+        {% if object.has_audio %}
+        <a href="{% url 'cw-session-audio' object.pk %}" class="btn-tint" download="cw-session-{{ object.pk }}.wav">↓ WAV</a>
+        {% endif %}
+        <a href="{% url 'cw/sessions-delete' object.pk %}" class="btn-tint" style="color: var(--error-fg);">Delete</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="card" style="margin-bottom: 24px;">
+    <div class="card-header"><h2>{% if object.direction == "tx" %}Message as keyed{% else %}Copy{% endif %}</h2></div>
+    <div class="card-body">
+        <div class="cw-copy">
+            {% if object.telemetry.chars %}
+                {% for c in object.telemetry.chars %}{% if c.conf < 1 %}<span class="lowconf" title="{{ c.m }} · low confidence">{% if c.c == "�" %}▯{% else %}{{ c.c }}{% endif %}</span>{% else %}{{ c.c }}{% endif %}{% endfor %}
+            {% else %}
+                {{ object.text }}
+            {% endif %}
+        </div>
+        {% if object.truth and object.direction == "rx" %}
+        <div class="cw-truth cw-mono" style="margin-top: 14px;">sent&nbsp; <b>{{ object.truth }}</b>
+            {% if object.accuracy is not None %}
+            <span style="margin-left: 10px; color: {% if object.accuracy >= 0.95 %}var(--success-fg){% elif object.accuracy >= 0.8 %}var(--warning-fg){% else %}var(--error-fg){% endif %};">
+                {{ object.accuracy|floatformat:2 }} accuracy
+            </span>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% if object.callsigns %}
+        <div style="margin-top: 14px;">
+            <span class="cw-lab" style="display: inline;">Callsigns heard&nbsp;</span>
+            {% for call in object.callsigns %}<span class="cw-badge cw-badge-call">{{ call }}</span> {% endfor %}
+        </div>
+        {% endif %}
+        {% if object.has_audio %}
+        <div class="cw-audio-row" style="margin-top: 18px;">
+            <audio controls preload="none" src="{% url 'cw-session-audio' object.pk %}"></audio>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if object.can_replay %}
+    {% include "cw/_stage.html" %}
+
+    {{ object.telemetry|json_script:"cw-session-data" }}
+    <script src="{% static 'cw/monitor.js' %}"></script>
+    <script>
+        (function () {
+            const session = JSON.parse(document.getElementById("cw-session-data").textContent);
+            initCWMonitor({
+                canvas: document.getElementById("cw-scope"),
+                decodedEl: document.getElementById("cw-decoded"),
+                truthEl: document.getElementById("cw-truth"),
+                wpmEl: document.getElementById("cw-g-wpm"),
+                snrEl: document.getElementById("cw-g-snr"),
+                toneEl: document.getElementById("cw-g-tone"),
+                confEl: document.getElementById("cw-g-conf"),
+                playBtn: document.getElementById("cw-play"),
+                restartBtn: document.getElementById("cw-restart"),
+                rateInput: document.getElementById("cw-rate"),
+                rateLabel: document.getElementById("cw-rate-lab"),
+                sessions: { "session": session },
+            });
+        })();
+    </script>
+{% endif %}
+{% endblock %}

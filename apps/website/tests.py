@@ -11,7 +11,8 @@ class TestWebsiteViews:
     def test_home_page(self, client):
         response = client.get("/")
         assert response.status_code == 200
-        assert b"SmallStack" in response.content
+        from django.conf import settings
+        assert settings.BRAND_NAME.encode() in response.content
 
     def test_home_page_hero(self, client):
         """Hero tagline + four-shapes framing should render."""

@@ -1,0 +1,31 @@
+{% comment %}
+The monitor stage: canvas tape + readout + transport controls.
+Wired up by initCWMonitor() in cw/monitor.js — element ids must match the
+caller's init block.
+{% endcomment %}
+<div class="cw-stage">
+    <canvas id="cw-scope" aria-label="Keying tape and decoded characters"></canvas>
+    <div class="cw-readout">
+        <div class="cw-tape">
+            <div class="cw-lab">Decoded</div>
+            <div class="cw-decoded cw-mono" id="cw-decoded"><span class="cw-cursor"></span></div>
+            <div class="cw-truth cw-mono">sent&nbsp; <b id="cw-truth"></b></div>
+        </div>
+        <div class="cw-gauges">
+            <div class="cw-g cw-g-wpm"><div class="cw-n cw-mono"><span id="cw-g-wpm">–</span><span class="cw-u">wpm</span></div><div class="cw-k">speed</div></div>
+            <div class="cw-g cw-g-snr"><div class="cw-n cw-mono"><span id="cw-g-snr">–</span><span class="cw-u">dB</span></div><div class="cw-k">snr</div></div>
+            <div class="cw-g"><div class="cw-n cw-mono"><span id="cw-g-tone">–</span><span class="cw-u">Hz</span></div><div class="cw-k">tone</div></div>
+            <div class="cw-g"><div class="cw-n cw-mono"><span id="cw-g-conf">–</span><span class="cw-u">%</span></div><div class="cw-k">confidence</div></div>
+        </div>
+    </div>
+</div>
+
+<div class="cw-controls">
+    <button class="cw-ctrl" id="cw-play" aria-label="Play or pause">▶</button>
+    <button class="cw-ctrl" id="cw-restart" aria-label="Restart">↺</button>
+    <div class="cw-speed">
+        <label for="cw-rate">playback</label>
+        <input type="range" id="cw-rate" min="0.25" max="2" step="0.25" value="1">
+        <span id="cw-rate-lab" class="cw-mono">1.0×</span>
+    </div>
+</div>

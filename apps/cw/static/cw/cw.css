@@ -1,0 +1,224 @@
+/* CW Station styles — every color is a theme variable so all five palettes
+   (django/blue/purple/orange/contrast) x light/dark render correctly. */
+
+/* ── badges ──────────────────────────────────────────────────────────── */
+.cw-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+.cw-badge-rx {
+    background: color-mix(in srgb, var(--success-fg) 15%, var(--card-bg));
+    color: var(--success-fg);
+}
+.cw-badge-tx {
+    background: color-mix(in srgb, var(--primary) 15%, var(--card-bg));
+    color: var(--primary);
+}
+.cw-badge-call {
+    background: color-mix(in srgb, var(--body-fg) 8%, var(--card-bg));
+    color: var(--body-fg);
+    border: 1px solid var(--card-border);
+}
+
+/* ── the monitor stage ───────────────────────────────────────────────── */
+.cw-stage {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 14px;
+    overflow: hidden;
+}
+.cw-stage canvas {
+    display: block;
+    width: 100%;
+    height: 260px;
+}
+.cw-readout {
+    display: flex;
+    gap: 22px;
+    align-items: stretch;
+    padding: 18px 20px;
+    border-top: 1px solid var(--card-border);
+    background: var(--card-header-bg);
+}
+.cw-tape { flex: 1; min-width: 0; }
+.cw-lab {
+    font-size: 10.5px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--body-quiet-color);
+    margin-bottom: 8px;
+}
+.cw-mono { font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace; }
+.cw-decoded {
+    font-size: 23px;
+    letter-spacing: 0.14em;
+    color: var(--primary);
+    min-height: 32px;
+    word-break: break-word;
+}
+.cw-decoded .cw-unknown { color: var(--error-fg); }
+.cw-cursor {
+    display: inline-block;
+    width: 9px;
+    height: 22px;
+    vertical-align: -3px;
+    background: var(--primary);
+    margin-left: 2px;
+    animation: cw-blink 1s steps(1) infinite;
+}
+@keyframes cw-blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .cw-cursor { animation: none; } }
+.cw-truth { margin-top: 10px; font-size: 12px; color: var(--body-quiet-color); }
+.cw-truth b { color: var(--success-fg); letter-spacing: 0.1em; }
+
+.cw-gauges {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(74px, 1fr));
+    gap: 12px 20px;
+    align-content: center;
+    padding-left: 22px;
+    border-left: 1px solid var(--card-border);
+}
+.cw-g .cw-n { font-size: 26px; font-weight: 600; line-height: 1; color: var(--body-fg); }
+.cw-g .cw-u { font-size: 12px; color: var(--body-quiet-color); font-weight: 400; margin-left: 3px; }
+.cw-g .cw-k {
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--body-quiet-color);
+    margin-top: 5px;
+}
+.cw-g-wpm .cw-n { color: var(--primary); }
+.cw-g-snr .cw-n { color: var(--success-fg); }
+
+/* ── session tabs + controls ─────────────────────────────────────────── */
+.cw-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.cw-tab {
+    appearance: none;
+    border: 1px solid var(--card-border);
+    background: var(--card-bg);
+    color: var(--body-quiet-color);
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: 0.15s;
+}
+.cw-tab:hover { color: var(--body-fg); border-color: var(--input-focus-border); }
+.cw-tab[aria-selected="true"] {
+    color: var(--button-fg);
+    background: var(--primary);
+    border-color: var(--primary);
+    font-weight: 600;
+}
+.cw-tab:focus-visible { outline: 2px solid var(--input-focus-border); outline-offset: 2px; }
+
+.cw-controls { display: flex; align-items: center; gap: 14px; margin-top: 16px; }
+.cw-ctrl {
+    appearance: none;
+    border: 1px solid var(--card-border);
+    background: var(--card-bg);
+    color: var(--body-fg);
+    width: 44px;
+    height: 44px;
+    border-radius: 11px;
+    cursor: pointer;
+    font-size: 16px;
+    display: grid;
+    place-items: center;
+    transition: 0.15s;
+}
+.cw-ctrl:hover { border-color: var(--primary); color: var(--primary); }
+.cw-ctrl:focus-visible { outline: 2px solid var(--input-focus-border); outline-offset: 2px; }
+.cw-speed {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--body-quiet-color);
+    font-size: 12px;
+    margin-left: auto;
+}
+.cw-speed input { accent-color: var(--primary); }
+
+/* ── forms ───────────────────────────────────────────────────────────── */
+.cw-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+@media (max-width: 900px) { .cw-form-grid { grid-template-columns: 1fr; } }
+.cw-field { margin-bottom: 14px; }
+.cw-field label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--body-quiet-color);
+    margin-bottom: 4px;
+}
+.cw-field input[type="text"], .cw-field input[type="number"], .cw-field textarea,
+.cw-field input[type="file"] {
+    width: 100%;
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    color: var(--body-fg);
+    padding: 8px 10px;
+    font-size: 0.9rem;
+    box-sizing: border-box;
+}
+.cw-field textarea { font-family: ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.08em; }
+.cw-field input:focus, .cw-field textarea:focus {
+    outline: none;
+    border-color: var(--input-focus-border);
+}
+.cw-slider-row { display: flex; align-items: center; gap: 12px; }
+.cw-slider-row input[type="range"] { flex: 1; accent-color: var(--primary); }
+.cw-slider-val {
+    min-width: 72px;
+    text-align: right;
+    color: var(--primary);
+    font-weight: 600;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.cw-errors { color: var(--error-fg); font-size: 0.8rem; margin-top: 4px; }
+
+/* prosign palette on the send page */
+.cw-prosigns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cw-prosign {
+    appearance: none;
+    border: 1px solid var(--card-border);
+    background: var(--card-bg);
+    color: var(--body-quiet-color);
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    cursor: pointer;
+    transition: 0.15s;
+}
+.cw-prosign:hover { color: var(--primary); border-color: var(--primary); }
+
+/* per-character confidence shading on decode results */
+.cw-copy {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 1.3rem;
+    letter-spacing: 0.12em;
+    line-height: 1.9;
+    word-break: break-word;
+    color: var(--body-fg);
+}
+.cw-copy .lowconf { color: var(--error-fg); }
+
+/* audio player row */
+.cw-audio-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.cw-audio-row audio { flex: 1; min-width: 240px; height: 40px; }
+
+@media (max-width: 620px) {
+    .cw-readout { flex-direction: column; gap: 16px; }
+    .cw-gauges {
+        border-left: 0;
+        border-top: 1px solid var(--card-border);
+        padding: 14px 0 0;
+        grid-template-columns: repeat(4, 1fr);
+    }
+}

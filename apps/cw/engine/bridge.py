@@ -1,9 +1,9 @@
-"""Bridge the audio layer into the logbook.
+"""Bridge the audio layer toward a future logbook.
 
 `CWLogBridge` subscribes to the AudioEngineManager and turns the decoded text
 stream into a live QSO draft: it watches for callsigns and RST reports as they
 come off the air and accumulates the raw copy. It's deliberately framework-
-agnostic — `on_qso_ready` is the single hook a Django view/consumer overrides to
+agnostic — `on_qso_ready` is the single hook the Django side overrides to
 persist a QSO (or push it to the operator over WebSocket). Nothing here imports
 Django, so it stays unit-testable.
 """
@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
-from audioengine.events import CharEvent
+from .events import CharEvent
 
 # Rough amateur callsign shape: 1-2 char prefix, a digit, 1-4 char suffix.
 CALLSIGN_RE = re.compile(r"\b([A-Z]{1,2}\d[A-Z]{1,4})\b")
@@ -21,19 +22,31 @@ RST_RE = re.compile(r"\b([1-5][1-9][1-9])\b")
 
 @dataclass
 class QSODraft:
-    raw: str = ""                 # everything copied
+    raw: str = ""  # everything copied
     callsigns: list[str] = field(default_factory=list)
     rst: list[str] = field(default_factory=list)
 
-    def as_dict(self) -> dict:
-        return {"raw": self.raw.strip(),
-                "call": self.callsigns[-1] if self.callsigns else "",
-                "rst": self.rst[-1] if self.rst else "",
-                "callsigns_seen": self.callsigns, "rst_seen": self.rst}
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "raw": self.raw.strip(),
+            "call": self.callsigns[-1] if self.callsigns else "",
+            "rst": self.rst[-1] if self.rst else "",
+            "callsigns_seen": self.callsigns,
+            "rst_seen": self.rst,
+        }
+
+
+def extract_callsigns(text: str) -> list[str]:
+    """All callsign-shaped words in decoded copy, in order, deduplicated."""
+    seen: list[str] = []
+    for m in CALLSIGN_RE.findall(text.upper()):
+        if m not in seen:
+            seen.append(m)
+    return seen
 
 
 class CWLogBridge:
-    def __init__(self, gap_close_words: int = 3):
+    def __init__(self, gap_close_words: int = 3) -> None:
         self.draft = QSODraft()
         self._word = ""
         self._space_run = 0
@@ -64,19 +77,5 @@ class CWLogBridge:
     # -- override me ---------------------------------------------------------
     def on_qso_ready(self, draft: QSODraft) -> None:
         """Called when copy has gone quiet long enough to look like a finished
-        exchange. Django side overrides this to create a QSO row / notify the
-        operator. Default: no-op."""
-
-
-# --- Example Django wiring (kept as a comment so this file imports anywhere) --
-#
-#   from logbook.models import QSO
-#   class DjangoCWBridge(CWLogBridge):
-#       def on_qso_ready(self, draft):
-#           d = draft.as_dict()
-#           if d["call"]:
-#               QSO.objects.create(call=d["call"], rst_rcvd=d["rst"],
-#                                  mode="CW", comment=d["raw"])
-#
-# and in an async Channels consumer, push d over the socket for the operator to
-# confirm before it's saved.
+        exchange. The Django side overrides this to create a QSO row / notify
+        the operator. Default: no-op."""

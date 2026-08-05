@@ -1,0 +1,80 @@
+{% extends "smallstack/base.html" %}
+{% load static theme_tags %}
+
+{% block title %}Send CW{% endblock %}
+{% block breadcrumbs %}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'cw/cw.css' %}">
+{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed">
+    <div class="page-header-content">
+        <h1>Send</h1>
+        <p class="page-subtitle">Compose a message and key it into clean, click-free CW audio — play it, or download the WAV.</p>
+        <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
+            <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            <a href="{% url 'cw-monitor' %}" style="color: var(--body-quiet-color); text-decoration: none;">CW Monitor</a>
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            <span style="color: var(--body-fg);">Send</span>
+        </nav>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 720px;">
+    <div class="card-header"><h2>Message</h2></div>
+    <div class="card-body">
+        <form method="post">
+            {% csrf_token %}
+            <div class="cw-field">
+                <label for="{{ form.text.id_for_label }}">Text to key</label>
+                {{ form.text }}
+                {% if form.text.errors %}<div class="cw-errors">{{ form.text.errors|join:" " }}</div>{% endif %}
+                <div class="cw-prosigns" aria-label="Insert prosign">
+                    <button type="button" class="cw-prosign" data-ps="<AR>" title="End of message">&lt;AR&gt;</button>
+                    <button type="button" class="cw-prosign" data-ps="<SK>" title="End of contact">&lt;SK&gt;</button>
+                    <button type="button" class="cw-prosign" data-ps="<BT>" title="Pause / new paragraph">&lt;BT&gt;</button>
+                    <button type="button" class="cw-prosign" data-ps="<KN>" title="Named station only">&lt;KN&gt;</button>
+                    <button type="button" class="cw-prosign" data-ps="<AS>" title="Wait / stand by">&lt;AS&gt;</button>
+                </div>
+            </div>
+            <div class="cw-field">
+                <label>Speed <span class="cw-slider-val" id="tx-wpm-val">20 wpm</span></label>
+                <div class="cw-slider-row">
+                    <input type="range" name="wpm" min="5" max="60" step="1" value="20"
+                           oninput="document.getElementById('tx-wpm-val').textContent = this.value + ' wpm'">
+                </div>
+            </div>
+            <div class="cw-field">
+                <label>Sidetone <span class="cw-slider-val" id="tx-tone-val">600 Hz</span></label>
+                <div class="cw-slider-row">
+                    <input type="range" name="tone_hz" min="300" max="1200" step="10" value="600"
+                           oninput="document.getElementById('tx-tone-val').textContent = this.value + ' Hz'">
+                </div>
+            </div>
+            <button type="submit" class="btn-primary">Key it</button>
+        </form>
+        <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0;">
+            Timing is standard PARIS (dit = 1200 ms ÷ WPM) with raised-cosine keying — no clicks.
+            The generated WAV can drive a rig's audio input or serve as practice material.
+        </p>
+    </div>
+</div>
+
+<script>
+    document.querySelectorAll(".cw-prosign").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            const ta = document.getElementById("{{ form.text.id_for_label }}");
+            const ps = btn.dataset.ps;
+            const start = ta.selectionStart || ta.value.length;
+            const sep = ta.value && !ta.value.slice(0, start).endsWith(" ") ? " " : "";
+            ta.setRangeText(sep + ps + " ", start, ta.selectionEnd || start, "end");
+            ta.focus();
+        });
+    });
+</script>
+{% endblock %}

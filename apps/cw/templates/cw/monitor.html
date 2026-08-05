@@ -1,0 +1,100 @@
+{% extends "smallstack/base.html" %}
+{% load static theme_tags %}
+
+{% block title %}CW Monitor{% endblock %}
+{% block breadcrumbs %}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'cw/cw.css' %}">
+{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions" style="display: flex; align-items: flex-start; justify-content: space-between;">
+    <div class="page-header-content">
+        <h1>CW Monitor</h1>
+        <p class="page-subtitle">The paper tape — keyed dits and dahs scroll past the now line; each letter resolves the instant the decoder commits it.</p>
+        <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
+            <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            <span style="color: var(--body-fg);">CW Monitor</span>
+        </nav>
+    </div>
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <a href="{% url 'cw-decode' %}" class="btn-primary">Decode</a>
+        <a href="{% url 'cw-send' %}" class="btn-tint">Send</a>
+        <a href="{% url 'cw/sessions-list' %}" class="btn-tint">Sessions</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px;">
+    <div class="card">
+        <div class="card-body" style="text-align: center; padding: 14px 8px;">
+            <div style="font-size: 1.75rem; font-weight: 700; color: var(--primary);">{{ stats.total }}</div>
+            <div style="color: var(--body-quiet-color); font-size: 0.8rem;">Session{{ stats.total|pluralize }}</div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-body" style="text-align: center; padding: 14px 8px;">
+            <div style="font-size: 1.75rem; font-weight: 700; color: var(--success-fg);">{{ stats.rx }}</div>
+            <div style="color: var(--body-quiet-color); font-size: 0.8rem;">Copied off the air</div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-body" style="text-align: center; padding: 14px 8px;">
+            <div style="font-size: 1.75rem; font-weight: 700; color: var(--body-fg);">{{ stats.best_wpm|floatformat:0 }}</div>
+            <div style="color: var(--body-quiet-color); font-size: 0.8rem;">Best WPM</div>
+        </div>
+    </div>
+</div>
+
+{% if sessions %}
+    <div class="cw-tabs" id="cw-tabs" role="tablist" aria-label="Decode sessions"></div>
+    {% include "cw/_stage.html" %}
+    <p style="margin-top: 26px; color: var(--text-muted); font-size: 0.8rem; line-height: 1.6; border-top: 1px solid var(--card-border); padding-top: 16px;">
+        Every character on the tape was produced by the Python CW decoder — this view only renders
+        its output. Pick a session tab to replay it; the amber-style bars are the keyed signal and
+        the <span style="color: var(--success-fg);">now</span> line is the decode moment.
+    </p>
+
+    {{ sessions_map|json_script:"cw-sessions-data" }}
+    <script src="{% static 'cw/monitor.js' %}"></script>
+    <script>
+        (function () {
+            const sessions = JSON.parse(document.getElementById("cw-sessions-data").textContent);
+            const named = {};
+            {% for s in sessions %}
+            named["{{ s.get_direction_display }} · {{ s.wpm|floatformat:0 }} wpm · {{ s.created_at|date:'M j H:i' }}"] = sessions["{{ s.pk }}"];
+            {% endfor %}
+            initCWMonitor({
+                canvas: document.getElementById("cw-scope"),
+                decodedEl: document.getElementById("cw-decoded"),
+                truthEl: document.getElementById("cw-truth"),
+                wpmEl: document.getElementById("cw-g-wpm"),
+                snrEl: document.getElementById("cw-g-snr"),
+                toneEl: document.getElementById("cw-g-tone"),
+                confEl: document.getElementById("cw-g-conf"),
+                playBtn: document.getElementById("cw-play"),
+                restartBtn: document.getElementById("cw-restart"),
+                rateInput: document.getElementById("cw-rate"),
+                rateLabel: document.getElementById("cw-rate-lab"),
+                tabsEl: document.getElementById("cw-tabs"),
+                sessions: named,
+            });
+        })();
+    </script>
+{% else %}
+    <div class="card">
+        <div class="card-body" style="text-align: center; padding: 48px 24px;">
+            <div style="font-size: 2rem; margin-bottom: 8px;">·−·−·−</div>
+            <h2 style="margin: 0 0 8px;">Nothing on the tape yet</h2>
+            <p style="color: var(--body-quiet-color); max-width: 46ch; margin: 0 auto 20px;">
+                Run a decode — synthesize a practice message or upload a WAV recorded off your
+                receiver — and its replay lands here.
+            </p>
+            <a href="{% url 'cw-decode' %}" class="btn-primary">Decode your first signal</a>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}

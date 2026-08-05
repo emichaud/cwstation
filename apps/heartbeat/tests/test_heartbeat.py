@@ -713,7 +713,8 @@ class TestPublicStatusBoard:
         response = client.get(reverse("heartbeat:status"))
         assert response.status_code == 200
         body = response.content.decode()
-        assert "SmallStack Status" in body  # branded header; site labelled by brand name
+        from django.conf import settings
+        assert f"{settings.BRAND_NAME} Status" in body  # branded header; site labelled by brand name
         assert "MCP Server" not in body  # mcp is internal — hidden publicly
         assert "Manage endpoints" not in body  # staff chrome hidden on the public board
 
@@ -749,7 +750,8 @@ class TestPublicStatusBoard:
     def test_public_board_is_standalone_no_admin_sidebar(self, client, db):
         body = client.get(reverse("public_status")).content.decode()
         assert "main-content" not in body  # not the admin shell
-        assert "SmallStack Status" in body
+        from django.conf import settings
+        assert f"{settings.BRAND_NAME} Status" in body
 
 
 class TestDailyTimeline:

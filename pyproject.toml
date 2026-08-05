@@ -23,6 +23,7 @@ dependencies = [
     "mcp>=1.27",
     "croniter>=6.2.4",
     "tzdata>=2025.3",
+    "numpy>=2.5.1",
 ]
 
 [project.scripts]
@@ -48,6 +49,7 @@ postgres = [
 [tool.ruff]
 line-length = 120
 target-version = "py312"
+extend-exclude = ["specs"]  # reference material, not project code
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]

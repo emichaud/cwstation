@@ -1,26 +1,29 @@
 """Synthesize CW audio from text — the key to developing and regression-testing
-the whole audio layer with zero radio hardware.
+the whole audio layer with zero radio hardware, and the transmit path for the
+Send page (text -> keyed sidetone WAV).
 
 `synthesize_cw("CQ CQ DE N0CALL K", wpm=20)` returns a float32 array plus the
 ground-truth keying, so a test can assert the decoder recovered exactly what
-went in, and the modern view can be driven from a known signal.
+went in, and the live view can be driven from a known signal.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 import numpy as np
 
+from .manager import FloatArray
 from .morse import encode_text
 
 
 @dataclass
 class SynthResult:
-    audio: np.ndarray          # float32, roughly -1..1
+    audio: FloatArray  # float32, roughly -1..1
     sample_rate: int
     tone_hz: float
     wpm: float
     text: str
-    keying: np.ndarray         # ground-truth 0/1 envelope, same length as audio
+    keying: FloatArray  # ground-truth 0/1 envelope, same length as audio
 
 
 def dit_seconds(wpm: float) -> float:
@@ -59,18 +62,17 @@ def synthesize_cw(
     segments.append((0, n_samples(lead_ms / 1000.0)))  # leading silence
 
     symbols = encode_text(text)
-    for i, sym in enumerate(symbols):
+    for sym in symbols:
         if sym == " ":
             # word gap: we already emit a 3u char gap after each char, so add
             # 4u more to reach 7u total.
             segments.append((0, n_samples(4 * unit)))
             continue
         for j, el in enumerate(sym):
-            on = 1 if el == "." else 1
             length = unit if el == "." else 3 * unit
             segments.append((1, n_samples(length)))
             if j < len(sym) - 1:
-                segments.append((0, n_samples(unit)))       # intra-element gap
+                segments.append((0, n_samples(unit)))  # intra-element gap
         # gap after a character (unless a word space follows, handled above)
         segments.append((0, n_samples(3 * unit)))
 
@@ -81,7 +83,7 @@ def synthesize_cw(
     idx = 0
     for state, n in segments:
         if state:
-            keying[idx:idx + n] = 1.0
+            keying[idx : idx + n] = 1.0
         idx += n
 
     # Raised-cosine edge shaping on the keying to avoid clicks.
@@ -99,11 +101,17 @@ def synthesize_cw(
         noise_power = sig_power / (10 ** (snr_db / 10))
         audio = audio + rng.normal(0, np.sqrt(noise_power), total).astype(np.float32)
 
-    return SynthResult(audio=audio.astype(np.float32), sample_rate=fs,
-                       tone_hz=tone_hz, wpm=wpm, text=text.upper(), keying=keying)
+    return SynthResult(
+        audio=audio.astype(np.float32),
+        sample_rate=fs,
+        tone_hz=tone_hz,
+        wpm=wpm,
+        text=text.upper(),
+        keying=keying,
+    )
 
 
-def _shape_edges(env: np.ndarray, ramp_n: int) -> np.ndarray:
+def _shape_edges(env: FloatArray, ramp_n: int) -> FloatArray:
     """Apply a raised-cosine ramp on 0->1 and 1->0 transitions of a 0/1 env."""
     if ramp_n <= 1:
         return env

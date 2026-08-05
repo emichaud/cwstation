@@ -21,65 +21,68 @@ Pipeline: audio -> tone magnitude -> smoothed envelope -> adaptive keyed state
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 import numpy as np
 
-from .events import CharEvent, DecodeResult, ElementEvent, KeyRun
-from .morse import decode_symbol
-from .engine import AudioDemodulator
+from .events import CharEvent, DecodeResult, ElementEvent, ElementKind, KeyRun
+from .manager import AudioDemodulator, FloatArray
+from .morse import UNKNOWN_CHAR, decode_symbol
+
+# A buffered key run during bootstrap: (keyed, t_start_s, duration_s)
+BootRun = tuple[bool, float, float]
 
 
 @dataclass
 class CWConfig:
     tone_hz: float = 600.0
     block_ms: float = 4.0
-    expected_wpm: float | None = None      # optional prior; decoder still adapts
+    expected_wpm: float | None = None  # optional prior; decoder still adapts
     min_wpm: float = 5.0
     max_wpm: float = 60.0
-    env_smooth: float = 0.3                 # EMA alpha for magnitude smoothing
-    attack: float = 0.5                     # peak/floor fast-follow toward extreme
-    peak_release: float = 0.003             # slow peak decay per block
-    floor_rise: float = 0.004               # slow floor rise per block
-    hysteresis: float = 0.2                 # fraction of range for on/off band
-    debounce_ms: float = 3.0                # min consistent time to flip state
-    boot_marks: int = 8                     # marks to buffer before bootstrapping
+    env_smooth: float = 0.3  # EMA alpha for magnitude smoothing
+    attack: float = 0.5  # peak/floor fast-follow toward extreme
+    peak_release: float = 0.003  # slow peak decay per block
+    floor_rise: float = 0.004  # slow floor rise per block
+    hysteresis: float = 0.2  # fraction of range for on/off band
+    debounce_ms: float = 3.0  # min consistent time to flip state
+    boot_marks: int = 8  # marks to buffer before bootstrapping
 
 
 class CWDecoder(AudioDemodulator):
     name = "cw"
 
-    def __init__(self, sample_rate: int, config: CWConfig | None = None):
+    def __init__(self, sample_rate: int, config: CWConfig | None = None) -> None:
         self.fs = sample_rate
         self.cfg = config or CWConfig()
         self.block = max(8, int(round(self.cfg.block_ms / 1000.0 * self.fs)))
         self._build_twiddles()
         self.reset()
 
-    def _build_twiddles(self):
-        N = self.block
-        n = np.arange(N)
+    def _build_twiddles(self) -> None:
+        n_block = self.block
+        n = np.arange(n_block)
         rows = []
         for df in (-1, 0, 1):
-            f = self.cfg.tone_hz + df * (self.fs / N)
+            f = self.cfg.tone_hz + df * (self.fs / n_block)
             rows.append(np.exp(-2j * np.pi * (f / self.fs) * n))
         self._tw = np.array(rows)
 
-    def reset(self):
+    def reset(self) -> None:
         c = self.cfg
-        self._carry = np.zeros(0, dtype=np.float32)
+        self._carry: FloatArray = np.zeros(0, dtype=np.float32)
         self._t_samples = 0
         # envelope / threshold state
-        self._env = None
-        self._peak = None
-        self._floor = None
-        self._state = False           # committed keyed state
-        self._cand = False            # candidate state for debounce
-        self._cand_since = 0.0
+        self._env: float | None = None
+        self._peak: float | None = None
+        self._floor: float | None = None
+        self._state = False  # committed keyed state
+        self._cand = False  # candidate state for debounce
         self._run_start_s = 0.0
         self._debounce_n = max(1, int(round(c.debounce_ms / c.block_ms)))
         self._cand_count = 0
         # timing / decode state
-        self._dit = (1.2 / c.expected_wpm) if c.expected_wpm else None
-        self._boot_runs: list[tuple[bool, float, float]] = []  # (on, t_start, dur_s)
+        self._dit: float | None = (1.2 / c.expected_wpm) if c.expected_wpm else None
+        self._boot_runs: list[BootRun] = []
         self._boot_marks: list[float] = []
         self._cur = ""
         self._cur_start = 0.0
@@ -89,22 +92,22 @@ class CWDecoder(AudioDemodulator):
         self.result = DecodeResult(sample_rate=self.fs, tone_hz=c.tone_hz)
 
     # -- public --------------------------------------------------------------
-    def process(self, samples: np.ndarray) -> list[CharEvent]:
+    def process(self, samples: FloatArray) -> list[CharEvent]:
         buf = np.concatenate([self._carry, np.asarray(samples, dtype=np.float32)])
         nb = len(buf) // self.block
         out: list[CharEvent] = []
         for b in range(nb):
-            blk = buf[b * self.block:(b + 1) * self.block]
+            blk = buf[b * self.block : (b + 1) * self.block]
             mag = float(np.abs(self._tw @ blk).max()) / self.block
             out += self._step(mag, self._t_samples / self.fs)
             self._t_samples += self.block
-        self._carry = buf[nb * self.block:]
+        self._carry = buf[nb * self.block :]
         return out
 
     def flush(self) -> list[CharEvent]:
         """End-of-stream flush: close a dangling mark, finish bootstrap, and
         emit the final pending character. Idempotent."""
-        if getattr(self, "_flushed", False):
+        if self._flushed:
             return []
         now = self._t_samples / self.fs
         dur = now - self._run_start_s
@@ -115,7 +118,7 @@ class CWDecoder(AudioDemodulator):
         if self._dit is None and self._boot_marks:
             self._dit = self._estimate_dit()
             out += self._replay_boot()
-        out += self._flush(now, word=True)
+        out += self._flush_char(now, word=True)
         self.result.text = self.result.text.rstrip()
         self.result.wpm_final = round(self._wpm, 1)
         self._flushed = True
@@ -131,7 +134,7 @@ class CWDecoder(AudioDemodulator):
         # smooth
         self._env = mag if self._env is None else self._env + c.env_smooth * (mag - self._env)
         e = self._env
-        if self._peak is None:
+        if self._peak is None or self._floor is None:
             self._peak = self._floor = e
         # fast-attack / slow-release trackers
         self._peak = e if e > self._peak else self._peak + c.peak_release * (e - self._peak)
@@ -140,12 +143,12 @@ class CWDecoder(AudioDemodulator):
         thr = self._floor + 0.5 * rng
         hi = thr + c.hysteresis * rng
         lo = thr - c.hysteresis * rng
-        self._snr = 10.0 * np.log10((self._peak + 1e-9) / (self._floor + 1e-9))
+        self._snr = float(10.0 * np.log10((self._peak + 1e-9) / (self._floor + 1e-9)))
 
         # telemetry (normalized 0..1)
         self.result.envelope_t.append(round(t_s, 4))
         self.result.envelope_mag.append(round(float((e - self._floor) / rng), 4))
-        self.result.envelope_thr.append(round(0.5, 4))
+        self.result.envelope_thr.append(0.5)
 
         # candidate state with hysteresis
         cand = self._cand
@@ -170,9 +173,9 @@ class CWDecoder(AudioDemodulator):
     def _commit(self, new_state: bool, t_s: float) -> list[CharEvent]:
         dur = t_s - self._run_start_s
         out: list[CharEvent] = []
-        if self._state:          # a MARK just ended
+        if self._state:  # a MARK just ended
             out += self._on_mark_end(self._run_start_s, dur)
-        else:                    # a SPACE just ended
+        else:  # a SPACE just ended
             out += self._on_space_end(dur)
         self._run_start_s = t_s
         self._state = new_state
@@ -195,15 +198,16 @@ class CWDecoder(AudioDemodulator):
     def _on_space_end(self, dur: float) -> list[CharEvent]:
         # only meaningful once we have some marks
         if self._dit is None:
-            if self._boot_marks:              # buffer inter-mark spaces too
+            if self._boot_marks:  # buffer inter-mark spaces too
                 self._boot_runs.append((False, self._run_start_s, dur))
             return []
         return self._space_logic(dur, self._run_start_s + dur)
 
-    def _add_element(self, t_start: float, dur: float):
-        kind = "." if dur < 2 * self._dit else "-"
+    def _add_element(self, t_start: float, dur: float) -> None:
+        assert self._dit is not None
+        kind: ElementKind = "." if dur < 2 * self._dit else "-"
         target = dur if kind == "." else dur / 3.0
-        self._dit = 0.8 * self._dit + 0.2 * target      # adapt
+        self._dit = 0.8 * self._dit + 0.2 * target  # adapt
         self._update_wpm()
         if not self._cur:
             self._cur_start = t_start
@@ -211,34 +215,45 @@ class CWDecoder(AudioDemodulator):
         self.result.elements.append(ElementEvent(kind, round(t_start, 4), round(dur * 1000, 2)))
 
     def _space_logic(self, dur: float, t_end: float) -> list[CharEvent]:
+        assert self._dit is not None
         if dur < 2 * self._dit:
-            return []                               # intra-character gap
+            return []  # intra-character gap
         if dur < 5 * self._dit:
-            return self._flush(t_end, word=False)   # character gap
-        return self._flush(t_end, word=True)        # word gap
+            return self._flush_char(t_end, word=False)  # character gap
+        return self._flush_char(t_end, word=True)  # word gap
 
-    def _flush(self, t_end: float, word: bool) -> list[CharEvent]:
+    def _flush_char(self, t_end: float, word: bool) -> list[CharEvent]:
         out: list[CharEvent] = []
         if self._cur:
             ch = decode_symbol(self._cur)
-            ev = CharEvent(ch, self._cur, round(self._cur_start, 4), round(t_end, 4),
-                           round(self._wpm, 1), round(self._snr, 1),
-                           0.4 if ch == "\ufffd" else 1.0)
+            ev = CharEvent(
+                ch,
+                self._cur,
+                round(self._cur_start, 4),
+                round(t_end, 4),
+                round(self._wpm, 1),
+                round(self._snr, 1),
+                0.4 if ch == UNKNOWN_CHAR else 1.0,
+            )
             self.result.chars.append(ev)
             self.result.text += ch
             out.append(ev)
             self._cur = ""
         if word and self.result.text and not self.result.text.endswith(" "):
             self.result.text += " "
-            out.append(CharEvent(" ", "", round(t_end, 4), round(t_end, 4),
-                                 round(self._wpm, 1), round(self._snr, 1), 1.0))
+            space = CharEvent(
+                " ", "", round(t_end, 4), round(t_end, 4),
+                round(self._wpm, 1), round(self._snr, 1), 1.0,
+            )
+            self.result.chars.append(space)  # stored too, so replays keep word gaps
+            out.append(space)
         return out
 
     # -- bootstrap -----------------------------------------------------------
     def _estimate_dit(self) -> float:
         marks = np.array(self._boot_marks)
         lo = marks.min()
-        dit_cluster = marks[marks <= 1.6 * lo]      # marks near the minimum = dits
+        dit_cluster = marks[marks <= 1.6 * lo]  # marks near the minimum = dits
         return float(np.median(dit_cluster))
 
     def _replay_boot(self) -> list[CharEvent]:
@@ -253,13 +268,15 @@ class CWDecoder(AudioDemodulator):
         self._boot_marks.clear()
         return out
 
-    def _update_wpm(self):
+    def _update_wpm(self) -> None:
         if self._dit:
             self._wpm = float(np.clip(1.2 / self._dit, self.cfg.min_wpm, self.cfg.max_wpm))
 
 
-def decode_array(samples: np.ndarray, sample_rate: int,
-                 config: CWConfig | None = None) -> DecodeResult:
+def decode_array(
+    samples: FloatArray, sample_rate: int, config: CWConfig | None = None
+) -> DecodeResult:
+    """Decode a complete buffer in one shot."""
     dec = CWDecoder(sample_rate, config)
     dec.process(samples)
     return dec.finalize()

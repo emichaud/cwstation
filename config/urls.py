@@ -41,6 +41,8 @@ from .views import health_check, legal_page_view
 urlpatterns = [
     # Project pages - customize these in apps/website/
     path("", include("apps.website.urls")),
+    # CW Station: Morse decode/send
+    path("", include("apps.cw.urls")),
     # All built-in SmallStack URLs (auth, profile, help, activity, heartbeat, backups, usermanager)
     path("smallstack/", include("apps.smallstack.site_urls")),
     # Public convenience aliases — downstream projects can change or remove these.

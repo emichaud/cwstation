@@ -51,14 +51,14 @@ TIME_ZONE = config("TIME_ZONE", default="America/New_York")
 # Branding
 # ---------------------------------------------------------------------------
 # These paths are relative to STATIC_URL. Override to customize branding.
-BRAND_NAME = config("BRAND_NAME", default="SmallStack")
+BRAND_NAME = config("BRAND_NAME", default="CW Station")
 BRAND_LOGO = config("BRAND_LOGO", default="smallstack/brand/django-smallstack-logo.svg")
 BRAND_LOGO_DARK = config("BRAND_LOGO_DARK", default="smallstack/brand/django-smallstack-logo-dark.svg")
 BRAND_LOGO_TEXT = config("BRAND_LOGO_TEXT", default="smallstack/brand/django-smallstack-text.svg")
 BRAND_ICON = config("BRAND_ICON", default="smallstack/brand/django-smallstack-icon.svg")
 BRAND_FAVICON = config("BRAND_FAVICON", default="smallstack/brand/django-smallstack-icon.ico")
 BRAND_SOCIAL_IMAGE = config("BRAND_SOCIAL_IMAGE", default="smallstack/brand/django-smallstack-social.png")
-BRAND_TAGLINE = config("BRAND_TAGLINE", default="A minimal Django starter stack")
+BRAND_TAGLINE = config("BRAND_TAGLINE", default="Morse decode and send through the sound card")
 
 # Legal / Consent
 BRAND_PRIVACY_URL = config("BRAND_PRIVACY_URL", default="/privacy/")

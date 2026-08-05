@@ -15,6 +15,7 @@ When an AI agent is asked to modify or extend this project, these files help it:
 
 | File | Description |
 |------|-------------|
+| [cw-audioengine.md](cw-audioengine.md) | **Read before touching `apps/cw/`** — the CW engine's three rules (Django-free engine, one event contract, Python-decodes/JS-renders), module map, how to add a decode mode |
 | [cli-tools.md](cli-tools.md) | **Start here for "is there a tool for X?"** — task → tool / failure → tool / tool → docs lookup tables |
 | [modern-dark-theme.md](modern-dark-theme.md) | **Read before building any page** — canonical patterns, anti-patterns, variable list for the v0.9.x modern-dark theme |
 | [modify-palettes.md](modify-palettes.md) | **Change accent colors** — add a brand palette or tune one. The 4 wiring points (yaml/CSS/model+migration/`VALID_PALETTES`), color-science gotchas, verification |

@@ -22,6 +22,10 @@ sections:
         title: "Welcome"
         description: "Project documentation home"
         icon: "home"
+      - slug: cw-station
+        title: "CW Station — Operator's Guide"
+        description: "Decode CW off the air, practice, send — and replay it on the tape"
+        icon: "radio"
       - slug: getting-started
         title: "Getting Started"
         description: "First-run setup, branding, pages, and deployment basics"

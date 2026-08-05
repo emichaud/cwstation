@@ -1,0 +1,99 @@
+{% extends "smallstack/base.html" %}
+{% load static theme_tags %}
+
+{% block title %}Decode CW{% endblock %}
+{% block breadcrumbs %}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'cw/cw.css' %}">
+{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed">
+    <div class="page-header-content">
+        <h1>Decode</h1>
+        <p class="page-subtitle">Copy CW off the air from a recording, or synthesize a practice signal — no radio required.</p>
+        <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
+            <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            <a href="{% url 'cw-monitor' %}" style="color: var(--body-quiet-color); text-decoration: none;">CW Monitor</a>
+            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
+            <span style="color: var(--body-fg);">Decode</span>
+        </nav>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="cw-form-grid">
+    {# ── Off the air ── #}
+    <div class="card">
+        <div class="card-header"><h2>Off the air</h2></div>
+        <div class="card-body">
+            <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
+                Upload a WAV recorded from your receiver (or exported from GQRX/SDR software).
+                Set the tone to the pitch of the signal — the decoder listens at that frequency
+                and adapts to the sender's speed on its own.
+            </p>
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                <input type="hidden" name="mode" value="wav">
+                <div class="cw-field">
+                    <label for="{{ wav_form.wav.id_for_label }}">WAV file</label>
+                    {{ wav_form.wav }}
+                    {% if wav_form.wav.errors %}<div class="cw-errors">{{ wav_form.wav.errors|join:" " }}</div>{% endif %}
+                </div>
+                <div class="cw-field">
+                    <label for="wav-tone">Tone <span class="cw-slider-val" id="wav-tone-val">600 Hz</span></label>
+                    <div class="cw-slider-row">
+                        <input type="range" id="wav-tone" name="tone_hz" min="300" max="1200" step="10" value="600"
+                               oninput="document.getElementById('wav-tone-val').textContent = this.value + ' Hz'">
+                    </div>
+                    {% if wav_form.tone_hz.errors %}<div class="cw-errors">{{ wav_form.tone_hz.errors|join:" " }}</div>{% endif %}
+                </div>
+                <button type="submit" class="btn-primary">Decode recording</button>
+            </form>
+        </div>
+    </div>
+
+    {# ── Practice ── #}
+    <div class="card">
+        <div class="card-header"><h2>Practice</h2></div>
+        <div class="card-body">
+            <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
+                Synthesize clean, PARIS-timed CW from text and decode it back — great for code
+                practice and for seeing how the decoder behaves as you add noise.
+            </p>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="mode" value="practice">
+                <div class="cw-field">
+                    <label for="{{ practice_form.text.id_for_label }}">Message</label>
+                    {{ practice_form.text }}
+                    {% if practice_form.text.errors %}<div class="cw-errors">{{ practice_form.text.errors|join:" " }}</div>{% endif %}
+                </div>
+                <div class="cw-field">
+                    <label>Speed <span class="cw-slider-val" id="pr-wpm-val">20 wpm</span></label>
+                    <div class="cw-slider-row">
+                        <input type="range" name="wpm" min="5" max="60" step="1" value="20"
+                               oninput="document.getElementById('pr-wpm-val').textContent = this.value + ' wpm'">
+                    </div>
+                </div>
+                <div class="cw-field">
+                    <label>Tone <span class="cw-slider-val" id="pr-tone-val">600 Hz</span></label>
+                    <div class="cw-slider-row">
+                        <input type="range" name="tone_hz" min="300" max="1200" step="10" value="600"
+                               oninput="document.getElementById('pr-tone-val').textContent = this.value + ' Hz'">
+                    </div>
+                </div>
+                <div class="cw-field">
+                    <label for="{{ practice_form.snr_db.id_for_label }}">Add noise (SNR dB — blank for clean)</label>
+                    {{ practice_form.snr_db }}
+                    {% if practice_form.snr_db.errors %}<div class="cw-errors">{{ practice_form.snr_db.errors|join:" " }}</div>{% endif %}
+                </div>
+                <button type="submit" class="btn-primary">Synthesize &amp; decode</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
