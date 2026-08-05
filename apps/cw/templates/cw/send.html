@@ -12,7 +12,7 @@
 <div class="page-header-bleed">
     <div class="page-header-content">
         <h1>Send</h1>
-        <p class="page-subtitle">Compose a message and key it into clean, click-free CW audio — play it, or download the WAV.</p>
+        <p class="page-subtitle">Compose a message and key it into clean, click-free CW audio — type <code>/</code> for your message keys.</p>
         <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
             <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
             <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
@@ -25,15 +25,20 @@
 {% endblock %}
 
 {% block content %}
-<div class="card" style="max-width: 720px;">
+<div class="cw-form-grid">
+<div class="card">
     <div class="card-header"><h2>Message{% if reply_to %} <span class="cw-badge cw-badge-call" style="vertical-align: middle;">replying to {{ reply_to }}</span>{% endif %}</h2></div>
     <div class="card-body">
         <form method="post">
             {% csrf_token %}
             <div class="cw-field">
                 <label for="{{ form.text.id_for_label }}">Text to key</label>
-                {{ form.text }}
+                <div class="cw-palette-anchor">
+                    {{ form.text }}
+                    <div class="cw-palette" id="cw-palette" role="listbox" aria-label="Message keys"></div>
+                </div>
                 {% if form.text.errors %}<div class="cw-errors">{{ form.text.errors|join:" " }}</div>{% endif %}
+                <div class="cw-keycaps" id="cw-keycaps" aria-label="Message keys"></div>
                 <div class="cw-prosigns" aria-label="Insert prosign">
                     <button type="button" class="cw-prosign" data-ps="<AR>" title="End of message">&lt;AR&gt;</button>
                     <button type="button" class="cw-prosign" data-ps="<SK>" title="End of contact">&lt;SK&gt;</button>
@@ -65,6 +70,21 @@
     </div>
 </div>
 
+<div class="card">
+    <div class="card-header"><h2>Message keys</h2></div>
+    <div class="card-body">
+        <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
+            Your keyer memories. Type <code>/cq</code> in the composer (or click a keycap) and the
+            message expands — <span class="cw-ph">{mycall}</span> fills with your call,
+            <span class="cw-ph">{call}</span> with the station you're replying to, and anything
+            unknown is left selected so you just type over it. Edit here; saves on blur.
+        </p>
+        <div class="cw-bank" id="cw-bank"></div>
+    </div>
+</div>
+</div>
+
+<script src="{% static 'cw/macros.js' %}"></script>
 <script>
     document.querySelectorAll(".cw-prosign").forEach(function (btn) {
         btn.addEventListener("click", function () {
@@ -75,6 +95,19 @@
             ta.setRangeText(sep + ps + " ", start, ta.selectionEnd || start, "end");
             ta.focus();
         });
+    });
+
+    initCWMacros({
+        textarea: document.getElementById("{{ form.text.id_for_label }}"),
+        chipsEl: document.getElementById("cw-keycaps"),
+        popoverEl: document.getElementById("cw-palette"),
+        bankEl: document.getElementById("cw-bank"),
+        url: "{% url 'cw-macros' %}",
+        context: {
+            mycall: "{{ request.user.username|upper|escapejs }}",
+            {% if reply_to %}call: "{{ reply_to|escapejs }}",{% endif %}
+            rst: "599",
+        },
     });
 </script>
 {% endblock %}

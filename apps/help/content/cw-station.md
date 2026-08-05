@@ -40,6 +40,19 @@ then decodes it back. Two honest uses:
 Practice sessions store both the ground truth and the decode, and show a character
 accuracy score.
 
+## Message keys (macros)
+
+The Send composer has a keyer memory bank — the CW equivalent of contest-logger
+F-keys. Type `/` in the message box and a command palette opens: filter, arrow keys,
+Enter to insert. Or click a keycap chip below the composer. Placeholders expand at
+insert time — `{mycall}` fills with your call, `{call}` with the station you're
+replying to, `{rst}` defaults to 599, and anything the app doesn't know is left
+*selected* in the composer so you type straight over it.
+
+You start with the standard set (`/cq`, `/qrz`, `/rst`, `/73`, `/agn`, `/qth`); edit
+them or add your own in the **Message keys** card next to the composer — changes save
+on blur, and your bank is yours alone.
+
 ## Sending
 
 **Send** turns text into properly timed CW audio: PARIS timing (dit = 1200 ms ÷ WPM)

@@ -182,6 +182,168 @@
 }
 .cw-errors { color: var(--error-fg); font-size: 0.8rem; margin-top: 4px; }
 
+/* ── message keys: keycap chips ──────────────────────────────────────── */
+.cw-keycaps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+}
+.cw-keycap {
+    appearance: none;
+    cursor: pointer;
+    padding: 5px 12px 6px;
+    border-radius: 7px;
+    border: 1px solid var(--card-border);
+    border-bottom-width: 3px;                 /* the keycap */
+    background: var(--card-bg);
+    color: var(--primary);
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    transition: border-color 0.12s, transform 0.06s, background 0.12s;
+}
+.cw-keycap:hover {
+    border-color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 8%, var(--card-bg));
+}
+.cw-keycap:active { transform: translateY(2px); border-bottom-width: 1px; }
+.cw-keycap:focus-visible { outline: 2px solid var(--input-focus-border); outline-offset: 2px; }
+
+/* ── slash palette (command popover) ─────────────────────────────────── */
+.cw-palette-anchor { position: relative; }
+.cw-palette {
+    display: none;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 40;
+    /* layered so the popover stays opaque even if a palette defines
+       --card-bg with alpha — card color composites over the page canvas */
+    background: linear-gradient(var(--card-bg), var(--card-bg)), var(--body-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+    overflow: hidden;
+}
+.cw-palette.open { display: block; animation: cw-pop 0.12s ease-out; }
+@keyframes cw-pop {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) { .cw-palette.open { animation: none; } }
+.cw-palette-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 7px 12px;
+    background: var(--card-header-bg);
+    border-bottom: 1px solid var(--card-border);
+    font-size: 0.65rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--body-quiet-color);
+}
+.cw-palette-hints { display: flex; gap: 6px; align-items: center; letter-spacing: 0.04em; text-transform: none; }
+.cw-palette-hints kbd {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 0.65rem;
+    padding: 1px 5px;
+    border: 1px solid var(--card-border);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    background: var(--body-bg);
+    color: var(--body-quiet-color);
+}
+.cw-palette-row {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    width: 100%;
+    padding: 8px 12px;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+}
+.cw-palette-row.active {
+    background: color-mix(in srgb, var(--primary) 10%, var(--card-bg));
+    box-shadow: inset 3px 0 0 var(--primary);
+}
+.cw-palette-name {
+    flex: 0 0 auto;
+    min-width: 64px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: var(--primary);
+}
+.cw-palette-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.78rem;
+    letter-spacing: 0.05em;
+    color: var(--body-quiet-color);
+}
+.cw-ph {
+    color: var(--success-fg);
+    background: color-mix(in srgb, var(--success-fg) 12%, var(--card-bg));
+    border-radius: 3px;
+    padding: 0 2px;
+}
+
+/* ── memory bank (inline management) ─────────────────────────────────── */
+.cw-bank { display: flex; flex-direction: column; gap: 8px; }
+.cw-bank-row {
+    display: grid;
+    grid-template-columns: 110px 1fr auto;
+    gap: 8px;
+    align-items: center;
+}
+.cw-bank-name, .cw-bank-text {
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    color: var(--body-fg);
+    padding: 6px 9px;
+    font-size: 0.8rem;
+    letter-spacing: 0.05em;
+}
+.cw-bank-name { color: var(--primary); font-weight: 700; }
+.cw-bank-name:focus, .cw-bank-text:focus { outline: none; border-color: var(--input-focus-border); }
+.cw-bank-del {
+    appearance: none;
+    border: 1px solid var(--card-border);
+    background: transparent;
+    color: var(--body-quiet-color);
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.75rem;
+}
+.cw-bank-del:hover { color: var(--error-fg); border-color: var(--error-fg); }
+.cw-bank-err { grid-column: 1 / -1; color: var(--error-fg); font-size: 0.75rem; min-height: 0; }
+.cw-bank-err:empty { display: none; }
+.cw-bank-add {
+    appearance: none;
+    border: 1px dashed var(--card-border);
+    background: transparent;
+    color: var(--body-quiet-color);
+    border-radius: 7px;
+    padding: 7px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: 0.15s;
+}
+.cw-bank-add:hover { color: var(--primary); border-color: var(--primary); }
+
 /* prosign palette on the send page */
 .cw-prosigns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .cw-prosign {

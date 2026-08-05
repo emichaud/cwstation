@@ -74,6 +74,59 @@ class CWSession(models.Model):
         return sum(1 for a, b in zip(got, want) if a == b) / len(want)
 
 
+DEFAULT_MACROS: list[tuple[str, str]] = [
+    ("cq", "CQ CQ CQ DE {mycall} {mycall} K"),
+    ("qrz", "QRZ? DE {mycall} K"),
+    ("rst", "{call} DE {mycall} UR RST {rst} {rst} BK"),
+    ("73", "73 TU ES GL {call} DE {mycall} <SK>"),
+    ("agn", "AGN AGN PSE {call} DE {mycall} BK"),
+    ("qth", "QTH IS {qth} {qth} BK"),
+]
+
+
+class CWMacro(models.Model):
+    """A message memory — the CW equivalent of a contest keyer's F-key.
+
+    Triggered from the Send composer by typing /name (slash palette) or
+    clicking its keycap chip. `{placeholders}` expand at insert time:
+    {mycall} fills from the operator, {call} from the reply context; anything
+    unknown is selected in the composer for quick typing.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="cw_macros"
+    )
+    name = models.SlugField(
+        max_length=24, help_text="The /command — lowercase, no spaces (e.g. cq, 73, rst)"
+    )
+    text = models.CharField(
+        max_length=280,
+        help_text="Message to key. Placeholders: {call} {mycall} {rst} — or your own.",
+    )
+    order = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["order", "name"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "name"], name="unique_macro_per_user")
+        ]
+        verbose_name = "CW Macro"
+
+    def __str__(self) -> str:
+        return f"/{self.name}"
+
+    @classmethod
+    def seed_defaults(cls, user: object) -> None:
+        """Give a new operator the standard keyer memories (idempotent)."""
+        if cls.objects.filter(user=user).exists():
+            return
+        cls.objects.bulk_create(
+            cls(user=user, name=name, text=text, order=i)
+            for i, (name, text) in enumerate(DEFAULT_MACROS)
+        )
+
+
 class CWSimControl(models.Model):
     """The operator's live knobs for a running simulation (or live monitor).
 
