@@ -128,6 +128,12 @@ class MonitorView(LoginRequiredMixin, TemplateView):
         return context
 
 
+class LiveView(LoginRequiredMixin, TemplateView):
+    """The live tape — renders decode batches pushed over the WebSocket."""
+
+    template_name = "cw/live.html"
+
+
 class DecodeView(LoginRequiredMixin, TemplateView):
     """Decode CW — practice (synthesized) or off the air (WAV upload)."""
 

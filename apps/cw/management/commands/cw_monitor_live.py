@@ -48,6 +48,10 @@ class Command(BaseCommand):
                             help="optional WPM prior; the decoder still adapts")
         parser.add_argument("--save", metavar="USERNAME", default=None,
                             help="save the run as a CW session for this user on exit")
+        parser.add_argument("--stream", metavar="USERNAME", default=None,
+                            help="stream the decode to this user's live tape (/cw/live/)")
+        parser.add_argument("--server", default="http://127.0.0.1:8005",
+                            help="server base URL for --stream (default http://127.0.0.1:8005)")
 
     def handle(self, **options: Any) -> None:
         try:
@@ -61,13 +65,18 @@ class Command(BaseCommand):
             self.stdout.write(str(sd.query_devices()))
             return
 
-        user = None
-        if options["save"]:
-            user_model = get_user_model()
+        user_model = get_user_model()
+
+        def resolve_user(username: str | None):
+            if not username:
+                return None
             try:
-                user = user_model.objects.get(username=options["save"])
+                return user_model.objects.get(username=username)
             except user_model.DoesNotExist as e:
-                raise CommandError(f"No such user: {options['save']!r}") from e
+                raise CommandError(f"No such user: {username!r}") from e
+
+        user = resolve_user(options["save"])
+        stream_user = resolve_user(options["stream"])
 
         device: int | str | None = options["device"]
         if isinstance(device, str) and device.isdigit():
@@ -91,6 +100,63 @@ class Command(BaseCommand):
             self.stdout.write(ev.char, ending="")
             self.stdout.flush()
 
+        # --stream: mint a short-lived API token, POST diff batches to the
+        # ingest endpoint, which relays them to the user's live-tape group.
+        streamer_factory = None
+        stream_token = None
+        if stream_user is not None:
+            import json
+            import urllib.error
+            import urllib.request
+
+            from django.utils import timezone
+
+            from apps.cw.engine.stream import ResultStreamer
+            from apps.smallstack.models import APIToken
+
+            stream_token, raw_key = APIToken.create_token(
+                stream_user,
+                name="cw_monitor_live stream",
+                description="Auto-minted by cw_monitor_live; revoked on exit.",
+                expires_at=timezone.now() + timezone.timedelta(hours=24),
+                access_level="auth",
+            )
+            ingest_url = options["server"].rstrip("/") + "/cw/live/ingest/"
+            warned = [False]
+
+            def send_batch(batch: dict) -> None:
+                req = urllib.request.Request(
+                    ingest_url,
+                    data=json.dumps(batch).encode(),
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {raw_key}",
+                    },
+                    method="POST",
+                )
+                try:
+                    urllib.request.urlopen(req, timeout=2)
+                    warned[0] = False
+                except (urllib.error.URLError, OSError) as e:
+                    if not warned[0]:  # don't spam once the server drops
+                        self.stderr.write(f"\nstream : {ingest_url} unreachable ({e}); retrying quietly")
+                        warned[0] = True
+
+            def streamer_factory(result):  # noqa: F811
+                return ResultStreamer(result, send_batch)
+
+            self.stdout.write(f"stream : {ingest_url} → live tape for {stream_user.username}")
+
+        streamer = None
+
+        def on_tick(result) -> None:
+            nonlocal streamer
+            if streamer_factory is None:
+                return
+            if streamer is None:
+                streamer = streamer_factory(result)
+            streamer.tick()
+
         try:
             result = monitor_live(
                 source,
@@ -99,9 +165,15 @@ class Command(BaseCommand):
                 expected_wpm=options["wpm"],
                 on_char=on_char,
                 on_tone=on_tone,
+                on_tick=on_tick,
             )
+            if streamer is not None:
+                streamer.flush()
         except RuntimeError as e:  # SoundDeviceSource's guarded failures
             raise CommandError(str(e)) from e
+        finally:
+            if stream_token is not None:
+                stream_token.revoke()
 
         self.stdout.write("")  # end the streaming line
         duration = (result.envelope_t[-1] if result.envelope_t else 0.0)

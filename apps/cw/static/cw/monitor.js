@@ -23,9 +23,22 @@ function initCWMonitor(opts) {
   const cv = opts.canvas;
   const ctx = cv.getContext("2d");
   const el = opts;
-  const sessions = opts.sessions;
-  const names = Object.keys(sessions);
-  if (!names.length) return null;
+  // Live mode: opts.live = { url, onStatus } — the session grows as batches
+  // arrive over the WebSocket and the playhead follows the data edge.
+  const live = opts.live || null;
+  let sessions, names;
+  if (live) {
+    sessions = { live: {
+      meta: { tone_hz: 0, wpm_final: 0, truth: "", decoded: "" },
+      env_t: [], env_mag: [], key_runs: [], chars: [],
+    } };
+    names = ["live"];
+  } else {
+    sessions = opts.sessions;
+    names = Object.keys(sessions);
+    if (!names.length) return null;
+  }
+  const LIVE_LAG = 0.3; // seconds behind the newest data the playhead sits
 
   const reduce = matchMedia("(prefers-reduced-motion:reduce)").matches;
   const WINDOW = 3.2, PLAYHEAD = 0.72; // seconds visible; playhead position
@@ -277,9 +290,44 @@ function initCWMonitor(opts) {
     if (!playing) return;
     const now = performance.now();
     t += ((now - last) / 1000) * rate; last = now;
+    if (live) {
+      // Follow the incoming data: never pass the edge, and jump forward if
+      // we fell far behind (backgrounded tab).
+      const edge = Math.max(0, dur - LIVE_LAG);
+      if (t > edge || edge - t > 3) t = edge;
+      render();
+      requestAnimationFrame(loop);
+      return;
+    }
     if (t >= dur) { t = dur; render(); play(false); return; }
     render();
     requestAnimationFrame(loop);
+  }
+
+  // ── live feed ─────────────────────────────────────────────────────────
+  function liveStatus(state) { if (live && live.onStatus) live.onStatus(state); }
+
+  function liveMerge(b) {
+    if (b.meta) {
+      if (b.meta.tone_hz && el.toneEl) el.toneEl.textContent = Math.round(b.meta.tone_hz);
+      if (b.meta.tone_hz) S.meta.tone_hz = b.meta.tone_hz;
+    }
+    if (b.env_t && b.env_t.length) { S.env_t.push(...b.env_t); S.env_mag.push(...b.env_mag); }
+    if (b.key_runs && b.key_runs.length) S.key_runs.push(...b.key_runs);
+    if (b.chars && b.chars.length) S.chars.push(...b.chars);
+    dur = (S.env_t.length ? S.env_t[S.env_t.length - 1] : 0) + 0.6;
+    if (playing && audioOn) audioSync();
+    if (!playing) render();
+  }
+
+  function liveConnect() {
+    liveStatus("connecting");
+    let ws;
+    try { ws = new WebSocket(live.url); } catch (e) { liveStatus("off"); return; }
+    ws.onopen = () => liveStatus("live");
+    ws.onmessage = (e) => liveMerge(JSON.parse(e.data));
+    ws.onerror = () => ws.close();
+    ws.onclose = () => { liveStatus("off"); setTimeout(liveConnect, 2500); };
   }
 
   // build tabs
@@ -304,5 +352,6 @@ function initCWMonitor(opts) {
   resolveColors();
   resize();
   load(0);
+  if (live) { liveConnect(); play(true); }
   return { load, seek, play };
 }

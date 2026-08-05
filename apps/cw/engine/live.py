@@ -25,6 +25,7 @@ def monitor_live(
     expected_wpm: float | None = None,
     on_char: Callable[[CharEvent], None] | None = None,
     on_tone: Callable[[float], None] | None = None,
+    on_tick: Callable[[DecodeResult], None] | None = None,
 ) -> DecodeResult:
     """Decode CW from `source` until it ends (or Ctrl-C on a live stream).
 
@@ -57,8 +58,12 @@ def monitor_live(
     try:
         for blk in buffered:
             mgr.pump(blk)
+            if on_tick:
+                on_tick(decoder.result)
         for blk in blocks:
             mgr.pump(blk)
+            if on_tick:
+                on_tick(decoder.result)
     except KeyboardInterrupt:  # pragma: no cover - live-stream exit path
         pass
     mgr.finalize()

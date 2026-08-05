@@ -25,6 +25,8 @@ dependencies = [
     "tzdata>=2025.3",
     "numpy>=2.5.1",
     "soundfile>=0.14.0",
+    "channels>=4.3.2",
+    "daphne>=4.2.3",
 ]
 
 [project.scripts]
@@ -66,6 +68,7 @@ select = ["E", "F", "I", "W"]
 DJANGO_SETTINGS_MODULE = "config.settings.test"
 python_files = ["test_*.py", "*_test.py", "tests.py"]
 testpaths = ["apps"]
+asyncio_default_fixture_loop_scope = "function"
 addopts = "--ds=config.settings.test --cov=apps --cov-report=term-missing:skip-covered --cov-report=html -m 'not starter_content'"  # starter pages removed downstream
 filterwarnings = [
     "ignore:SMALLSTACK_TOPBAR_NAV_ITEMS:DeprecationWarning",
@@ -95,6 +98,11 @@ skip_covered = true
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = [
+    "pytest-asyncio>=1.4.0",
+]
 
 [tool.setuptools.packages.find]
 include = ["apps*", "config*"]

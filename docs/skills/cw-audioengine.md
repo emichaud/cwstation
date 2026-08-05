@@ -34,12 +34,14 @@ them is the main way changes here go wrong.
 | `engine/sources.py` | `ArraySource` / `SyntheticCWSource` / `AudioFileSource` (any format) / `SoundDeviceSource` (guarded optional). |
 | `engine/manager.py` | The seam: `AudioDemodulator`, `NetworkTapEngine`, `AudioEngineManager` (fan-out + subscribers). |
 | `engine/live.py` | `monitor_live()` — open-ended monitoring loop with calibrate-then-replay tone detection. Source-agnostic: tests drive it with `SyntheticCWSource`; `cw_monitor_live` drives it with `SoundDeviceSource`. |
+| `engine/stream.py` | `ResultStreamer` — diffs the accumulating `DecodeResult` into JSON batches via an injected sender. Transport-agnostic (the command POSTs them; tests collect them in a list). |
 | `engine/bridge.py` | `CWLogBridge` → `QSODraft` (callsign/RST extraction). Framework-agnostic. |
 | `engine/export.py` | `DecodeResult` → session dict the monitor animates. |
 | `engine/wav.py` | float32 ⇄ WAV bytes (uploads in, downloads out). |
 | `services.py` | Engine pass → `CWSession` row. The only Django+engine module. |
 | `models.py` | `CWSession` — per-user; telemetry JSON is the replay; audio never stored. |
-| `views.py` | Monitor / Decode / Send + `CWSessionCRUDView` (per-user scoped, search-visible to owner only). |
+| `views.py` | Monitor / Live / Decode / Send + `CWSessionCRUDView` (per-user scoped, search-visible to owner only). |
+| `consumers.py` / `routing.py` / `api.py` | The live-tape path: `cw_monitor_live --stream` → mints an APIToken → POSTs `ResultStreamer` batches to `/cw/live/ingest/` (`api_view` Bearer auth) → channel-layer group `cw-live-<user pk>` → `LiveTapeConsumer` → `/cw/live/` tab (`monitor.js` live mode follows the data edge). In-memory channel layer = single ASGI process (runserver/daphne); use channels-redis for multi-worker. |
 
 ## Working on it
 

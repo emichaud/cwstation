@@ -95,6 +95,22 @@ fraction of a second after the sender's keying stops). Ctrl-C stops the monitor,
 prints a summary, and — with `--save` — stores the whole run as a session you can
 replay on the tape, sidetone and all.
 
+### The live tape in the browser
+
+Add `--stream yourusername` (plus `--server http://host:port` if the web app isn't on
+the default port) and open **CW Monitor → Live**: the paper tape scrolls in real time
+as signals are decoded — keying bars, envelope, WPM/SNR gauges, and the sidetone
+toggle all work exactly like a replay, except the *now* line is actually now.
+
+```bash
+uv run python manage.py cw_monitor_live --stream yourusername \
+    --server http://localhost:8005 --save yourusername
+```
+
+The command mints its own short-lived API token for the stream and revokes it on
+exit; the Live page shows the exact command to run, pre-filled for your account. The
+status pill on the page tells you when the feed is connected.
+
 Radio-side tips: tune the signal so its note sits at one steady pitch (the narrow CW
 filter helps), and prefer slow AGC — the decoder rides through fading, but heavily
 pumped audio is hard for anything to copy.

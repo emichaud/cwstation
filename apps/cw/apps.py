@@ -22,14 +22,18 @@ class CwConfig(AppConfig):
             active_prefix="/cw/",
         )
         nav.register(
-            section="main", label="Decode", url_name="cw-decode",
+            section="main", label="Live", url_name="cw-live",
             parent="CW Monitor", auth_required=True, order=0,
         )
         nav.register(
-            section="main", label="Send", url_name="cw-send",
+            section="main", label="Decode", url_name="cw-decode",
             parent="CW Monitor", auth_required=True, order=1,
         )
         nav.register(
-            section="main", label="Sessions", url_name="cw/sessions-list",
+            section="main", label="Send", url_name="cw-send",
             parent="CW Monitor", auth_required=True, order=2,
+        )
+        nav.register(
+            section="main", label="Sessions", url_name="cw/sessions-list",
+            parent="CW Monitor", auth_required=True, order=3,
         )

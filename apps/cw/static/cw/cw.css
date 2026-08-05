@@ -198,6 +198,32 @@
 }
 .cw-prosign:hover { color: var(--primary); border-color: var(--primary); }
 
+/* live-feed status pill */
+.cw-live-pill {
+    display: inline-block;
+    vertical-align: middle;
+    margin-left: 10px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border: 1px solid var(--card-border);
+    color: var(--body-quiet-color);
+    background: var(--card-bg);
+}
+.cw-live-pill[data-state="live"] {
+    color: var(--success-fg);
+    border-color: var(--success-fg);
+    background: color-mix(in srgb, var(--success-fg) 12%, var(--card-bg));
+}
+.cw-live-pill[data-state="off"] {
+    color: var(--warning-fg);
+    border-color: var(--warning-fg);
+    background: color-mix(in srgb, var(--warning-fg) 12%, var(--card-bg));
+}
+
 /* sending readout — the message colors in as characters complete */
 .cw-message {
     font-size: 23px;

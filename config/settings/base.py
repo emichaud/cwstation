@@ -40,6 +40,9 @@ SECRET_KEY = config("SECRET_KEY", default=secrets.token_urlsafe(50))
 
 # Application definition
 INSTALLED_APPS = [
+    # Daphne first: makes `runserver` serve ASGI so WebSockets (the live CW
+    # tape) work in development with no extra process.
+    "daphne",
     # Custom apps - must be before django.contrib.admin for template overrides
     "apps.accounts",
     "apps.smallstack",
@@ -129,6 +132,16 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "config.wsgi.application"
+ASGI_APPLICATION = "config.asgi.application"
+
+# Channel layer for the live CW tape (consumer groups). The in-memory layer
+# works for a single ASGI process (runserver / one daphne worker). For
+# multi-worker production, switch to channels-redis:
+#   CHANNEL_LAYERS = {"default": {"BACKEND": "channels_redis.core.RedisChannelLayer",
+#                                 "CONFIG": {"hosts": [REDIS_URL]}}}
+CHANNEL_LAYERS = {
+    "default": {"BACKEND": "channels.layers.InMemoryChannelLayer"},
+}
 
 # Custom user model
 AUTH_USER_MODEL = "accounts.User"
