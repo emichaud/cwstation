@@ -696,8 +696,10 @@ class TestTopbarNav:
         return request
 
     def test_topbar_nav_renders(self, client, db):
-        """Topbar nav should render with registered nav items."""
-        response = client.get("/")
+        """Topbar nav should render with registered nav items.
+        (`/` redirects to the login-gated monitor downstream, so use the
+        public search page — same website chrome.)"""
+        response = client.get("/search/")
         content = response.content.decode()
         assert "topbar-nav" in content
 
@@ -709,10 +711,10 @@ class TestTopbarNav:
     )
     def test_enabled_with_items(self, client, db):
         """Topbar nav should render when enabled with items."""
-        response = client.get("/")
+        response = client.get("/search/")
         content = response.content.decode()
         assert "topbar-nav" in content
-        assert "Home" in content
+        assert "CW Monitor" in content  # downstream: home nav item is the monitor
 
     def test_resolve_url_name(self, db):
         """URL names should be resolved via reverse()."""

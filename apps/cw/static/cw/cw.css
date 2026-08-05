@@ -198,6 +198,29 @@
 }
 .cw-prosign:hover { color: var(--primary); border-color: var(--primary); }
 
+/* sending readout — the message colors in as characters complete */
+.cw-message {
+    font-size: 23px;
+    letter-spacing: 0.14em;
+    min-height: 32px;
+    word-break: break-word;
+    line-height: 1.5;
+}
+.cw-message .cw-msg-pending { color: var(--text-muted); opacity: 0.55; }
+.cw-message .cw-msg-active {
+    color: var(--primary-hover, var(--primary));
+    text-shadow: 0 0 12px color-mix(in srgb, var(--primary) 60%, transparent);
+}
+.cw-message .cw-msg-done { color: var(--primary); }
+.cw-message .cw-msg-bad { color: var(--error-fg); }
+
+/* audio toggle on state */
+.cw-ctrl[aria-pressed="true"] {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 12%, var(--card-bg));
+}
+
 /* per-character confidence shading on decode results */
 .cw-copy {
     font-family: ui-monospace, Menlo, Consolas, monospace;

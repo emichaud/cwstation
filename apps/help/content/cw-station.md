@@ -63,6 +63,12 @@ dits and dahs scroll past the *now* line, and each letter resolves above its ele
 at the exact moment the decoder committed it. The envelope trace behind the bars shows
 what the adaptive threshold was working with.
 
+The tape has a **sidetone toggle** (the speaker button) — turn it on and you hear the
+keying exactly as the tape plays it, at the session's tone, following the playback
+speed control. For sent messages, the readout shows your whole message and **colors
+each character in as it completes** — dim before it's keyed, glowing while on the
+air, accent-colored once sent.
+
 Sessions are searchable (the topbar search finds text in your copy) and private to
 your account. Audio for synthesized sessions is regenerated on demand; uploaded
 recordings are not stored — only their decode.

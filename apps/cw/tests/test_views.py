@@ -125,6 +125,29 @@ class TestSend:
         assert session.can_replay
 
 
+class TestSessionDetailReadout:
+    def test_tx_detail_shows_sending_readout(self, client_logged: Client, user: object) -> None:
+        client_logged.post(reverse("cw-send"), {"text": "73 GL", "wpm": 20, "tone_hz": 600})
+        session = CWSession.objects.get(user=user)
+        response = client_logged.get(reverse("cw/sessions-detail", args=[session.pk]))
+        content = response.content.decode()
+        assert response.context["is_tx"] is True
+        assert 'id="cw-message"' in content  # coloring readout replaces decoded line
+        assert 'id="cw-decoded"' not in content
+        assert 'audioStart: true' in content  # sidetone defaults on for sends
+
+    def test_rx_detail_keeps_decoded_readout(self, client_logged: Client, user: object) -> None:
+        client_logged.post(reverse("cw-decode"), {
+            "mode": "practice", "text": "CQ", "wpm": 20, "tone_hz": 600,
+        })
+        session = CWSession.objects.get(user=user)
+        response = client_logged.get(reverse("cw/sessions-detail", args=[session.pk]))
+        content = response.content.decode()
+        assert response.context["is_tx"] is False
+        assert 'id="cw-decoded"' in content
+        assert 'id="cw-audio"' in content  # sidetone toggle available everywhere
+
+
 class TestSessionAudio:
     def test_streams_wav_for_synth_session(self, client_logged: Client, user: object) -> None:
         client_logged.post(reverse("cw-send"), {"text": "TEST", "wpm": 20, "tone_hz": 600})

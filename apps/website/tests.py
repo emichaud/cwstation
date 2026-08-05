@@ -3,122 +3,18 @@
 import pytest
 
 
-@pytest.mark.starter_content
 @pytest.mark.django_db
-class TestWebsiteViews:
-    """Smoke tests for all website views."""
+class TestHomeIsMonitor:
+    """CW Station: `/` is the CW Monitor (starter marketing pages removed)."""
 
-    def test_home_page(self, client):
+    def test_home_redirects_to_monitor(self, client):
         response = client.get("/")
-        assert response.status_code == 200
-        from django.conf import settings
-        assert settings.BRAND_NAME.encode() in response.content
-
-    def test_home_page_hero(self, client):
-        """Hero tagline + four-shapes framing should render."""
-        response = client.get("/")
-        content = response.content.decode()
-        assert "batteries-included" in content
-        assert "background scheduler" in content
-        assert "MCP servers" in content
-
-    def test_home_page_pipeline_section(self, client):
-        """The model-to-four-surfaces pipeline is the page's centerpiece."""
-        response = client.get("/")
-        content = response.content.decode()
-        assert "One model" in content
-        assert "Four surfaces" in content
-        assert "TicketCRUDView" in content
-        assert "enable_mcp" in content
-        assert "enable_search" in content
-
-    def test_home_page_batteries_grid(self, client):
-        """Batteries-included grid should name the built-in apps."""
-        response = client.get("/")
-        content = response.content.decode()
-        assert "Explorer" in content
-        assert "MCP admin" in content
-        assert "Activity" in content
-        assert "API Tokens" in content
-        assert "Backups" in content
-
-    def test_home_page_doc_links_for_anon(self, client):
-        """Anonymous visitors get doc-page links into the smallstack help section."""
-        response = client.get("/")
-        content = response.content.decode()
-        # Anon users see help-page deep links rather than live admin URLs.
-        assert "/smallstack/help/smallstack/mcp-first-app/" in content
-        assert "/smallstack/help/smallstack/building-crud-pages/" in content
-        assert "/smallstack/help/smallstack/api-documentation/" in content
-
-    def test_about_page(self, client):
-        response = client.get("/about/")
-        assert response.status_code == 200
-
-    def test_getting_started_page(self, client):
-        response = client.get("/getting-started/")
-        assert response.status_code == 200
-
-    def test_starter_page(self, client):
-        response = client.get("/starter/")
-        assert response.status_code == 200
-
-    def test_starter_basic_page(self, client):
-        response = client.get("/starter/basic/")
-        assert response.status_code == 200
-
-    def test_starter_forms_page(self, client):
-        response = client.get("/starter/forms/")
-        assert response.status_code == 200
-
-    def test_components_redirects(self, client):
-        response = client.get("/components/")
         assert response.status_code == 302
-        assert "/help/" in response.url
+        assert response.url == "/cw/"
 
-
-@pytest.mark.starter_content
-@pytest.mark.django_db
-class TestHomePageAuthenticated:
-    """Home page adapts to auth + staff state."""
-
-    @pytest.fixture
-    def staff_user(self, django_user_model):
-        return django_user_model.objects.create_user(username="staff", password="testpass", is_staff=True)
-
-    def test_staff_sees_live_app_links(self, client, staff_user):
-        """Staff users get live links into the built-in admin apps."""
-        client.force_login(staff_user)
-        response = client.get("/")
-        content = response.content.decode()
-        # Live admin URLs (vs the doc deep-links shown to anonymous visitors).
-        assert "/smallstack/explorer/" in content
-        assert "/smallstack/mcp/" in content
-        assert "/smallstack/activity/" in content
-        assert "/smallstack/tokens/" in content
-        assert "/smallstack/backups/" in content
-        # Staff get the Dashboard CTA.
-        assert "Open Dashboard" in content
-
-    def test_anonymous_sees_signup_cta(self, client):
-        """Anonymous users get the Sign Up CTA, not Dashboard."""
-        response = client.get("/")
-        content = response.content.decode()
-        assert "Get Started" in content
-        assert "Open Dashboard" not in content
-
-    def test_regular_user_sees_anon_style_links(self, client, django_user_model):
-        """Non-staff authed users get the same doc-page links as anonymous."""
-        user = django_user_model.objects.create_user(username="regular", password="testpass")
-        client.force_login(user)
-        response = client.get("/")
-        content = response.content.decode()
-        # No live admin links for non-staff (the example URL in the code
-        # block is a span, not an anchor — match the href shape).
-        assert 'href="/smallstack/explorer/"' not in content
-        assert 'href="/smallstack/tokens/"' not in content
-        # But doc deep-links are present.
-        assert "/smallstack/help/smallstack/explorer/" in content
+    def test_removed_starter_pages_404(self, client):
+        for path in ("/about/", "/getting-started/", "/starter/", "/components/"):
+            assert client.get(path).status_code == 404, path
 
 
 @pytest.mark.django_db
@@ -240,12 +136,12 @@ class TestPublicSearchView:
         """The Search link is in the website topbar for every visitor — the
         page is open to anonymous users (who can search help docs) and to
         signed-in users (who additionally see whatever they're permitted)."""
-        # Anonymous — link present.
-        response = client.get("/")
+        # Anonymous — link present on the (public) search page's own topbar.
+        response = client.get("/search/")
         assert 'href="/search/"' in response.content.decode()
 
         # Authenticated — link still present.
         user = django_user_model.objects.create_user(username="navtest", password="testpass")
         client.force_login(user)
-        response = client.get("/")
+        response = client.get("/search/")
         assert 'href="/search/"' in response.content.decode()

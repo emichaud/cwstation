@@ -8,7 +8,12 @@
  * Usage:
  *   const mon = initCWMonitor({
  *     canvas, decodedEl, truthEl, wpmEl, snrEl, toneEl, confEl,
- *     playBtn, restartBtn, rateInput, rateLabel, tabsEl,   // tabsEl optional
+ *     playBtn, restartBtn, rateInput, rateLabel,
+ *     tabsEl,        // optional: session tab strip
+ *     audioBtn,      // optional: sidetone on/off toggle (WebAudio)
+ *     audioStart,    // optional: start with sidetone enabled
+ *     messageEl,     // optional: full-message readout that colors in as
+ *                    //           characters complete (the Send view)
  *     sessions: {"name": sessionDict, ...},
  *   });
  */
@@ -43,6 +48,63 @@ function initCWMonitor(opts) {
     document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-palette"] });
 
   let S, dur, t = 0, playing = false, rate = 1, last = 0, dpr = 1;
+  let msgSpans = [];
+
+  // ── sidetone (WebAudio) ───────────────────────────────────────────────
+  // The keying data comes from the decoder's key runs; this just sounds it.
+  let audioOn = !!opts.audioStart, actx = null, oscGain = null, osc = null;
+  const SIDETONE_LEVEL = 0.22;
+
+  function audioInit() {
+    if (actx) return;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) { audioOn = false; return; }
+    actx = new Ctx();
+    osc = actx.createOscillator();
+    osc.type = "sine";
+    oscGain = actx.createGain();
+    oscGain.gain.value = 0;
+    osc.connect(oscGain).connect(actx.destination);
+    osc.start();
+  }
+
+  function audioSync() {
+    // (Re)schedule the gain envelope from the current playhead. Called on
+    // every play/pause/seek/rate/session change so the schedule always
+    // matches the tape.
+    if (!actx || !oscGain) return;
+    if (actx.state === "suspended") actx.resume();
+    const g = oscGain.gain, now = actx.currentTime;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(0, now);
+    if (!audioOn || !playing) return;
+    osc.frequency.setValueAtTime(S.meta.tone_hz || 600, now);
+    for (const r of S.key_runs) {
+      if (!r.on) continue;
+      const a = r.t, b = r.t + r.ms / 1000;
+      if (b <= t) continue;
+      const start = now + Math.max(0, (a - t) / rate);
+      const end = now + (b - t) / rate;
+      if (end - start < 0.012) continue;
+      g.setValueAtTime(0, start);
+      g.linearRampToValueAtTime(SIDETONE_LEVEL, start + 0.005); // click-free edges
+      g.setValueAtTime(SIDETONE_LEVEL, end - 0.005);
+      g.linearRampToValueAtTime(0, end);
+    }
+  }
+
+  function audioToggle() {
+    audioOn = !audioOn;
+    if (audioOn) audioInit(); // user gesture — safe to create the context here
+    audioSync();
+    updateAudioBtn();
+  }
+
+  function updateAudioBtn() {
+    if (!el.audioBtn) return;
+    el.audioBtn.setAttribute("aria-pressed", String(audioOn));
+    el.audioBtn.textContent = audioOn ? "🔊" : "🔇";
+  }
 
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -60,10 +122,22 @@ function initCWMonitor(opts) {
     if (el.tabsEl) {
       [...el.tabsEl.children].forEach((b, k) => b.setAttribute("aria-selected", k === i));
     }
+    if (el.messageEl) buildMessage();
     seek(0);
     if (reduce) { t = dur; render(); } else { play(true); }
   }
-  function seek(v) { t = Math.max(0, Math.min(v, dur)); render(); }
+  function seek(v) { t = Math.max(0, Math.min(v, dur)); audioSync(); render(); }
+
+  function buildMessage() {
+    el.messageEl.textContent = "";
+    msgSpans = S.chars.map((c) => {
+      const sp = document.createElement("span");
+      sp.textContent = c.c === "�" ? "▯" : c.c;
+      sp.className = "cw-msg-pending";
+      el.messageEl.appendChild(sp);
+      return { sp, c };
+    });
+  }
 
   function decodedUpTo(time) {
     let txt = "", wpm = S.meta.wpm_final, snr = "–", conf = "–";
@@ -80,9 +154,19 @@ function initCWMonitor(opts) {
   function render() {
     draw();
     const d = decodedUpTo(t);
-    el.decodedEl.innerHTML =
-      escapeHtml(d.txt).replace(/�/g, '<span class="cw-unknown">▯</span>') +
-      '<span class="cw-cursor"></span>';
+    if (el.decodedEl) {
+      el.decodedEl.innerHTML =
+        escapeHtml(d.txt).replace(/�/g, '<span class="cw-unknown">▯</span>') +
+        '<span class="cw-cursor"></span>';
+    }
+    for (const { sp, c } of msgSpans) {
+      sp.className =
+        c.t1 <= t
+          ? (c.c === "�" ? "cw-msg-bad" : "cw-msg-done")
+          : c.t0 <= t
+            ? "cw-msg-active"
+            : "cw-msg-pending";
+    }
     if (el.wpmEl) el.wpmEl.textContent = d.wpm ? (+d.wpm).toFixed(0) : "–";
     if (el.snrEl) el.snrEl.textContent = d.snr === "–" ? "–" : (+d.snr).toFixed(0);
     if (el.confEl) el.confEl.textContent = d.conf;
@@ -185,6 +269,8 @@ function initCWMonitor(opts) {
   function play(on) {
     playing = on;
     if (el.playBtn) el.playBtn.textContent = on ? "❚❚" : "▶";
+    if (audioOn && on) audioInit(); // play click is a user gesture
+    audioSync();
     if (on) { last = performance.now(); loop(); }
   }
   function loop() {
@@ -208,9 +294,11 @@ function initCWMonitor(opts) {
   }
   if (el.playBtn) el.playBtn.onclick = () => { if (t >= dur) seek(0); play(!playing); };
   if (el.restartBtn) el.restartBtn.onclick = () => { seek(0); play(true); };
+  if (el.audioBtn) { el.audioBtn.onclick = audioToggle; updateAudioBtn(); }
   if (el.rateInput) el.rateInput.oninput = (e) => {
     rate = +e.target.value;
     if (el.rateLabel) el.rateLabel.textContent = rate.toFixed(1) + "×";
+    audioSync();
   };
 
   resolveColors();

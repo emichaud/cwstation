@@ -18,7 +18,9 @@ them is the main way changes here go wrong.
 3. **Python decodes, JavaScript renders.** The monitor (`static/cw/monitor.js`)
    animates the session dict produced by `engine/export.py`. Never re-implement DSP or
    timing logic in the browser; if the view needs new data, add it to the telemetry
-   export.
+   export. (The WebAudio sidetone in `monitor.js` is playback, not DSP — it sounds the
+   decoder's key runs; same for the progressive send-coloring, driven by stored
+   `CharEvent` timings.)
 
 ## Map
 

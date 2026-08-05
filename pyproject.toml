@@ -62,7 +62,7 @@ select = ["E", "F", "I", "W"]
 DJANGO_SETTINGS_MODULE = "config.settings.test"
 python_files = ["test_*.py", "*_test.py", "tests.py"]
 testpaths = ["apps"]
-addopts = "--ds=config.settings.test --cov=apps --cov-report=term-missing:skip-covered --cov-report=html"
+addopts = "--ds=config.settings.test --cov=apps --cov-report=term-missing:skip-covered --cov-report=html -m 'not starter_content'"  # starter pages removed downstream
 filterwarnings = [
     "ignore:SMALLSTACK_TOPBAR_NAV_ITEMS:DeprecationWarning",
 ]

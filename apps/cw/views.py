@@ -97,6 +97,7 @@ class CWSessionCRUDView(CRUDView):
                 context = super(view_class, self).get_context_data(**kwargs)
                 session: CWSession = self.object
                 context["telemetry_json"] = json.dumps(session.telemetry or {})
+                context["is_tx"] = session.direction == CWSession.Direction.SENT
                 return context
 
             view_class.get_context_data = get_context_data

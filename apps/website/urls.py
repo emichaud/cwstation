@@ -1,9 +1,8 @@
-"""
-Website URL patterns - customize for your project.
+"""Website URL patterns.
 
-Add your project-specific page routes here. This keeps them
-separate from SmallStack core URLs, avoiding merge conflicts
-when pulling upstream updates.
+The starter marketing pages were removed for CW Station — `/` is the CW
+Monitor (via redirect so every `{% url 'website:home' %}` reference still
+works), and the public search page stays.
 """
 
 from django.urls import path
@@ -14,11 +13,5 @@ app_name = "website"
 
 urlpatterns = [
     path("", views.home_view, name="home"),
-    path("about/", views.about_view, name="about"),
-    path("getting-started/", views.getting_started_view, name="getting_started"),
-    path("starter/", views.starter_view, name="starter"),
-    path("starter/basic/", views.starter_basic_view, name="starter_basic"),
-    path("starter/forms/", views.starter_forms_view, name="starter_forms"),
-    path("components/", views.components_view, name="components"),
     path("search/", views.search_view, name="search"),
 ]

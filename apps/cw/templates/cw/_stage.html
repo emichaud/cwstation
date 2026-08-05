@@ -7,9 +7,14 @@ caller's init block.
     <canvas id="cw-scope" aria-label="Keying tape and decoded characters"></canvas>
     <div class="cw-readout">
         <div class="cw-tape">
+            {% if tx_mode %}
+            <div class="cw-lab">Sending</div>
+            <div class="cw-message cw-mono" id="cw-message" aria-live="polite"></div>
+            {% else %}
             <div class="cw-lab">Decoded</div>
             <div class="cw-decoded cw-mono" id="cw-decoded"><span class="cw-cursor"></span></div>
             <div class="cw-truth cw-mono">sent&nbsp; <b id="cw-truth"></b></div>
+            {% endif %}
         </div>
         <div class="cw-gauges">
             <div class="cw-g cw-g-wpm"><div class="cw-n cw-mono"><span id="cw-g-wpm">–</span><span class="cw-u">wpm</span></div><div class="cw-k">speed</div></div>
@@ -23,6 +28,7 @@ caller's init block.
 <div class="cw-controls">
     <button class="cw-ctrl" id="cw-play" aria-label="Play or pause">▶</button>
     <button class="cw-ctrl" id="cw-restart" aria-label="Restart">↺</button>
+    <button class="cw-ctrl" id="cw-audio" aria-label="Toggle sidetone audio" aria-pressed="false" title="Hear the keying as the tape plays">🔇</button>
     <div class="cw-speed">
         <label for="cw-rate">playback</label>
         <input type="range" id="cw-rate" min="0.25" max="2" step="0.25" value="1">
