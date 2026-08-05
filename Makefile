@@ -1,7 +1,7 @@
 # Makefile for Django SmallStack
 # Run 'make help' to see available commands
 
-.PHONY: help run services migrate migrations superuser shell test coverage collectstatic docker-up docker-down lint clean deploy logs backup screenshot-auth optimize-images mcp-doctor mcp-test api-test
+.PHONY: help run sim services migrate migrations superuser shell test coverage collectstatic docker-up docker-down lint clean deploy logs backup screenshot-auth optimize-images mcp-doctor mcp-test api-test
 
 # Default port for development server
 PORT ?= 8005
@@ -10,6 +10,7 @@ help:
 	@echo "Django SmallStack - Available commands:"
 	@echo ""
 	@echo "  make run          - Start development server on port $(PORT)"
+	@echo "  make sim          - Run the CW band simulator against the running server"
 	@echo "  make services     - Run worker + heartbeat locally (utils/dev_services.sh; ARGS=... to pass flags)"
 	@echo "  make migrate      - Run database migrations"
 	@echo "  make migrations   - Create new migrations"
@@ -36,6 +37,14 @@ help:
 
 run:
 	uv run python manage.py runserver 0.0.0.0:$(PORT)
+
+# CW band simulator: streams to the Simulator/Live tape for USER (default admin)
+# and saves the run as a scored session on exit. Server must be running.
+# Usage: make sim            (server on default port)
+#        PORT=8010 make sim  (match a server started with PORT=8010)
+SIM_USER ?= admin
+sim:
+	uv run python manage.py cw_simulate --stream $(SIM_USER) --server http://localhost:$(PORT) --save $(SIM_USER)
 
 # Simulate the production background processes (db_worker + heartbeat) locally.
 # Pass flags via ARGS, e.g.  make services ARGS="--interval 5 --smoke"

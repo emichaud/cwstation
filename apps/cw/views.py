@@ -214,6 +214,10 @@ class SendView(LoginRequiredMixin, TemplateView):
         return context
 
     def post(self, request: HttpRequest, **kwargs: Any) -> HttpResponse:
+        from django.http import JsonResponse
+        from django.urls import reverse
+
+        wants_json = "application/json" in request.headers.get("Accept", "")
         form = SendForm(request.POST)
         if form.is_valid():
             session = services.compose_send(
@@ -222,7 +226,16 @@ class SendView(LoginRequiredMixin, TemplateView):
                 wpm=form.cleaned_data["wpm"],
                 tone_hz=form.cleaned_data["tone_hz"],
             )
+            if wants_json:  # the live-page send sheet stays on the tape
+                return JsonResponse({
+                    "id": session.pk,
+                    "text": session.text,
+                    "audio_url": reverse("cw-session-audio", args=[session.pk]),
+                    "detail_url": session.get_absolute_url(),
+                })
             return redirect(session)
+        if wants_json:
+            return JsonResponse({"errors": form.errors}, status=400)
         return self.render_to_response(self.get_context_data(form=form))
 
 

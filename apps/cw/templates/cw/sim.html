@@ -3,6 +3,7 @@
 
 {% block title %}Band Simulator{% endblock %}
 {% block breadcrumbs %}{% endblock %}
+{% block body_class %}cw-has-sendbar{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'cw/cw.css' %}">
@@ -38,25 +39,41 @@
     {% include "cw/_receiver_controls.html" with show_sim=True %}
 
     <div class="card">
-        <div class="card-header"><h2>Run the simulation</h2></div>
+        <details>
+        <summary class="card-header" style="cursor: pointer; list-style: none;"><h2 style="display: inline;">Run the simulation</h2> <span style="color: var(--text-muted); font-size: 0.75rem;">— setup</span></summary>
         <div class="card-body">
             <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
                 Start the band in a terminal; it streams to this tape. Stations call at random
                 pitches, speeds, and strengths — with AFC on, the decoder re-tunes to each one.
             </p>
-            <pre style="background: var(--card-header-bg); border: 1px solid var(--card-border); border-radius: 6px; padding: 12px 14px; overflow-x: auto; font-size: 0.8rem; margin: 0 0 10px;"><code>uv run python manage.py cw_simulate --stream {{ request.user.username }} --server {{ request.scheme }}://{{ request.get_host }} --save {{ request.user.username }}</code></pre>
+            <pre style="background: var(--card-header-bg); border: 1px solid var(--card-border); border-radius: 6px; padding: 12px 14px; overflow-x: auto; font-size: 0.8rem; margin: 0 0 10px;"><code># shorthand (PORT matches your dev server, e.g. PORT=8010 make sim):
+SIM_USER={{ request.user.username }} make sim
+
+# or the full command:
+uv run python manage.py cw_simulate --stream {{ request.user.username }} --server {{ request.scheme }}://{{ request.get_host }} --save {{ request.user.username }}</code></pre>
             <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0;">
                 With <code>--save</code>, Ctrl-C stores the run as a session scored against what
                 the simulated stations actually sent — your accuracy under those knob settings.
                 Turn on the tape's <span title="speaker button">🔊</span> to listen to the band.
             </p>
         </div>
+        </details>
     </div>
 </div>
 
+{% include "cw/_send_sheet.html" %}
+
 <script src="{% static 'cw/monitor.js' %}"></script>
+<script src="{% static 'cw/macros.js' %}"></script>
+<script src="{% static 'cw/sendsheet.js' %}"></script>
 <script>
     (function () {
+        const sheet = initCWSendSheet({
+            sendUrl: "{% url 'cw-send' %}",
+            macrosUrl: "{% url 'cw-macros' %}",
+            context: { mycall: "{{ request.user.username|upper|escapejs }}", rst: "599" },
+        });
+
         const pill = document.getElementById("cw-live-pill");
         const labels = { connecting: "connecting…", live: "● live", off: "feed offline — retrying" };
         const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -78,6 +95,7 @@
                 sendUrl: "{% url 'cw-send' %}",
                 callsEl: document.getElementById("cw-heard"),
                 callsEmptyEl: document.getElementById("cw-heard-empty"),
+                onReply: function (call) { sheet.open(call); },
                 onStatus: function (state) {
                     pill.dataset.state = state;
                     pill.textContent = labels[state] || state;

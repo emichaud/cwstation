@@ -53,6 +53,12 @@ You start with the standard set (`/cq`, `/qrz`, `/rst`, `/73`, `/agn`, `/qth`); 
 them or add your own in the **Message keys** card next to the composer — changes save
 on blur, and your bank is yours alone.
 
+The same message keys live on the **Live** and **Simulator** pages as a send sheet:
+a docked bar at the bottom of the tape slides up like a phone keyboard when you need
+to key something. Click a "Heard on the band" reply chip and the sheet opens
+pre-addressed to that station; hit **Key it** and the message is keyed and played
+back inline without ever leaving the tape.
+
 ## Sending
 
 **Send** turns text into properly timed CW audio: PARIS timing (dit = 1200 ms ÷ WPM)
@@ -141,6 +147,9 @@ hidden in it, calling at random pitches (450–950 Hz), speeds (14–26 WPM), an
 strengths. Start it from a terminal and it streams to the page's live tape:
 
 ```bash
+make sim                              # streams for the admin user, saves the run
+SIM_USER=you PORT=8010 make sim       # your user, matching your dev server's port
+# or the full command:
 uv run python manage.py cw_simulate --stream yourusername --save yourusername
 ```
 

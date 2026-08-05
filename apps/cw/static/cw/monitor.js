@@ -322,6 +322,14 @@ function initCWMonitor(opts) {
       const tag = document.createElement("span");
       tag.textContent = "reply";
       chip.appendChild(tag);
+      if (live.onReply) {
+        // open the send sheet in place instead of navigating (the href
+        // remains for middle-click / open-in-new-tab)
+        chip.addEventListener("click", (e) => {
+          e.preventDefault();
+          live.onReply(call);
+        });
+      }
       live.callsEl.appendChild(chip);
     }
     if (live.callsEmptyEl && heardCalls.size) live.callsEmptyEl.style.display = "none";

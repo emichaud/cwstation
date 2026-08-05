@@ -344,6 +344,145 @@
 }
 .cw-bank-add:hover { color: var(--primary); border-color: var(--primary); }
 
+/* ── send sheet: slides up over the live tape like a phone keyboard ──── */
+.cw-sendbar {
+    position: fixed;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 55;
+    transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s;
+}
+.cw-sendbar.hidden { transform: translateX(-50%) translateY(120%); opacity: 0; pointer-events: none; }
+.cw-sendbar-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    appearance: none;
+    cursor: pointer;
+    padding: 10px 18px;
+    border-radius: 999px;
+    border: 1px solid var(--card-border);
+    background: linear-gradient(var(--card-bg), var(--card-bg)), var(--body-bg);
+    color: var(--body-fg);
+    font-size: 0.9rem;
+    font-weight: 600;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    transition: border-color 0.15s;
+}
+.cw-sendbar-btn:hover { border-color: var(--primary); }
+.cw-sendbar-key {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: var(--primary);
+    color: var(--button-fg);
+    font-size: 0.8rem;
+}
+.cw-sendbar-hint { color: var(--text-muted); font-size: 0.7rem; font-weight: 400; }
+
+.cw-sheet-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 56;
+    background: rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s;
+}
+.cw-sheet-scrim.open { opacity: 1; pointer-events: auto; }
+
+.cw-sheet {
+    position: fixed;
+    left: 50%;
+    bottom: 0;
+    z-index: 57;
+    width: min(760px, calc(100vw - 24px));
+    transform: translateX(-50%) translateY(105%);
+    transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+    background: linear-gradient(var(--card-bg), var(--card-bg)), var(--body-bg);
+    border: 1px solid var(--card-border);
+    border-bottom: 0;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -16px 48px rgba(0, 0, 0, 0.5);
+    padding: 8px 18px 16px;
+}
+.cw-sheet.open { transform: translateX(-50%) translateY(0); }
+@media (prefers-reduced-motion: reduce) {
+    .cw-sheet, .cw-sendbar, .cw-sheet-scrim { transition: none; }
+}
+.cw-sheet-grip {
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--card-border);
+    margin: 0 auto 10px;
+}
+.cw-sheet-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.cw-sheet-close {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--body-quiet-color);
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 4px 8px;
+}
+.cw-sheet-close:hover { color: var(--body-fg); }
+.cw-sheet textarea {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 8px;
+    color: var(--body-fg);
+    padding: 10px 12px;
+    font-size: 1rem;
+    letter-spacing: 0.08em;
+    resize: none;
+}
+.cw-sheet textarea:focus { outline: none; border-color: var(--input-focus-border); }
+.cw-sheet-row {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+}
+.cw-sheet-knob {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--body-quiet-color);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+}
+.cw-sheet-knob input[type="range"] { width: 110px; accent-color: var(--primary); }
+.cw-sheet-knob b { color: var(--primary); min-width: 28px; text-align: right; }
+.cw-sheet-row .btn-primary { margin-left: auto; }
+.cw-sheet-result { margin-top: 10px; }
+.cw-sheet-sent {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.cw-sheet-sent audio { flex: 1; height: 36px; min-width: 200px; }
+.cw-sheet-sent a { color: var(--link-color); font-size: 0.8rem; white-space: nowrap; }
+
+/* palette drop-UP variant (sheet sits at the bottom of the viewport) */
+.cw-palette-up { top: auto; bottom: calc(100% + 6px); }
+
+/* room for the docked bar at the bottom of live pages */
+.cw-has-sendbar { padding-bottom: 72px; }
+
 /* prosign palette on the send page */
 .cw-prosigns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .cw-prosign {

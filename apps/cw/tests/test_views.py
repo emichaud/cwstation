@@ -148,6 +148,37 @@ class TestSessionDetailReadout:
         assert 'id="cw-audio"' in content  # sidetone toggle available everywhere
 
 
+class TestSendSheet:
+    def test_json_submit_returns_session_payload(self, client_logged: Client, user: object) -> None:
+        response = client_logged.post(
+            reverse("cw-send"),
+            {"text": "TEST DE OP", "wpm": 20, "tone_hz": 600},
+            HTTP_ACCEPT="application/json",
+        )
+        assert response.status_code == 200
+        data = response.json()
+        session = CWSession.objects.get(user=user)
+        assert data["id"] == session.pk
+        assert data["audio_url"].endswith(f"/cw/sessions/{session.pk}/audio.wav")
+        assert data["detail_url"] == session.get_absolute_url()
+
+    def test_json_submit_invalid_returns_errors(self, client_logged: Client) -> None:
+        response = client_logged.post(
+            reverse("cw-send"), {"text": "", "wpm": 20, "tone_hz": 600},
+            HTTP_ACCEPT="application/json",
+        )
+        assert response.status_code == 400
+        assert "text" in response.json()["errors"]
+
+    def test_live_and_sim_pages_include_the_sheet(self, client_logged: Client) -> None:
+        for name in ("cw-live", "cw-sim"):
+            content = client_logged.get(reverse(name)).content.decode()
+            assert 'id="cw-sheet"' in content, name
+            assert 'id="cw-sendbar"' in content, name
+            assert 'id="cw-sheet-palette"' in content, name  # message keys in the sheet
+            assert "cw-has-sendbar" in content, name  # viewport padding for the bar
+
+
 class TestSessionAudio:
     def test_streams_wav_for_synth_session(self, client_logged: Client, user: object) -> None:
         client_logged.post(reverse("cw-send"), {"text": "TEST", "wpm": 20, "tone_hz": 600})

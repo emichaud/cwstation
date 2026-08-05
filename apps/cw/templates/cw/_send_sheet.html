@@ -1,0 +1,45 @@
+{% comment %}
+The send sheet — a bottom sheet that slides up (mobile-keyboard style) when
+the operator wants to key a message, keeping the live tape as the hero.
+Requires cw.css + macros.js + sendsheet.js. Wire with initCWSendSheet().
+{% endcomment %}
+<div class="cw-sendbar" id="cw-sendbar">
+    <button type="button" class="cw-sendbar-btn" id="cw-sendbar-open">
+        <span class="cw-sendbar-key">⌘</span> Send a message
+        <span class="cw-sendbar-hint">reply chips open this too</span>
+    </button>
+</div>
+
+<div class="cw-sheet-scrim" id="cw-sheet-scrim"></div>
+<div class="cw-sheet" id="cw-sheet" role="dialog" aria-modal="true" aria-label="Send CW">
+    <div class="cw-sheet-grip" aria-hidden="true"></div>
+    <div class="cw-sheet-head">
+        <span class="cw-lab" style="margin: 0;">Key a message
+            <span class="cw-badge cw-badge-call" id="cw-sheet-replyto" style="display: none;"></span>
+        </span>
+        <button type="button" class="cw-sheet-close" id="cw-sheet-close" aria-label="Close">✕</button>
+    </div>
+    <form id="cw-sheet-form">
+        {% csrf_token %}
+        <div class="cw-palette-anchor">
+            <textarea name="text" id="cw-sheet-text" rows="2" class="cw-mono"
+                      placeholder="TYPE — OR / FOR MESSAGE KEYS" spellcheck="false"></textarea>
+            <div class="cw-palette cw-palette-up" id="cw-sheet-palette" role="listbox" aria-label="Message keys"></div>
+        </div>
+        <div class="cw-keycaps" id="cw-sheet-keycaps"></div>
+        <div class="cw-sheet-row">
+            <label class="cw-sheet-knob">wpm
+                <input type="range" name="wpm" min="5" max="60" step="1" value="20"
+                       oninput="this.parentNode.querySelector('b').textContent = this.value">
+                <b class="cw-mono">20</b>
+            </label>
+            <label class="cw-sheet-knob">tone
+                <input type="range" name="tone_hz" min="300" max="1200" step="10" value="600"
+                       oninput="this.parentNode.querySelector('b').textContent = this.value">
+                <b class="cw-mono">600</b>
+            </label>
+            <button type="submit" class="btn-primary" id="cw-sheet-send">Key it</button>
+        </div>
+        <div class="cw-sheet-result" id="cw-sheet-result"></div>
+    </form>
+</div>
