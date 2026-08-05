@@ -164,6 +164,16 @@ function initCWMonitor(opts) {
     return s.replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m]));
   }
 
+  // The decode window sticks to its newest text unless the operator has
+  // scrolled up to read older copy.
+  let decodedPinned = true;
+  if (el.decodedEl) {
+    el.decodedEl.addEventListener("scroll", () => {
+      const d = el.decodedEl;
+      decodedPinned = d.scrollTop + d.clientHeight >= d.scrollHeight - 8;
+    });
+  }
+
   function render() {
     draw();
     const d = decodedUpTo(t);
@@ -171,6 +181,7 @@ function initCWMonitor(opts) {
       el.decodedEl.innerHTML =
         escapeHtml(d.txt).replace(/�/g, '<span class="cw-unknown">▯</span>') +
         '<span class="cw-cursor"></span>';
+      if (decodedPinned) el.decodedEl.scrollTop = el.decodedEl.scrollHeight;
     }
     for (const { sp, c } of msgSpans) {
       sp.className =

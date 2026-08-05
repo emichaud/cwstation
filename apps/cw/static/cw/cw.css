@@ -59,7 +59,12 @@
     letter-spacing: 0.14em;
     color: var(--primary);
     min-height: 32px;
+    max-height: 104px;              /* ~3 lines; long copy scrolls */
+    overflow-y: auto;
+    overscroll-behavior: contain;
     word-break: break-word;
+    scrollbar-width: thin;
+    scrollbar-color: var(--card-border) transparent;
 }
 .cw-decoded .cw-unknown { color: var(--error-fg); }
 .cw-cursor {
@@ -343,6 +348,60 @@
     transition: 0.15s;
 }
 .cw-bank-add:hover { color: var(--primary); border-color: var(--primary); }
+
+/* ── sent log: what went out, under the tape ─────────────────────────── */
+.cw-txlog { margin-top: 16px; display: none; }
+.cw-txlog.has-rows { display: block; }
+.cw-txlog-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 132px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--card-border) transparent;
+    margin-top: 8px;
+}
+.cw-txrow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 7px 12px;
+    border: 1px solid var(--card-border);
+    border-left: 3px solid var(--primary);
+    border-radius: 8px;
+    background: var(--card-bg);
+}
+.cw-txrow time {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-family: ui-monospace, Menlo, monospace;
+    flex: 0 0 auto;
+}
+.cw-txrow .cw-txtext {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.85rem;
+    letter-spacing: 0.08em;
+    color: var(--body-fg);
+}
+.cw-txrow .cw-txplay {
+    appearance: none;
+    cursor: pointer;
+    border: 1px solid var(--card-border);
+    background: transparent;
+    color: var(--primary);
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    font-size: 0.7rem;
+}
+.cw-txrow .cw-txplay:hover { border-color: var(--primary); }
+.cw-txrow a { color: var(--link-color); font-size: 0.72rem; white-space: nowrap; }
 
 /* ── send sheet: slides up over the live tape like a phone keyboard ──── */
 .cw-sendbar {

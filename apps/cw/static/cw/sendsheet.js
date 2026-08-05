@@ -24,6 +24,45 @@ function initCWSendSheet(opts) {
     context: context,
   });
 
+  // Every send lands in the on-page transmission log (newest first) so the
+  // operator can see what actually went out without leaving the tape.
+  const txLog = document.getElementById("cw-txlog");
+  const txRows = document.getElementById("cw-txlog-rows");
+
+  function logSent(data) {
+    if (!txLog || !txRows) return;
+    const row = document.createElement("div");
+    row.className = "cw-txrow";
+    const when = document.createElement("time");
+    const now = new Date();
+    when.textContent =
+      String(now.getHours()).padStart(2, "0") + ":" +
+      String(now.getMinutes()).padStart(2, "0") + ":" +
+      String(now.getSeconds()).padStart(2, "0");
+    const text = document.createElement("span");
+    text.className = "cw-txtext";
+    text.textContent = data.text;
+    text.title = data.text;
+    const play = document.createElement("button");
+    play.type = "button";
+    play.className = "cw-txplay";
+    play.textContent = "▶";
+    play.title = "Play as keyed";
+    let player = null;
+    play.addEventListener("click", () => {
+      if (!player) { player = new Audio(data.audio_url); }
+      player.currentTime = 0;
+      player.play().catch(() => {});
+    });
+    const link = document.createElement("a");
+    link.href = data.detail_url;
+    link.textContent = "#" + data.id;
+    link.title = "Open session";
+    row.append(when, text, play, link);
+    txRows.prepend(row);
+    txLog.classList.add("has-rows");
+  }
+
   function open(replyCall) {
     if (replyCall) {
       context.call = replyCall;
@@ -94,6 +133,7 @@ function initCWSendSheet(opts) {
         row.append(audio, link);
         result.appendChild(row);
         audio.play().catch(() => {});
+        logSent(data);
         ta.value = "";
         replyBadge.style.display = "none";
         delete context.call;

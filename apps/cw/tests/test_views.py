@@ -177,6 +177,7 @@ class TestSendSheet:
             assert 'id="cw-sendbar"' in content, name
             assert 'id="cw-sheet-palette"' in content, name  # message keys in the sheet
             assert "cw-has-sendbar" in content, name  # viewport padding for the bar
+            assert 'id="cw-txlog"' in content, name  # sent-log strip
 
 
 class TestSessionAudio:
