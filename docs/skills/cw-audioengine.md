@@ -33,6 +33,7 @@ them is the main way changes here go wrong.
 | `engine/audio_io.py` | `load_audio()` — WAV via stdlib, MP3/FLAC/OGG via `soundfile`; `detect_tone()` — spectral peak finder so operators don't guess the pitch. |
 | `engine/sources.py` | `ArraySource` / `SyntheticCWSource` / `AudioFileSource` (any format) / `SoundDeviceSource` (guarded optional). |
 | `engine/manager.py` | The seam: `AudioDemodulator`, `NetworkTapEngine`, `AudioEngineManager` (fan-out + subscribers). |
+| `engine/live.py` | `monitor_live()` — open-ended monitoring loop with calibrate-then-replay tone detection. Source-agnostic: tests drive it with `SyntheticCWSource`; `cw_monitor_live` drives it with `SoundDeviceSource`. |
 | `engine/bridge.py` | `CWLogBridge` → `QSODraft` (callsign/RST extraction). Framework-agnostic. |
 | `engine/export.py` | `DecodeResult` → session dict the monitor animates. |
 | `engine/wav.py` | float32 ⇄ WAV bytes (uploads in, downloads out). |
@@ -46,7 +47,8 @@ them is the main way changes here go wrong.
   decoder change must keep the blind-bootstrap, speed-sweep, noise-sweep, and
   chunked-equals-oneshot tests green: `uv run pytest apps/cw/`.
 - **CLI**: `uv run python manage.py cw_decode --text "..." --wpm 22` (or `--wav`,
-  `--session out.json`). Fastest way to eyeball a decoder change.
+  `--session out.json`). Fastest way to eyeball a decoder change. Live sound-card
+  monitoring: `cw_monitor_live` (needs `uv sync --extra live` for sounddevice).
 - **Sessions must replay**: whatever you change, `session_from_result()` output feeds
   `initCWMonitor()`. Word gaps are stored as `CharEvent(" ")` in `result.chars` — don't
   drop them or copy loses word boundaries (regression-tested).

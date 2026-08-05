@@ -73,6 +73,32 @@ Sessions are searchable (the topbar search finds text in your copy) and private 
 your account. Audio for synthesized sessions is regenerated on demand; uploaded
 recordings are not stored — only their decode.
 
+## Live monitoring with a radio attached
+
+Plug your radio's audio out (headphone/line out, a data interface like a DigiRig or
+SignaLink, or your rig's USB audio codec) into a sound-card input, install the live
+extra once (`uv sync --extra live`), then:
+
+```bash
+# see your capture devices, pick the one the radio is on
+uv run python manage.py cw_monitor_live --list-devices
+
+# monitor — the CW tone is auto-detected from the first seconds of audio
+uv run python manage.py cw_monitor_live --device 2
+
+# fixed tone + WPM prior, and save the run as a replayable session on exit
+uv run python manage.py cw_monitor_live --tone 700 --wpm 25 --save yourusername
+```
+
+Decoded characters stream to the terminal in real time (a character resolves a
+fraction of a second after the sender's keying stops). Ctrl-C stops the monitor,
+prints a summary, and — with `--save` — stores the whole run as a session you can
+replay on the tape, sidetone and all.
+
+Radio-side tips: tune the signal so its note sits at one steady pitch (the narrow CW
+filter helps), and prefer slow AGC — the decoder rides through fading, but heavily
+pumped audio is hard for anything to copy.
+
 ## Command line
 
 The same engine runs headless:

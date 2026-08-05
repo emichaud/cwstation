@@ -46,6 +46,10 @@ dev = [
 postgres = [
     "psycopg[binary]>=3.1",
 ]
+# Live sound-card monitoring (cw_monitor_live). Needs PortAudio at runtime.
+live = [
+    "sounddevice>=0.4",
+]
 
 [tool.ruff]
 line-length = 120

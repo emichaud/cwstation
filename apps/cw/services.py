@@ -11,6 +11,7 @@ from django.contrib.auth.base_user import AbstractBaseUser
 
 from .engine import CWConfig, decode_array, detect_tone, load_audio, synthesize_cw
 from .engine.bridge import extract_callsigns
+from .engine.events import DecodeResult  # noqa: F401 - used in annotations
 from .engine.export import session_from_result
 from .engine.wav import wav_bytes_from_float32
 from .models import CWSession
@@ -78,6 +79,22 @@ def compose_send(user: AbstractBaseUser, text: str, wpm: float, tone_hz: float) 
         tone_hz=tone_hz,
         callsigns=extract_callsigns(synth.text),
         telemetry=session_from_result(result, truth=synth.text),
+    )
+
+
+def save_live_session(
+    user: AbstractBaseUser, result: "DecodeResult", tone_hz: float
+) -> CWSession:
+    """Persist a live-monitor run (audio itself is not stored)."""
+    return CWSession.objects.create(
+        user=user,
+        direction=CWSession.Direction.RECEIVED,
+        source=CWSession.Source.LIVE,
+        text=result.text,
+        wpm=result.wpm_final,
+        tone_hz=tone_hz,
+        callsigns=extract_callsigns(result.text),
+        telemetry=session_from_result(result),
     )
 
 

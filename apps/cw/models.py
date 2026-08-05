@@ -24,6 +24,7 @@ class CWSession(models.Model):
         SYNTH = "synth", "Practice (synthesized)"
         WAV = "wav", "Recording upload"
         TEXT = "text", "Composed message"
+        LIVE = "live", "Live monitor"
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="cw_sessions"
