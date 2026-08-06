@@ -385,7 +385,10 @@ function initCWMonitor(opts) {
     if (b.env_t && b.env_t.length) { S.env_t.push(...b.env_t); S.env_mag.push(...b.env_mag); }
     if (b.key_runs && b.key_runs.length) S.key_runs.push(...b.key_runs);
     if (b.chars && b.chars.length) S.chars.push(...b.chars);
-    dur = (S.env_t.length ? S.env_t[S.env_t.length - 1] : 0) + 0.6;
+    // text-only taps (fldigi) carry no envelope — follow char time instead
+    const envEdge = S.env_t.length ? S.env_t[S.env_t.length - 1] : 0;
+    const charEdge = S.chars.length ? S.chars[S.chars.length - 1].t1 : 0;
+    dur = Math.max(envEdge, charEdge) + 0.6;
     if (playing && audioOn) audioSync();
     if (!playing) render();
   }

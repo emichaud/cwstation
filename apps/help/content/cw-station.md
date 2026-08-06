@@ -151,6 +151,27 @@ Radio-side tips: tune the signal so its note sits at one steady pitch (the narro
 filter helps), and prefer slow AGC — the decoder rides through fading, but heavily
 pumped audio is hard for anything to copy.
 
+## PSK31 and other digital modes — the fldigi tap
+
+The station isn't CW-only: if you run **fldigi** (the standard sound-card
+digital-modes program), its decoded text — PSK31, RTTY, Olivia, whatever modem it's
+set to — flows onto the same live tape:
+
+```bash
+# fldigi running with XML-RPC enabled (Configure → Misc → XML-RPC, default port 7362)
+uv run python manage.py cw_fldigi --stream yourusername --save yourusername
+```
+
+fldigi does the demodulating (it's best-in-class at it); the tap adapts its text into
+the station's event stream. Everything downstream just works: the decode window fills
+in real time, callsigns spotted in PSK31 copy become **Heard on the band** reply
+chips, `--save` stores the copy as a session, and with a rig connected the RF gauge
+reads dial + fldigi's carrier. One feed at a time per tape — stop the simulator or
+CW monitor before starting the tap, or the streams interleave.
+
+Note the tape itself stays quiet in text modes (PSK31 is a continuous carrier, not
+on-off keying) — the decode window and chips are the live surface.
+
 ## Rig control (Hamlib) — transmit for real
 
 **Do you need Hamlib? No — not until a real radio is on the desk.** Everything else

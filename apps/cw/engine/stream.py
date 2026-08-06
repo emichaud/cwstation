@@ -31,7 +31,14 @@ class ResultStreamer:
     def tick(self, force: bool = False) -> None:
         """Emit a batch if the flush interval elapsed (or `force`)."""
         r = self.result
-        now = r.envelope_t[-1] if r.envelope_t else 0.0
+        # stream time: envelope block time for audio engines; last char time
+        # for text-only taps (fldigi has no envelope)
+        if r.envelope_t:
+            now = r.envelope_t[-1]
+        elif r.chars:
+            now = r.chars[-1].t_end
+        else:
+            now = 0.0
         if not force and (now - self._last_flush) < self.interval_s:
             return
         batch = self._diff()
