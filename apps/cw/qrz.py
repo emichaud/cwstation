@@ -89,14 +89,17 @@ def lookup_for_user(user: Any, call: str) -> dict[str, Any] | None:
     profile = QRZProfile.objects.filter(user=user).first()
     if profile is None or not profile.username or not profile.password:
         return None
+    password = profile.get_password()
+    if not password:
+        return None
     try:
         if not profile.session_key:
-            profile.session_key = authenticate(profile.username, profile.password)
+            profile.session_key = authenticate(profile.username, password)
             profile.save(update_fields=["session_key", "updated_at"])
         try:
             return lookup(profile.session_key, call)
         except QRZError:  # stale session — one fresh login, one retry
-            profile.session_key = authenticate(profile.username, profile.password)
+            profile.session_key = authenticate(profile.username, password)
             profile.save(update_fields=["session_key", "updated_at"])
             return lookup(profile.session_key, call)
     except QRZError:

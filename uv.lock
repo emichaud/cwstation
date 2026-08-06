@@ -503,6 +503,7 @@ source = { editable = "." }
 dependencies = [
     { name = "channels" },
     { name = "croniter" },
+    { name = "cryptography" },
     { name = "daphne" },
     { name = "django" },
     { name = "django-axes" },
@@ -550,6 +551,7 @@ dev = [
 requires-dist = [
     { name = "channels", specifier = ">=4.3.2" },
     { name = "croniter", specifier = ">=6.2.4" },
+    { name = "cryptography", specifier = ">=48.0.1" },
     { name = "daphne", specifier = ">=4.2.3" },
     { name = "django", specifier = ">=6.0" },
     { name = "django-axes", specifier = ">=7.0" },

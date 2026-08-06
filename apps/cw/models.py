@@ -197,8 +197,12 @@ class QSO(models.Model):
     )
     source = models.CharField(
         max_length=8, default="manual",
-        choices=[("manual", "Manual"), ("session", "From session"), ("reply", "On-air reply")],
+        choices=[
+            ("manual", "Manual"), ("session", "From session"),
+            ("reply", "On-air reply"), ("import", "ADIF import"),
+        ],
     )
+    eqsl_sent_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -217,23 +221,56 @@ class QSO(models.Model):
         return f"https://www.qrz.com/db/{self.call}"
 
 
-class QRZProfile(models.Model):
-    """QRZ.com XML-API credentials (requires a QRZ XML subscription).
+class _CredentialMixin(models.Model):
+    """Shared shape for third-party service credentials. Passwords are
+    encrypted at rest (Fernet, key file outside the DB — see fieldcrypto.py)
+    and only ever handled through set_password/get_password."""
 
-    Stored per operator on this self-hosted instance, like the rig config.
-    The session key is cached and refreshed on timeout.
-    """
+    username = models.CharField(max_length=64, blank=True)
+    password = models.CharField(max_length=512, blank=True)  # enc:<token>
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        abstract = True
+
+    def set_password(self, raw: str) -> None:
+        from .fieldcrypto import encrypt
+
+        self.password = encrypt(raw)
+
+    def get_password(self) -> str:
+        from .fieldcrypto import decrypt, encrypt
+
+        raw = decrypt(self.password)
+        # transparent upgrade of any legacy plaintext row
+        if raw and not self.password.startswith("enc:"):
+            self.password = encrypt(raw)
+            self.save(update_fields=["password", "updated_at"])
+        return raw
+
+
+class QRZProfile(_CredentialMixin):
+    """QRZ.com XML-API credentials (requires a QRZ XML subscription).
+    The session key is cached and refreshed on timeout."""
 
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="qrz_profile"
     )
-    username = models.CharField(max_length=64, blank=True)
-    password = models.CharField(max_length=128, blank=True)
     session_key = models.CharField(max_length=64, blank=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self) -> str:
         return f"QRZ credentials for {self.user}"
+
+
+class EQSLProfile(_CredentialMixin):
+    """eQSL.cc credentials for log upload (ImportADIF)."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="eqsl_profile"
+    )
+
+    def __str__(self) -> str:
+        return f"eQSL credentials for {self.user}"
 
 
 class CWSimControl(models.Model):

@@ -3,8 +3,11 @@ from __future__ import annotations
 from django.urls import path
 
 from .api import (
+    eqsl_config,
     live_ingest,
     log_adif,
+    log_eqsl_upload,
+    log_import,
     log_quick,
     macros,
     qrz_config,
@@ -36,6 +39,9 @@ urlpatterns = [
     path("cw/log/quick/", log_quick, name="cw-log-quick"),
     path("cw/log/adif/", log_adif, name="cw-log-adif"),
     path("cw/log/qrz/", qrz_config, name="cw-log-qrz"),
+    path("cw/log/import/", log_import, name="cw-log-import"),
+    path("cw/log/eqsl/", log_eqsl_upload, name="cw-log-eqsl"),
+    path("cw/log/eqsl/config/", eqsl_config, name="cw-log-eqsl-config"),
     *LogbookCRUDView.get_urls(),
     path("cw/rig/", rig, name="cw-rig"),
     path("cw/rig/tx/", rig_tx, name="cw-rig-tx"),

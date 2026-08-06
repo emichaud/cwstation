@@ -166,9 +166,17 @@ The station logs contacts the way it does everything else — quietly, from the 
   history with that call, or from **QRZ.com** if you've linked an XML subscription
   in the Callbook card (every call links to its QRZ page regardless, no account
   needed).
-- **ADIF export.** The **↓ ADIF** button downloads the log — respecting whatever
-  search/band/mode filter you're looking at — with dates and times in UTC per the
-  ADIF spec, ready for LoTW/eQSL/contest robots.
+- **ADIF export & import.** The **↓ ADIF** button downloads the log — respecting
+  whatever search/band/mode filter you're looking at — with dates and times in UTC
+  per the ADIF spec. **↑ Import** brings an existing log in (any ADIF file);
+  duplicates (same call, same UTC minute) are skipped, so re-imports are safe.
+- **eQSL.cc upload.** Save your eQSL credentials in the card at the bottom of the
+  Logbook and the **↥ eQSL** button appears: it uploads QSOs not yet sent
+  (respecting the current filters) and marks them, so nothing double-uploads.
+- **Credentials are encrypted at rest.** QRZ and eQSL passwords are stored
+  Fernet-encrypted with a key held in `.cw_credentials_key` next to the project
+  (created automatically, permissions 0600, gitignored) — not in the database, and
+  never echoed by any API response.
 - **Search.** QSOs and sessions are both in the global search (⌘K): a callsign,
   a name, a QTH, or words from your copy all find their records — your own only.
   On the Logbook page, band and mode chips narrow the list one click at a time.

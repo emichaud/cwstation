@@ -27,6 +27,7 @@ dependencies = [
     "soundfile>=0.14.0",
     "channels>=4.3.2",
     "daphne>=4.2.3",
+    "cryptography>=48.0.1",
 ]
 
 [project.scripts]

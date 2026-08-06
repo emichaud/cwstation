@@ -237,6 +237,72 @@ def log_adif(request: HttpRequest) -> Any:
     return response
 
 
+@api_view(methods=["POST"], require_auth=True)
+def log_import(request: HttpRequest) -> dict[str, Any] | Any:
+    """Import an uploaded ADIF file into the operator's log. Duplicate
+    QSOs (same call, same UTC minute) are skipped — re-imports are no-ops."""
+    from . import logbook
+
+    upload = request.FILES.get("adif")
+    if upload is None:
+        return api_error("Attach an ADIF file as 'adif'", 400)
+    if upload.size > 10 * 1024 * 1024:
+        return api_error("File too large (10 MB max)", 413)
+    text = upload.read().decode("utf-8", "replace")
+    return logbook.import_adif(request.user, text)
+
+
+@api_view(methods=["POST"], require_auth=True)
+def log_eqsl_upload(request: HttpRequest) -> dict[str, Any] | Any:
+    """Upload not-yet-sent QSOs (respecting active filters) to eQSL.cc and
+    mark them sent. {resend: true} re-sends already-marked QSOs too."""
+    from django.utils import timezone
+
+    from . import logbook
+    from .eqsl import EQSLError, upload_adif
+    from .models import EQSLProfile
+
+    profile = EQSLProfile.objects.filter(user=request.user).first()
+    if profile is None or not profile.username or not profile.get_password():
+        return api_error("eQSL credentials aren't configured yet.", 400)
+
+    data = request.json if isinstance(request.json, dict) else {}
+    qsos = _filtered_qsos(request)
+    if not data.get("resend"):
+        qsos = qsos.filter(eqsl_sent_at__isnull=True)
+    qsos = list(qsos)
+    if not qsos:
+        return {"uploaded": 0, "message": "Nothing new to send."}
+
+    adif = logbook.adif_export(qsos, station_call=request.user.username.upper())
+    try:
+        result = upload_adif(profile.username, profile.get_password(), adif)
+    except EQSLError as e:
+        return api_error(str(e), 502)
+    now = timezone.now()
+    QSO.objects.filter(pk__in=[q.pk for q in qsos]).update(eqsl_sent_at=now)
+    return {"uploaded": len(qsos), "message": result["message"]}
+
+
+@api_view(methods=["GET", "POST"], require_auth=True)
+def eqsl_config(request: HttpRequest) -> dict[str, Any] | Any:
+    """eQSL.cc credentials — write-only password, encrypted at rest."""
+    from .models import EQSLProfile
+
+    profile, _ = EQSLProfile.objects.get_or_create(user=request.user)
+    if request.method == "POST":
+        data = request.json
+        if not isinstance(data, dict):
+            return api_error("Expected a JSON object", 400)
+        if "username" in data:
+            profile.username = str(data["username"]).strip()
+        if "password" in data and data["password"]:
+            profile.set_password(str(data["password"]))
+        profile.save()
+    return {"configured": bool(profile.username and profile.password),
+            "username": profile.username}
+
+
 @api_view(methods=["GET", "POST"], require_auth=True)
 def qrz_config(request: HttpRequest) -> dict[str, Any] | Any:
     """QRZ XML-API credentials. POST {username, password} saves;
@@ -249,14 +315,14 @@ def qrz_config(request: HttpRequest) -> dict[str, Any] | Any:
         if "username" in data:
             profile.username = str(data["username"]).strip()
         if "password" in data and data["password"]:
-            profile.password = str(data["password"])
+            profile.set_password(str(data["password"]))  # encrypted at rest
         profile.session_key = ""  # force re-auth with new credentials
         profile.save()
         if data.get("test_call"):
             from .qrz import QRZError, authenticate, lookup
 
             try:
-                key = authenticate(profile.username, profile.password)
+                key = authenticate(profile.username, profile.get_password())
                 profile.session_key = key
                 profile.save(update_fields=["session_key", "updated_at"])
                 info = lookup(key, str(data["test_call"]).strip().upper())

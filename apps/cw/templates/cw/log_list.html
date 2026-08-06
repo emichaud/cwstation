@@ -21,6 +21,10 @@
     <div style="display: flex; gap: 0.5rem; align-items: center;">
         <a href="{% url 'cw-log-adif' %}?q={{ request.GET.q|default:'' }}&band={{ active_band }}&mode={{ active_mode }}"
            class="btn-tint" title="Download this view as ADIF (UTC times)">↓ ADIF</a>
+        <button type="button" class="btn-tint" id="log-import-btn" title="Import an ADIF log">↑ Import</button>
+        <input type="file" id="log-import-file" accept=".adi,.adif,.txt" style="display: none;">
+        <button type="button" class="btn-tint" id="log-eqsl-btn" style="display: none;"
+                title="Upload unsent QSOs in this view to eQSL.cc">↥ eQSL</button>
         {% if create_view_url %}<a href="{{ create_view_url }}" class="btn-primary">+ QSO</a>{% endif %}
     </div>
 </div>
@@ -79,10 +83,93 @@
     </details>
 </div>
 
+<div class="card" style="margin-top: 14px; max-width: 620px;">
+    <details>
+        <summary class="card-header" style="cursor: pointer; list-style: none;">
+            <h2 style="display: inline;">eQSL.cc upload</h2>
+            <span style="color: var(--text-muted); font-size: 0.75rem;" id="eqsl-state">…</span>
+        </summary>
+        <div class="card-body">
+            <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
+                With eQSL credentials saved, the <b>↥ eQSL</b> button uploads QSOs not yet
+                sent (respecting the current filters) and marks them. Passwords are stored
+                encrypted; they're only ever sent to eQSL itself.
+            </p>
+            <div class="cw-bank-row" style="grid-template-columns: 1fr 1fr auto;">
+                <input type="text" id="eqsl-user" class="cw-bank-text cw-mono" placeholder="eQSL username" autocomplete="off">
+                <input type="password" id="eqsl-pass" class="cw-bank-text cw-mono" placeholder="password" autocomplete="new-password">
+                <button type="button" class="btn-tint" id="eqsl-save">Save</button>
+            </div>
+            <div id="eqsl-result" style="font-size: 0.8rem; margin-top: 8px; color: var(--body-quiet-color);"></div>
+        </div>
+    </details>
+</div>
+
 {% include "smallstack/crud/includes/delete_modal.html" %}
 
 <script>
     (function () {
+        // ── ADIF import ──
+        const importBtn = document.getElementById("log-import-btn");
+        const importFile = document.getElementById("log-import-file");
+        importBtn.addEventListener("click", () => importFile.click());
+        importFile.addEventListener("change", function () {
+            if (!importFile.files.length) return;
+            const fd = new FormData();
+            fd.append("adif", importFile.files[0]);
+            importBtn.textContent = "importing…";
+            fetch("{% url 'cw-log-import' %}", { method: "POST", credentials: "same-origin", body: fd })
+                .then((r) => r.json().then((j) => ({ ok: r.ok, d: j.data || j })))
+                .then(({ ok, d }) => {
+                    importBtn.textContent = ok
+                        ? "✓ +" + d.created + (d.duplicates ? " (" + d.duplicates + " dup)" : "")
+                        : "✗ " + (d.error || "failed");
+                    if (ok && d.created) setTimeout(() => location.reload(), 900);
+                });
+        });
+
+        // ── eQSL ──
+        const EQSL_CFG = "{% url 'cw-log-eqsl-config' %}";
+        const eqslBtn = document.getElementById("log-eqsl-btn");
+        function eqslState(msg) { document.getElementById("eqsl-state").textContent = msg; }
+        fetch(EQSL_CFG, { credentials: "same-origin" })
+            .then((r) => r.json())
+            .then((j) => {
+                const d = j.data || j;
+                eqslState(d.configured ? "— linked as " + d.username : "— not configured");
+                if (d.username) document.getElementById("eqsl-user").value = d.username;
+                if (d.configured) eqslBtn.style.display = "";
+            });
+        document.getElementById("eqsl-save").addEventListener("click", function () {
+            fetch(EQSL_CFG, {
+                method: "POST", credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username: document.getElementById("eqsl-user").value,
+                    password: document.getElementById("eqsl-pass").value,
+                }),
+            }).then((r) => r.json()).then((j) => {
+                const d = j.data || j;
+                eqslState(d.configured ? "— linked as " + d.username : "— not configured");
+                if (d.configured) eqslBtn.style.display = "";
+                document.getElementById("eqsl-result").textContent = d.configured ? "✓ saved" : "";
+            });
+        });
+        eqslBtn.addEventListener("click", function () {
+            eqslBtn.textContent = "uploading…";
+            fetch("{% url 'cw-log-eqsl' %}" + location.search, {
+                method: "POST", credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: "{}",
+            })
+                .then((r) => r.json().then((j) => ({ ok: r.ok, d: j.data || j })))
+                .then(({ ok, d }) => {
+                    eqslBtn.textContent = ok ? "✓ " + d.uploaded + " sent" : "✗ failed";
+                    document.getElementById("eqsl-result").textContent = d.message || d.error || "";
+                });
+        });
+
+        // ── QRZ ──
         const URL = "{% url 'cw-log-qrz' %}";
         function state(msg) { document.getElementById("qrz-state").textContent = msg; }
         fetch(URL, { credentials: "same-origin" })

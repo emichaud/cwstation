@@ -57,3 +57,4 @@ htmlcov/
 
 # Persisted dev SECRET_KEY (config/settings/development.py)
 .secret_key
+.cw_credentials_key

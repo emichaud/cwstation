@@ -110,6 +110,100 @@ def quick_log(
     return qso
 
 
+# ── ADIF import ───────────────────────────────────────────────────────────
+import re as _re
+
+_ADIF_TAG = _re.compile(r"<(\w+):(\d+)(?::[^>]*)?>", _re.IGNORECASE)
+
+
+def parse_adif(text: str) -> list[dict[str, str]]:
+    """Parse ADIF into per-record dicts of lowercase field → value.
+
+    Tolerant by design: unknown fields are kept, the header (through <EOH>)
+    is skipped, tag case and whitespace don't matter, and truncated length
+    counts take what's actually there."""
+    eoh = _re.search(r"<eoh>", text, _re.IGNORECASE)
+    body = text[eoh.end():] if eoh else text
+    records: list[dict[str, str]] = []
+    current: dict[str, str] = {}
+    pos = 0
+    while True:
+        eor = _re.compile(r"<eor>", _re.IGNORECASE).search(body, pos)
+        tag = _ADIF_TAG.search(body, pos)
+        if tag is None and eor is None:
+            break
+        if tag is None or (eor is not None and eor.start() < tag.start()):
+            if current:
+                records.append(current)
+                current = {}
+            pos = eor.end()  # type: ignore[union-attr]
+            continue
+        name = tag.group(1).lower()
+        length = int(tag.group(2))
+        start = tag.end()
+        current[name] = body[start : start + length]
+        pos = start + length
+    if current:
+        records.append(current)
+    return records
+
+
+def _parse_adif_when(record: dict[str, str]) -> datetime.datetime | None:
+    date = record.get("qso_date", "").strip()
+    time_on = (record.get("time_on", "").strip() or "0000").ljust(6, "0")
+    if len(date) != 8 or not date.isdigit():
+        return None
+    try:
+        return datetime.datetime(
+            int(date[:4]), int(date[4:6]), int(date[6:8]),
+            int(time_on[:2]), int(time_on[2:4]), int(time_on[4:6]),
+            tzinfo=datetime.timezone.utc,
+        )
+    except ValueError:
+        return None
+
+
+def import_adif(user: AbstractBaseUser, text: str) -> dict[str, int]:
+    """Import an ADIF log. Duplicates (same call, same UTC minute) are
+    skipped so re-importing the same file is a no-op."""
+    created = duplicates = errors = 0
+    for record in parse_adif(text):
+        call = record.get("call", "").strip().upper()
+        when = _parse_adif_when(record)
+        if not call or when is None:
+            errors += 1
+            continue
+        minute_lo = when.replace(second=0)
+        minute_hi = minute_lo + datetime.timedelta(minutes=1)
+        if QSO.objects.filter(user=user, call=call, when__gte=minute_lo, when__lt=minute_hi).exists():
+            duplicates += 1
+            continue
+        freq = None
+        try:
+            if record.get("freq"):
+                freq = round(float(record["freq"]), 4)
+        except ValueError:
+            pass
+        QSO.objects.create(
+            user=user,
+            call=call,
+            when=when,
+            freq_mhz=freq,
+            band=record.get("band", "").lower() or band_for_freq(freq),
+            mode=record.get("mode", "CW").upper()[:12] or "CW",
+            rst_sent=record.get("rst_sent", "")[:8],
+            rst_rcvd=record.get("rst_rcvd", "")[:8],
+            name=record.get("name", "")[:120],
+            qth=record.get("qth", "")[:120],
+            gridsquare=record.get("gridsquare", "")[:8],
+            country=record.get("country", "")[:64],
+            comment=record.get("comment", ""),
+            source="import",
+        )
+        created += 1
+    return {"created": created, "duplicates": duplicates, "errors": errors}
+
+
 # ── ADIF ──────────────────────────────────────────────────────────────────
 def _adif_field(name: str, value: str) -> str:
     value = str(value)

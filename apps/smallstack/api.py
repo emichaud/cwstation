@@ -233,8 +233,15 @@ def api_view(methods=None, require_auth=True, require_staff=False, require_auth_
                 if require_staff and not request.user.is_staff:
                     return _error("Staff access required", 403)
 
-            # Parse JSON body for write methods
-            if request.method not in ("GET", "HEAD") and request.body:
+            # Parse JSON body for write methods. Multipart and form-encoded
+            # bodies are Django's domain (request.POST / request.FILES) —
+            # force-parsing them as JSON turned every file-upload endpoint
+            # into a 400 "Invalid JSON".
+            content_type = (request.content_type or "").lower()
+            body_is_form = content_type.startswith(
+                ("multipart/form-data", "application/x-www-form-urlencoded")
+            )
+            if request.method not in ("GET", "HEAD") and not body_is_form and request.body:
                 request.json, err = _load_json_body(request, require_object=False)
                 if err:
                     return err
