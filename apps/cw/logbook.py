@@ -7,6 +7,7 @@ that station (or QRZ, when credentials exist)."""
 from __future__ import annotations
 
 import datetime
+import re as _re
 from typing import Any
 
 from django.contrib.auth.base_user import AbstractBaseUser
@@ -111,8 +112,6 @@ def quick_log(
 
 
 # ── ADIF import ───────────────────────────────────────────────────────────
-import re as _re
-
 _ADIF_TAG = _re.compile(r"<(\w+):(\d+)(?::[^>]*)?>", _re.IGNORECASE)
 
 
