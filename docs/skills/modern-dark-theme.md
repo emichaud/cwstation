@@ -285,6 +285,15 @@ Or, if you need a custom hero element that isn't `.page-header-bleed`, **use the
 
 ## Anti-patterns: things to never do
 
+### 0. Assuming your button class beats the base button styling in every state
+The base styles bare `<button>` (and its `:hover`) at **zero specificity** —
+the whole selector sits inside `:where()` — precisely so a single custom class
+wins in every state. If you ever see an accent-colored hover background appear
+under a custom button's text (low-contrast accent-on-accent), some rule is
+styling `button:hover` outside `:where()`; fix the rule, don't pile on
+defensive `!important`s.
+
+
 ### 1. Hard-coded hex colors
 ```html
 <!-- ❌ -->

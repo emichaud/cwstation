@@ -267,11 +267,16 @@ ul.pagination li.active span {
    provide more refined styling and should be preferred.
    -------------------------------------------------------------------------- */
 
-/* Buttons: use :where() for zero specificity so any class (.btn-primary,
-   .tab-btn, .filter-toggle, .crud-modal-btn-*, etc.) naturally overrides. */
-:where(.content-wrapper) button,
-:where(.content-wrapper) input[type="submit"],
-:where(.content-wrapper) input[type="button"] {
+/* Buttons: the ENTIRE selector goes inside :where() for true zero
+   specificity, so any single class (.btn-primary, .tab-btn, .filter-toggle,
+   .crud-modal-btn-*, a custom app's button class, etc.) overrides in EVERY
+   state. Previously only the wrapper was zeroed — `button:hover` still
+   carried (0,1,1), which outranked one-class (0,1,0) custom buttons on
+   hover and bled the --primary-hover fill under their custom text colors
+   (the downstream "gold-on-gold hover" bug). */
+:where(.content-wrapper button),
+:where(.content-wrapper input[type="submit"]),
+:where(.content-wrapper input[type="button"]) {
     background: var(--primary);
     color: var(--button-fg);
     padding: 0.5rem 1rem;
@@ -283,9 +288,9 @@ ul.pagination li.active span {
     transition: background 0.15s;
 }
 
-:where(.content-wrapper) button:hover,
-:where(.content-wrapper) input[type="submit"]:hover,
-:where(.content-wrapper) input[type="button"]:hover {
+:where(.content-wrapper button:hover),
+:where(.content-wrapper input[type="submit"]:hover),
+:where(.content-wrapper input[type="button"]:hover) {
     background: var(--primary-hover);
 }
 

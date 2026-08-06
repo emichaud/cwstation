@@ -9,6 +9,17 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+### Fixed
+- **Bare-button hover styling no longer outranks custom button classes.** The
+  base `button` / `input[type=submit|button]` rules put only the wrapper inside
+  `:where()`, so `button:hover` still carried (0,1,1) specificity — enough to
+  beat a downstream single-class button (0,1,0) on hover and slide the
+  `--primary-hover` background under its custom text color (low-contrast
+  accent-on-accent hovers). The entire selector now sits inside `:where()`
+  (true zero specificity, all states), matching the rule's stated intent.
+  Downstream apps that added defensive per-state `background` declarations can
+  keep or drop them; they are now redundant.
+
 ## [0.13.11] - 2026-07-29
 
 ### Added
