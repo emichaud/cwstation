@@ -194,6 +194,32 @@ html[data-theme="light"] body.cw-console .cw-rig-freq > .cw-mono:first-child {
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
 }
 
+/* ── state pinning for instrument buttons ────────────────────────────────
+   The framework styles bare <button> (and button:hover → --primary-hover
+   background) at specificity (0,1,1). Any custom button class here that
+   doesn't explicitly pin `background` in its :hover state inherits that
+   gold hover fill under our custom text colors — the gold-on-gold bug.
+   Every hover/active state below re-declares its surface at (0,2,0). ── */
+.cw-tab:hover { background: color-mix(in srgb, var(--body-fg) 5%, var(--card-bg)); }
+.cw-tab[aria-selected="true"]:hover { background: var(--primary); }
+.cw-ctrl:hover { background: color-mix(in srgb, var(--body-fg) 5%, var(--card-bg)); }
+.cw-ctrl[aria-pressed="true"]:hover {
+    background: color-mix(in srgb, var(--primary) 12%, var(--card-bg));
+}
+.cw-prosign:hover { background: color-mix(in srgb, var(--body-fg) 5%, var(--card-bg)); }
+.cw-palette-row:hover { background: transparent; }
+.cw-palette-row.active:hover {
+    background: color-mix(in srgb, var(--primary) 10%, var(--card-bg));
+}
+.cw-bank-del:hover { background: transparent; }
+.cw-bank-add:hover {
+    background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+.cw-txplay:hover { background: color-mix(in srgb, var(--body-fg) 5%, var(--card-bg)); }
+.cw-sheet-close:hover { background: transparent; }
+.cw-sendbar-btn:hover { background: var(--button-bg, var(--primary)); }
+.cw-heard-chip:hover { color: var(--body-fg); }
+
 /* ── badges ──────────────────────────────────────────────────────────── */
 .cw-badge {
     display: inline-block;
