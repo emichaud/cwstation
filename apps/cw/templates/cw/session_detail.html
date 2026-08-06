@@ -3,13 +3,14 @@
 
 {% block title %}Session · {{ object.text|truncatechars:24 }}{% endblock %}
 {% block breadcrumbs %}{% endblock %}
+{% block body_class %}cw-console{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'cw/cw.css' %}">
 {% endblock %}
 
 {% block page_header %}
-<div class="page-header-bleed page-header-with-actions" style="display: flex; align-items: flex-start; justify-content: space-between;">
+<div class="page-header-bleed page-header-with-actions">
     <div class="page-header-content">
         <h1>
             {% if object.direction == "tx" %}<span class="cw-badge cw-badge-tx">TX</span>{% else %}<span class="cw-badge cw-badge-rx">RX</span>{% endif %}

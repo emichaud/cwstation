@@ -3,14 +3,14 @@
 
 {% block title %}Live Tape{% endblock %}
 {% block breadcrumbs %}{% endblock %}
-{% block body_class %}cw-has-sendbar{% endblock %}
+{% block body_class %}cw-console cw-has-sendbar{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'cw/cw.css' %}">
 {% endblock %}
 
 {% block page_header %}
-<div class="page-header-bleed page-header-with-actions" style="display: flex; align-items: flex-start; justify-content: space-between;">
+<div class="page-header-bleed page-header-with-actions">
     <div class="page-header-content">
         <h1>Live Tape <span class="cw-live-pill" id="cw-live-pill" data-state="connecting">connecting…</span></h1>
         <p class="page-subtitle">Characters resolve on the tape the moment the decoder commits them off the air.</p>

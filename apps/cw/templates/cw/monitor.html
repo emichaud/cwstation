@@ -3,13 +3,14 @@
 
 {% block title %}CW Monitor{% endblock %}
 {% block breadcrumbs %}{% endblock %}
+{% block body_class %}cw-console{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'cw/cw.css' %}">
 {% endblock %}
 
 {% block page_header %}
-<div class="page-header-bleed page-header-with-actions" style="display: flex; align-items: flex-start; justify-content: space-between;">
+<div class="page-header-bleed page-header-with-actions">
     <div class="page-header-content">
         <h1>CW Monitor</h1>
         <p class="page-subtitle">The paper tape — keyed dits and dahs scroll past the now line; each letter resolves the instant the decoder commits it.</p>
@@ -18,6 +19,11 @@
             <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
             <span style="color: var(--body-fg);">CW Monitor</span>
         </nav>
+    </div>
+    <div class="cw-strip-leds">
+        <span class="cw-led"><b>{{ stats.total }}</b><span>sessions</span></span>
+        <span class="cw-led"><b>{{ stats.rx }}</b><span>rx</span></span>
+        <span class="cw-led"><b>{{ stats.best_wpm|floatformat:0 }}</b><span>best wpm</span></span>
     </div>
     <div style="display: flex; gap: 0.5rem; align-items: center;">
         <a href="{% url 'cw-decode' %}" class="btn-primary">Decode</a>
@@ -28,27 +34,6 @@
 {% endblock %}
 
 {% block content %}
-<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px;">
-    <div class="card">
-        <div class="card-body" style="text-align: center; padding: 14px 8px;">
-            <div style="font-size: 1.75rem; font-weight: 700; color: var(--primary);">{{ stats.total }}</div>
-            <div style="color: var(--body-quiet-color); font-size: 0.8rem;">Session{{ stats.total|pluralize }}</div>
-        </div>
-    </div>
-    <div class="card">
-        <div class="card-body" style="text-align: center; padding: 14px 8px;">
-            <div style="font-size: 1.75rem; font-weight: 700; color: var(--success-fg);">{{ stats.rx }}</div>
-            <div style="color: var(--body-quiet-color); font-size: 0.8rem;">Copied off the air</div>
-        </div>
-    </div>
-    <div class="card">
-        <div class="card-body" style="text-align: center; padding: 14px 8px;">
-            <div style="font-size: 1.75rem; font-weight: 700; color: var(--body-fg);">{{ stats.best_wpm|floatformat:0 }}</div>
-            <div style="color: var(--body-quiet-color); font-size: 0.8rem;">Best WPM</div>
-        </div>
-    </div>
-</div>
-
 {% if sessions %}
     <div class="cw-tabs" id="cw-tabs" role="tablist" aria-label="Decode sessions"></div>
     {% include "cw/_stage.html" %}
