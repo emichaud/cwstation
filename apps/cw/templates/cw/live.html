@@ -82,15 +82,10 @@ uv run python manage.py cw_monitor_live --stream {{ request.user.username }} --s
             context: { mycall: "{{ request.user.username|upper|escapejs }}", rst: "599" },
         });
 
-        initCWRigPanel({
-            url: "{% url 'cw-rig' %}",
-            onState: function (state) { sheet.rigReady(!!state.connected); },
-        });
-
         const pill = document.getElementById("cw-live-pill");
         const labels = { connecting: "connecting…", live: "● live", off: "feed offline — retrying" };
         const proto = location.protocol === "https:" ? "wss" : "ws";
-        initCWMonitor({
+        const mon = initCWMonitor({
             canvas: document.getElementById("cw-scope"),
             decodedEl: document.getElementById("cw-decoded"),
             truthEl: document.getElementById("cw-truth"),
@@ -98,6 +93,9 @@ uv run python manage.py cw_monitor_live --stream {{ request.user.username }} --s
             snrEl: document.getElementById("cw-g-snr"),
             toneEl: document.getElementById("cw-g-tone"),
             confEl: document.getElementById("cw-g-conf"),
+            rfEl: document.getElementById("cw-g-rf"),
+            rfWrapEl: document.getElementById("cw-g-rf-wrap"),
+            rfLabelEl: document.getElementById("cw-g-rf-label"),
             playBtn: document.getElementById("cw-play"),
             restartBtn: document.getElementById("cw-restart"),
             audioBtn: document.getElementById("cw-audio"),
@@ -113,6 +111,15 @@ uv run python manage.py cw_monitor_live --stream {{ request.user.username }} --s
                     pill.dataset.state = state;
                     pill.textContent = labels[state] || state;
                 },
+            },
+        });
+        mon.rfWrapEl = document.getElementById("cw-g-rf-wrap");
+
+        initCWRigPanel({
+            url: "{% url 'cw-rig' %}",
+            onState: function (state) {
+                sheet.rigReady(!!state.connected);
+                mon.setDial(state.connected ? state.freq_hz : null, state.mode);
             },
         });
     })();

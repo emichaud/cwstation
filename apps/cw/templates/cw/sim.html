@@ -82,7 +82,7 @@ uv run python manage.py cw_simulate --stream {{ request.user.username }} --serve
         const pill = document.getElementById("cw-live-pill");
         const labels = { connecting: "connecting…", live: "● live", off: "feed offline — retrying" };
         const proto = location.protocol === "https:" ? "wss" : "ws";
-        initCWMonitor({
+        const mon = initCWMonitor({
             canvas: document.getElementById("cw-scope"),
             decodedEl: document.getElementById("cw-decoded"),
             truthEl: document.getElementById("cw-truth"),
@@ -90,6 +90,9 @@ uv run python manage.py cw_simulate --stream {{ request.user.username }} --serve
             snrEl: document.getElementById("cw-g-snr"),
             toneEl: document.getElementById("cw-g-tone"),
             confEl: document.getElementById("cw-g-conf"),
+            rfEl: document.getElementById("cw-g-rf"),
+            rfWrapEl: document.getElementById("cw-g-rf-wrap"),
+            rfLabelEl: document.getElementById("cw-g-rf-label"),
             playBtn: document.getElementById("cw-play"),
             restartBtn: document.getElementById("cw-restart"),
             audioBtn: document.getElementById("cw-audio"),
@@ -107,7 +110,10 @@ uv run python manage.py cw_simulate --stream {{ request.user.username }} --serve
                 },
             },
         });
-
+        // Virtual VFO: no radio in the simulator, so park a pretend dial at
+        // 14.0500 USB — each station's RF = dial + its audio pitch, which is
+        // exactly how signals spread across a real band segment.
+        mon.setDial(14050000, "USB", true);
     })();
 </script>
 {% endblock %}

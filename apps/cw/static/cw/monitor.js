@@ -63,6 +63,35 @@ function initCWMonitor(opts) {
   let S, dur, t = 0, playing = false, rate = 1, last = 0, dpr = 1;
   let msgSpans = [];
 
+  // ── RF readout: rig dial + audio tone → the signal's actual frequency ─
+  // CW/CWR rigs display signal RF on the dial directly; in SSB/data modes
+  // the audio tone offsets the suppressed carrier.
+  let dial = null; // {hz, mode, virtual}
+
+  function signalRF() {
+    if (!dial || !S) return null;
+    const tone = (S.meta && S.meta.tone_hz) || 0;
+    const mode = (dial.mode || "").toUpperCase();
+    if (mode === "USB" || mode === "PKTUSB") return dial.hz + tone;
+    if (mode === "LSB" || mode === "PKTLSB") return dial.hz - tone;
+    return dial.hz; // CW/CWR: the dial already reads the signal's RF
+  }
+
+  function renderRF() {
+    if (!el.rfEl) return;
+    const rf = signalRF();
+    if (el.rfWrapEl) el.rfWrapEl.style.display = rf ? "" : "none";
+    if (rf) el.rfEl.textContent = (rf / 1e6).toFixed(4);
+    if (el.rfLabelEl && dial) {
+      el.rfLabelEl.textContent = dial.virtual ? "rf · virtual vfo" : "rf · " + (dial.mode || "");
+    }
+  }
+
+  function setDial(hz, mode, virtual) {
+    dial = hz ? { hz: hz, mode: mode, virtual: !!virtual } : null;
+    renderRF();
+  }
+
   // ── sidetone (WebAudio) ───────────────────────────────────────────────
   // The keying data comes from the decoder's key runs; this just sounds it.
   let audioOn = !!opts.audioStart, actx = null, oscGain = null, osc = null;
@@ -136,6 +165,7 @@ function initCWMonitor(opts) {
       [...el.tabsEl.children].forEach((b, k) => b.setAttribute("aria-selected", k === i));
     }
     if (el.messageEl) buildMessage();
+    renderRF();
     seek(0);
     if (reduce) { t = dur; render(); } else { play(true); }
   }
@@ -349,7 +379,7 @@ function initCWMonitor(opts) {
   function liveMerge(b) {
     if (b.meta) {
       if (b.meta.tone_hz && el.toneEl) el.toneEl.textContent = Math.round(b.meta.tone_hz);
-      if (b.meta.tone_hz) S.meta.tone_hz = b.meta.tone_hz;
+      if (b.meta.tone_hz) { S.meta.tone_hz = b.meta.tone_hz; renderRF(); }
       if (b.meta.calls) liveHeard(b.meta.calls);
     }
     if (b.env_t && b.env_t.length) { S.env_t.push(...b.env_t); S.env_mag.push(...b.env_mag); }
@@ -393,5 +423,6 @@ function initCWMonitor(opts) {
   resize();
   load(0);
   if (live) { liveConnect(); play(true); }
-  return { load, seek, play };
+  renderRF();
+  return { load, seek, play, setDial };
 }

@@ -134,6 +134,13 @@ The command mints its own short-lived API token for the stream and revokes it on
 exit; the Live page shows the exact command to run, pre-filled for your account. The
 status pill on the page tells you when the feed is connected.
 
+With a rig connected (or the dummy rig from Rig Setup), the tape's gauge cluster
+gains an **RF readout**: the dial read over CAT, corrected by the audio tone for the
+current mode (USB: dial + tone; LSB: dial − tone; CW: the dial already reads signal
+RF) — so as AFC re-locks between stations, you see each one's actual frequency. The
+Simulator shows the same gauge against a **virtual VFO** parked at 14.0500 USB, so
+simulated stations spread across a pretend band segment just like real ones.
+
 The Live page has the same **receiver controls** as the Simulator — input gain,
 squelch, and AFC steer the running monitor within half a second. And when the decoder
 identifies a station, its callsign appears under the tape in **Heard on the band**:
