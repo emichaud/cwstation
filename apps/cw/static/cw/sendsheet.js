@@ -35,6 +35,27 @@ function initCWSendSheet(opts) {
     if (!ready && rigCheck) rigCheck.checked = false;
   }
 
+  function quickLog(call, sessionId, row) {
+    const body = { call: call, session_id: sessionId, source: "reply" };
+    if (opts.rigState && opts.rigState().connected) body.freq_hz = opts.rigState().freq_hz;
+    fetch(opts.logUrl, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, d: j.data || j })))
+      .then(({ ok, d }) => {
+        if (!ok || !row) return;
+        const link = document.createElement("a");
+        link.href = d.qso.url;
+        link.textContent = "logged" + (d.worked_before ? " · worked ×" + d.worked_before : "");
+        link.title = "Open in the logbook";
+        row.insertBefore(link, row.lastChild);
+      })
+      .catch(() => {});
+  }
+
   function rigTransmit(data, row) {
     return fetch(opts.rig.txUrl, {
       method: "POST",
@@ -166,6 +187,10 @@ function initCWSendSheet(opts) {
           rigTransmit(data, logRow);  // the rig plays it — don't double-play locally
         } else {
           audio.play().catch(() => {});
+        }
+        if (context.call && opts.logUrl) {
+          // replying to a heard station IS a QSO — log it quietly
+          quickLog(context.call, data.id, logRow);
         }
         ta.value = "";
         replyBadge.style.display = "none";

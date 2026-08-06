@@ -42,6 +42,10 @@ class CwConfig(AppConfig):
             parent="CW Monitor", auth_required=True, order=4,
         )
         nav.register(
-            section="main", label="Rig Setup", url_name="cw-rig-setup",
+            section="main", label="Logbook", url_name="cw/log-list",
             parent="CW Monitor", auth_required=True, order=5,
+        )
+        nav.register(
+            section="main", label="Rig Setup", url_name="cw-rig-setup",
+            parent="CW Monitor", auth_required=True, order=6,
         )

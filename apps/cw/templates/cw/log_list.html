@@ -1,0 +1,120 @@
+{% extends "smallstack/base.html" %}
+{% load static theme_tags crud_tags %}
+
+{% block title %}Logbook{% endblock %}
+{% block breadcrumbs %}{% endblock %}
+{% block body_class %}cw-console{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'cw/cw.css' %}">
+{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions">
+    <div class="page-header-content">
+        <h1>Logbook</h1>
+    </div>
+    <div class="cw-strip-leds">
+        <span class="cw-led"><b>{{ log_stats.total }}</b><span>qsos</span></span>
+        <span class="cw-led"><b>{{ log_stats.calls }}</b><span>calls</span></span>
+    </div>
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <a href="{% url 'cw-log-adif' %}?q={{ request.GET.q|default:'' }}&band={{ active_band }}&mode={{ active_mode }}"
+           class="btn-tint" title="Download this view as ADIF (UTC times)">↓ ADIF</a>
+        {% if create_view_url %}<a href="{{ create_view_url }}" class="btn-primary">+ QSO</a>{% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+{% if log_bands or log_modes %}
+<div class="cw-prosigns" style="margin-bottom: 12px;" aria-label="Filters">
+    <a href="?" class="cw-prosign{% if not active_band and not active_mode %} picked{% endif %}"
+       style="text-decoration: none;">all</a>
+    {% for b in log_bands %}
+    <a href="?band={{ b }}" class="cw-prosign{% if active_band == b %} picked{% endif %}"
+       style="text-decoration: none;">{{ b }}</a>
+    {% endfor %}
+    {% for m in log_modes %}
+    <a href="?mode={{ m }}" class="cw-prosign{% if active_mode == m %} picked{% endif %}"
+       style="text-decoration: none;">{{ m }}</a>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="card" id="crud-content">
+    <div class="card-body">
+        {% include "smallstack/crud/includes/list_toolbar.html" %}
+        <div id="crud-list-content">
+            {% include "smallstack/crud/object_list_content.html" %}
+        </div>
+        {% if not log_stats.total %}
+        <p style="color: var(--body-quiet-color); text-align: center; padding: 20px 0 8px;">
+            Nothing logged yet. QSOs land here when you key a reply to a heard station,
+            hit <b>log</b> on a session's callsigns, or add one by hand.
+        </p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card" style="margin-top: 14px; max-width: 620px;">
+    <details>
+        <summary class="card-header" style="cursor: pointer; list-style: none;">
+            <h2 style="display: inline;">Callbook — QRZ.com</h2>
+            <span style="color: var(--text-muted); font-size: 0.75rem;" id="qrz-state">…</span>
+        </summary>
+        <div class="card-body">
+            <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
+                With a QRZ XML subscription, quick-logged calls fill name/QTH/grid/country
+                automatically. Without one, every call still links to its QRZ page.
+                Credentials are stored on this instance.
+            </p>
+            <div class="cw-bank-row" style="grid-template-columns: 1fr 1fr auto;">
+                <input type="text" id="qrz-user" class="cw-bank-text cw-mono" placeholder="QRZ username" autocomplete="off">
+                <input type="password" id="qrz-pass" class="cw-bank-text cw-mono" placeholder="password" autocomplete="new-password">
+                <button type="button" class="btn-tint" id="qrz-save">Save &amp; test</button>
+            </div>
+            <div id="qrz-result" style="font-size: 0.8rem; margin-top: 8px; color: var(--body-quiet-color);"></div>
+        </div>
+    </details>
+</div>
+
+{% include "smallstack/crud/includes/delete_modal.html" %}
+
+<script>
+    (function () {
+        const URL = "{% url 'cw-log-qrz' %}";
+        function state(msg) { document.getElementById("qrz-state").textContent = msg; }
+        fetch(URL, { credentials: "same-origin" })
+            .then((r) => r.json())
+            .then((j) => {
+                const d = j.data || j;
+                state(d.configured ? "— linked as " + d.username : "— not configured");
+                if (d.username) document.getElementById("qrz-user").value = d.username;
+            });
+        document.getElementById("qrz-save").addEventListener("click", function () {
+            const out = document.getElementById("qrz-result");
+            out.textContent = "testing…";
+            fetch(URL, {
+                method: "POST",
+                credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username: document.getElementById("qrz-user").value,
+                    password: document.getElementById("qrz-pass").value,
+                    test_call: "W1AW",
+                }),
+            })
+                .then((r) => r.json().then((j) => ({ ok: r.ok, d: j.data || j })))
+                .then(({ ok, d }) => {
+                    if (!ok) { out.textContent = "✗ " + (d.error || "failed"); return; }
+                    const t = d.test || {};
+                    out.textContent = t.name
+                        ? "✓ works — W1AW is " + t.name + (t.qth ? ", " + t.qth : "")
+                        : "✓ credentials accepted";
+                    state("— linked");
+                });
+        });
+    })();
+</script>
+{% endblock %}

@@ -151,6 +151,28 @@ Radio-side tips: tune the signal so its note sits at one steady pitch (the narro
 filter helps), and prefer slow AGC — the decoder rides through fading, but heavily
 pumped audio is hard for anything to copy.
 
+## The logbook
+
+The station logs contacts the way it does everything else — quietly, from the flow:
+
+- **Keying a reply logs it.** Answer a "Heard on the band" chip and hit *Key it* —
+  the QSO is logged automatically (the sent-log row grows a *logged* link, with a
+  `worked ×N` note if you've had them before).
+- **`+log` on any session.** Every callsign badge on a session page has a small
+  `+log` action; the QSO links back to that session's tape.
+- **Smart prefill.** A logged QSO inherits its session's mode (a PSK31 tap session
+  logs as PSK31), takes the rig's frequency when one is connected (band derived
+  automatically — 14.055 → 20m), and fills name/QTH/grid/country from your own
+  history with that call, or from **QRZ.com** if you've linked an XML subscription
+  in the Callbook card (every call links to its QRZ page regardless, no account
+  needed).
+- **ADIF export.** The **↓ ADIF** button downloads the log — respecting whatever
+  search/band/mode filter you're looking at — with dates and times in UTC per the
+  ADIF spec, ready for LoTW/eQSL/contest robots.
+- **Search.** QSOs and sessions are both in the global search (⌘K): a callsign,
+  a name, a QTH, or words from your copy all find their records — your own only.
+  On the Logbook page, band and mode chips narrow the list one click at a time.
+
 ## PSK31 and other digital modes — the fldigi tap
 
 The station isn't CW-only: if you run **fldigi** (the standard sound-card

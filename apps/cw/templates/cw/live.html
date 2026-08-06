@@ -75,10 +75,13 @@ uv run python manage.py cw_monitor_live --stream {{ request.user.username }} --s
 <script src="{% static 'cw/rigpanel.js' %}"></script>
 <script>
     (function () {
+        let rigState = null;
         const sheet = initCWSendSheet({
             sendUrl: "{% url 'cw-send' %}",
             macrosUrl: "{% url 'cw-macros' %}",
+            logUrl: "{% url 'cw-log-quick' %}",
             rig: { txUrl: "{% url 'cw-rig-tx' %}" },
+            rigState: function () { return rigState || {}; },
             context: { mycall: "{{ request.user.username|upper|escapejs }}", rst: "599" },
         });
 
@@ -125,6 +128,7 @@ uv run python manage.py cw_monitor_live --stream {{ request.user.username }} --s
         initCWRigPanel({
             url: "{% url 'cw-rig' %}",
             onState: function (state) {
+                rigState = state;
                 sheet.rigReady(!!state.connected);
                 mon.setDial(state.connected ? state.freq_hz : null, state.mode);
             },

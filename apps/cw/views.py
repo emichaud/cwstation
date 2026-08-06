@@ -18,7 +18,7 @@ from apps.smallstack.crud import Action, CRUDView
 
 from . import services
 from .forms import PracticeDecodeForm, RecordingDecodeForm, SendForm
-from .models import CWSession
+from .models import QSO, CWSession
 
 
 def _render_direction(value: str, obj: CWSession) -> SafeString:
@@ -98,6 +98,126 @@ class CWSessionCRUDView(CRUDView):
                 session: CWSession = self.object
                 context["telemetry_json"] = json.dumps(session.telemetry or {})
                 context["is_tx"] = session.direction == CWSession.Direction.SENT
+                return context
+
+            view_class.get_context_data = get_context_data
+
+        return view_class
+
+
+def _render_qso_call(value: str, obj: QSO) -> SafeString:
+    return format_html(
+        '<span class="cw-mono" style="font-weight: 700;">{}</span> '
+        '<a href="{}" target="_blank" rel="noopener" title="QRZ.com" '
+        'style="color: var(--text-muted); font-size: 0.7rem; text-decoration: none;">qrz↗</a>',
+        value, obj.qrz_url,
+    )
+
+
+def _render_qso_when(value: object, obj: QSO) -> str:
+    return obj.when.strftime("%Y-%m-%d %H:%M")
+
+
+def _render_qso_freq(value: object, obj: QSO) -> SafeString:
+    band = obj.band or "—"
+    freq = f" · {obj.freq_mhz:.4f}" if obj.freq_mhz else ""
+    return format_html('<span class="cw-mono">{}{}</span>', band, freq)
+
+
+def _render_qso_session(value: object, obj: QSO) -> SafeString:
+    if obj.session_id is None:
+        return mark_safe('<span style="color: var(--body-quiet-color);">—</span>')
+    return format_html(
+        '<a href="{}" title="Replay the tape" style="color: var(--link-color);">tape #{}</a>',
+        obj.session.get_absolute_url(), obj.session_id,
+    )
+
+
+class LogbookCRUDView(CRUDView):
+    model = QSO
+    fields = [
+        "call", "when", "freq_mhz", "mode", "rst_sent", "rst_rcvd",
+        "name", "qth", "gridsquare", "country", "comment",
+    ]
+    url_base = "cw/log"
+    paginate_by = 15
+    mixins = [LoginRequiredMixin]
+    actions = [Action.LIST, Action.CREATE, Action.UPDATE, Action.DELETE]
+
+    list_fields = ["call", "when", "freq_mhz", "mode", "rst_sent", "rst_rcvd", "name", "session"]
+    link_field = "call"
+    field_transforms = {
+        "call": _render_qso_call,
+        "when": _render_qso_when,
+        "freq_mhz": _render_qso_freq,
+        "session": _render_qso_session,
+    }
+
+    enable_search = True
+    search_fields = ["call", "name", "qth", "country", "comment"]
+    search_display = "call"
+    search_subtitle = "name"
+    search_access = SearchAccess.AUTHENTICATED
+    search_visibility = staticmethod(lambda qs, user: qs.filter(user=user))
+
+    @classmethod
+    def get_list_queryset(cls, qs: QuerySet[QSO], request: HttpRequest) -> QuerySet[QSO]:
+        qs = qs.filter(user=request.user).select_related("session")
+        band = (request.GET.get("band") or "").strip()
+        if band:
+            qs = qs.filter(band=band)
+        mode = (request.GET.get("mode") or "").strip()
+        if mode:
+            qs = qs.filter(mode=mode)
+        return qs
+
+    @classmethod
+    def on_form_valid(cls, request: HttpRequest, form: Any, obj: QSO, is_create: bool = False) -> None:
+        obj.user = request.user
+        obj.call = obj.call.upper()
+        from .logbook import band_for_freq
+
+        obj.band = band_for_freq(obj.freq_mhz)
+        obj.save()
+
+    @classmethod
+    def _get_template_names(cls, suffix: str) -> list[str]:
+        if suffix == "list":
+            return ["cw/log_list.html"]
+        return super()._get_template_names(suffix)
+
+    @classmethod
+    def _make_view(cls, base_class: type) -> type:
+        from apps.smallstack.crud import _CRUDDeleteBase, _CRUDListBase, _CRUDUpdateBase
+
+        view_class = super()._make_view(base_class)
+
+        if base_class in (_CRUDUpdateBase, _CRUDDeleteBase):
+
+            def get_queryset(self) -> QuerySet[QSO]:
+                return QSO.objects.filter(user=self.request.user)
+
+            view_class.get_queryset = get_queryset
+
+        if base_class is _CRUDListBase:
+
+            def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+                context = super(view_class, self).get_context_data(**kwargs)
+                mine = QSO.objects.filter(user=self.request.user)
+                context["log_stats"] = {
+                    "total": mine.count(),
+                    "calls": mine.values("call").distinct().count(),
+                }
+                # .order_by() clears Meta.ordering, which otherwise rides into
+                # the DISTINCT and duplicates every chip
+                context["log_bands"] = list(
+                    mine.exclude(band="").order_by("band").values_list("band", flat=True).distinct()
+                )
+                context["log_modes"] = list(
+                    mine.order_by("mode").values_list("mode", flat=True).distinct()
+                )
+                context["active_band"] = self.request.GET.get("band", "")
+                context["active_mode"] = self.request.GET.get("mode", "")
                 return context
 
             view_class.get_context_data = get_context_data

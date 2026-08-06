@@ -2,11 +2,23 @@ from __future__ import annotations
 
 from django.urls import path
 
-from .api import live_ingest, macros, rig, rig_daemon, rig_setup_data, rig_tx, sim_control
+from .api import (
+    live_ingest,
+    log_adif,
+    log_quick,
+    macros,
+    qrz_config,
+    rig,
+    rig_daemon,
+    rig_setup_data,
+    rig_tx,
+    sim_control,
+)
 from .views import (
     CWSessionCRUDView,
     DecodeView,
     LiveView,
+    LogbookCRUDView,
     MonitorView,
     RigSetupView,
     SendView,
@@ -21,6 +33,10 @@ urlpatterns = [
     path("cw/sim/", SimulatorView.as_view(), name="cw-sim"),
     path("cw/sim/control/", sim_control, name="cw-sim-control"),
     path("cw/macros/", macros, name="cw-macros"),
+    path("cw/log/quick/", log_quick, name="cw-log-quick"),
+    path("cw/log/adif/", log_adif, name="cw-log-adif"),
+    path("cw/log/qrz/", qrz_config, name="cw-log-qrz"),
+    *LogbookCRUDView.get_urls(),
     path("cw/rig/", rig, name="cw-rig"),
     path("cw/rig/tx/", rig_tx, name="cw-rig-tx"),
     path("cw/rig/setup/", RigSetupView.as_view(), name="cw-rig-setup"),

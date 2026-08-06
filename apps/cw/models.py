@@ -5,6 +5,7 @@ from typing import Any
 from django.conf import settings
 from django.db import models
 from django.urls import reverse
+from django.utils.timezone import now as django_timezone_now
 
 
 class CWSession(models.Model):
@@ -165,6 +166,74 @@ class CWMacro(models.Model):
             cls(user=user, name=name, text=text, order=i)
             for i, (name, text) in enumerate(DEFAULT_MACROS)
         )
+
+
+class QSO(models.Model):
+    """One logged contact.
+
+    QSOs stay linked to the session they were copied/keyed in, so every log
+    row can replay its tape. Callbook fields (name/QTH/grid/country) fill
+    from QRZ when the operator has credentials, else stay editable by hand.
+    Times are stored aware and exported in UTC — the ADIF convention.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="qsos"
+    )
+    call = models.CharField(max_length=20, db_index=True)
+    when = models.DateTimeField(default=django_timezone_now)
+    freq_mhz = models.FloatField(null=True, blank=True)
+    band = models.CharField(max_length=8, blank=True)
+    mode = models.CharField(max_length=12, default="CW")
+    rst_sent = models.CharField(max_length=8, blank=True, default="599")
+    rst_rcvd = models.CharField(max_length=8, blank=True)
+    name = models.CharField(max_length=120, blank=True)
+    qth = models.CharField(max_length=120, blank=True)
+    gridsquare = models.CharField(max_length=8, blank=True)
+    country = models.CharField(max_length=64, blank=True)
+    comment = models.TextField(blank=True)
+    session = models.ForeignKey(
+        CWSession, null=True, blank=True, on_delete=models.SET_NULL, related_name="qsos"
+    )
+    source = models.CharField(
+        max_length=8, default="manual",
+        choices=[("manual", "Manual"), ("session", "From session"), ("reply", "On-air reply")],
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-when"]
+        verbose_name = "QSO"
+        verbose_name_plural = "QSOs"
+
+    def __str__(self) -> str:
+        return f"{self.call} · {self.when:%Y-%m-%d %H:%M} · {self.mode}"
+
+    def get_absolute_url(self) -> str:
+        return reverse("cw/log-update", args=[self.pk])
+
+    @property
+    def qrz_url(self) -> str:
+        return f"https://www.qrz.com/db/{self.call}"
+
+
+class QRZProfile(models.Model):
+    """QRZ.com XML-API credentials (requires a QRZ XML subscription).
+
+    Stored per operator on this self-hosted instance, like the rig config.
+    The session key is cached and refreshed on timeout.
+    """
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="qrz_profile"
+    )
+    username = models.CharField(max_length=64, blank=True)
+    password = models.CharField(max_length=128, blank=True)
+    session_key = models.CharField(max_length=64, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"QRZ credentials for {self.user}"
 
 
 class CWSimControl(models.Model):

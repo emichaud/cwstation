@@ -11,7 +11,7 @@ from django.http import HttpRequest
 from apps.smallstack.api import api_error, api_view
 
 from .consumers import live_group_name
-from .models import CWMacro, CWRig, CWSession, CWSimControl
+from .models import QSO, CWMacro, CWRig, CWSession, CWSimControl, QRZProfile
 from .rigctl import RigctldClient, RigError
 
 MACRO_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,23}$")
@@ -161,6 +161,110 @@ def rig_tx(request: HttpRequest) -> dict[str, Any] | Any:
         return transmit.transmit_session(config, session)
     except RigError as e:
         return api_error(str(e), 409)
+
+
+def _qso_dict(q: QSO) -> dict[str, Any]:
+    return {
+        "id": q.pk, "call": q.call, "when": q.when.isoformat(), "mode": q.mode,
+        "band": q.band, "freq_mhz": q.freq_mhz, "name": q.name, "qth": q.qth,
+        "url": q.get_absolute_url(), "qrz_url": q.qrz_url,
+    }
+
+
+@api_view(methods=["POST"], require_auth=True)
+def log_quick(request: HttpRequest) -> dict[str, Any] | Any:
+    """Log a heard/worked callsign with everything the station knows:
+    session link, session's mode, rig RF, and history/QRZ prefill."""
+    from . import logbook
+
+    data = request.json
+    if not isinstance(data, dict) or not data.get("call"):
+        return api_error("call is required", 400)
+    call = str(data["call"]).strip().upper()
+    from .engine.bridge import CALLSIGN_RE
+
+    if not CALLSIGN_RE.fullmatch(call):
+        return api_error(f"{call!r} doesn't look like a callsign", 400)
+
+    session = None
+    if data.get("session_id"):
+        session = CWSession.objects.filter(user=request.user, pk=data["session_id"]).first()
+    freq_hz = data.get("freq_hz") or None
+    qso = logbook.quick_log(
+        request.user, call,
+        session=session,
+        freq_hz=float(freq_hz) if freq_hz else None,
+        source=str(data.get("source") or "session"),
+    )
+    return {
+        "qso": _qso_dict(qso),
+        "worked_before": logbook.worked_before(request.user, call).exclude(pk=qso.pk).count(),
+    }
+
+
+def _filtered_qsos(request: HttpRequest):
+    from django.db.models import Q
+
+    qs = QSO.objects.filter(user=request.user)
+    q = (request.GET.get("q") or "").strip()
+    if q:
+        qs = qs.filter(
+            Q(call__icontains=q) | Q(name__icontains=q)
+            | Q(qth__icontains=q) | Q(comment__icontains=q)
+        )
+    band = (request.GET.get("band") or "").strip()
+    if band:
+        qs = qs.filter(band=band)
+    mode = (request.GET.get("mode") or "").strip()
+    if mode:
+        qs = qs.filter(mode=mode)
+    return qs
+
+
+@api_view(methods=["GET"], require_auth=True)
+def log_adif(request: HttpRequest) -> Any:
+    """Download the log (respecting the current search/band/mode filters)
+    as an ADIF file — dates and times in UTC per the spec."""
+    from django.http import HttpResponse
+
+    from . import logbook
+
+    adif = logbook.adif_export(
+        _filtered_qsos(request), station_call=request.user.username.upper()
+    )
+    response = HttpResponse(adif, content_type="text/plain; charset=utf-8")
+    response["Content-Disposition"] = 'attachment; filename="cw-station-log.adi"'
+    return response
+
+
+@api_view(methods=["GET", "POST"], require_auth=True)
+def qrz_config(request: HttpRequest) -> dict[str, Any] | Any:
+    """QRZ XML-API credentials. POST {username, password} saves;
+    POST {test_call} additionally runs a live lookup to prove them."""
+    profile, _ = QRZProfile.objects.get_or_create(user=request.user)
+    if request.method == "POST":
+        data = request.json
+        if not isinstance(data, dict):
+            return api_error("Expected a JSON object", 400)
+        if "username" in data:
+            profile.username = str(data["username"]).strip()
+        if "password" in data and data["password"]:
+            profile.password = str(data["password"])
+        profile.session_key = ""  # force re-auth with new credentials
+        profile.save()
+        if data.get("test_call"):
+            from .qrz import QRZError, authenticate, lookup
+
+            try:
+                key = authenticate(profile.username, profile.password)
+                profile.session_key = key
+                profile.save(update_fields=["session_key", "updated_at"])
+                info = lookup(key, str(data["test_call"]).strip().upper())
+                return {"configured": True, "test": info or {"error": "call not found"}}
+            except QRZError as e:
+                return api_error(str(e), 502)
+    return {"configured": bool(profile.username and profile.password),
+            "username": profile.username}
 
 
 @api_view(methods=["GET"], require_auth=True)

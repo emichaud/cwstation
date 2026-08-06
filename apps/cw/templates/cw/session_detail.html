@@ -57,8 +57,32 @@
         {% if object.callsigns %}
         <div style="margin-top: 14px;">
             <span class="cw-lab" style="display: inline;">Callsigns heard&nbsp;</span>
-            {% for call in object.callsigns %}<span class="cw-badge cw-badge-call">{{ call }}</span> {% endfor %}
+            {% for call in object.callsigns %}<span class="cw-badge cw-badge-call">{{ call }}
+                <button type="button" class="cw-loglink" data-call="{{ call }}" title="Log this QSO">+log</button></span>
+            {% endfor %}
         </div>
+        <script>
+            document.querySelectorAll(".cw-loglink").forEach(function (btn) {
+                btn.addEventListener("click", function () {
+                    btn.disabled = true;
+                    fetch("{% url 'cw-log-quick' %}", {
+                        method: "POST",
+                        credentials: "same-origin",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ call: btn.dataset.call, session_id: {{ object.pk }} }),
+                    })
+                        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, d: j.data || j }; }); })
+                        .then(function ({ ok, d }) {
+                            if (!ok) { btn.textContent = "✗"; return; }
+                            const link = document.createElement("a");
+                            link.href = d.qso.url;
+                            link.className = "cw-loglink";
+                            link.textContent = "→ log" + (d.worked_before ? " ×" + (d.worked_before + 1) : "");
+                            btn.replaceWith(link);
+                        });
+                });
+            });
+        </script>
         {% endif %}
         {% if object.has_audio %}
         <div class="cw-audio-row" style="margin-top: 18px;">

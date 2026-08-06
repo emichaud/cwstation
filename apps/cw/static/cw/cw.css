@@ -954,6 +954,21 @@ html[data-theme="light"] body.cw-console .cw-rig-freq > .cw-mono:first-child {
 }
 .cw-copy .lowconf { color: var(--error-fg); }
 
+/* the quiet +log affordance on callsign badges */
+.cw-loglink {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--link-color);
+    font-size: 0.68rem;
+    font-family: inherit;
+    cursor: pointer;
+    padding: 0 2px;
+    text-decoration: none;
+}
+.cw-loglink:hover { background: transparent; color: var(--primary); }
+.cw-loglink:disabled { color: var(--text-muted); }
+
 /* audio player row */
 .cw-audio-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .cw-audio-row audio { flex: 1; min-width: 240px; height: 40px; }

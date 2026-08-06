@@ -76,6 +76,7 @@ uv run python manage.py cw_simulate --stream {{ request.user.username }} --serve
         const sheet = initCWSendSheet({
             sendUrl: "{% url 'cw-send' %}",
             macrosUrl: "{% url 'cw-macros' %}",
+            logUrl: "{% url 'cw-log-quick' %}",
             context: { mycall: "{{ request.user.username|upper|escapejs }}", rst: "599" },
         });
 
