@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import datetime
+
 from django import forms
+from django.utils import timezone as djtz
+
+from .models import QSO
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024  # 30 MB — a half-hour practice MP3 fits
 
@@ -38,6 +43,41 @@ class RecordingDecodeForm(forms.Form):
         if f.size > MAX_UPLOAD_BYTES:
             raise forms.ValidationError("File too large (30 MB max).")
         return f
+
+
+class QSOForm(forms.ModelForm):
+    """The logbook line as a form. Times are entered and displayed in UTC —
+    the ham convention and what the ADIF export writes — regardless of the
+    server's TIME_ZONE."""
+
+    when = forms.DateTimeField(
+        input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"],
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local", "step": 60}),
+        label="Time · UTC",
+    )
+
+    class Meta:
+        model = QSO
+        fields = [
+            "call", "when", "freq_mhz", "mode", "rst_sent", "rst_rcvd",
+            "name", "qth", "gridsquare", "country", "comment",
+        ]
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)
+        instance: QSO | None = kwargs.get("instance")  # type: ignore[assignment]
+        when = instance.when if instance and instance.pk else djtz.now()
+        self.initial["when"] = when.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M")
+
+    def clean_when(self) -> datetime.datetime:
+        value = self.cleaned_data["when"]
+        # Django parsed the naive input in the server TZ; the operator typed
+        # UTC — keep the wall time, swap the zone.
+        wall = djtz.localtime(value) if djtz.is_aware(value) else value
+        return wall.replace(tzinfo=datetime.timezone.utc)
+
+    def clean_call(self) -> str:
+        return self.cleaned_data["call"].strip().upper()
 
 
 class SendForm(forms.Form):

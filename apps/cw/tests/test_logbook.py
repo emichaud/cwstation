@@ -246,6 +246,42 @@ class TestSearchIntegration:
         assert len(hits) == 1
 
 
+class TestQSOFormAndLookup:
+    def test_form_pages_render_custom_template(self, client_logged, user):
+        content = client_logged.get(reverse("cw/log-create")).content.decode()
+        assert 'id="qso-form"' in content
+        assert "cw-call-input" in content
+        assert "cw-mode-chip" in content
+        qso = QSO.objects.create(user=user, call="W1AW")
+        content = client_logged.get(reverse("cw/log-update", args=[qso.pk])).content.decode()
+        assert "QSO · W1AW" in content
+
+    def test_create_parses_utc_time(self, client_logged, user):
+        response = client_logged.post(reverse("cw/log-create"), {
+            "call": "k5tr", "when": "2026-08-06T14:30", "freq_mhz": "14.055",
+            "mode": "CW", "rst_sent": "599", "rst_rcvd": "579",
+            "name": "", "qth": "", "gridsquare": "", "country": "", "comment": "",
+        })
+        assert response.status_code in (302, 200), response.status_code
+        qso = QSO.objects.get(user=user)
+        assert qso.call == "K5TR"  # uppercased by the form
+        assert qso.when.astimezone(datetime.timezone.utc).hour == 14  # entered AS UTC
+        assert qso.band == "20m"  # derived on save
+
+    def test_lookup_endpoint_history_shape(self, client_logged, user):
+        QSO.objects.create(user=user, call="W1AW", name="Hiram", qth="Newington")
+        payload = client_logged.get(reverse("cw-log-lookup") + "?call=W1AW").json()
+        d = payload.get("data") or payload
+        assert d["worked"] == 1
+        assert d["last"]["name"] == "Hiram"
+
+    def test_lookup_rejects_junk(self, client_logged):
+        assert client_logged.get(reverse("cw-log-lookup") + "?call=nope!").status_code == 400
+
+    def test_lookup_requires_auth(self, client):
+        assert client.get(reverse("cw-log-lookup") + "?call=W1AW").status_code == 401
+
+
 class TestLogbookPage:
     def test_requires_login(self, client):
         assert client.get(reverse("cw/log-list")).status_code == 302

@@ -1,0 +1,157 @@
+{% extends "smallstack/base.html" %}
+{% load static theme_tags %}
+
+{% block title %}{% if object %}Edit {{ object.call }}{% else %}Log a QSO{% endif %}{% endblock %}
+{% block breadcrumbs %}{% endblock %}
+{% block body_class %}cw-console{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'cw/cw.css' %}">
+{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions">
+    <div class="page-header-content">
+        <h1>{% if object %}QSO · {{ object.call }}{% else %}Log a QSO{% endif %}</h1>
+        <span class="cw-lookup-status" id="qso-lookup" aria-live="polite"></span>
+    </div>
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+        {% if object %}
+        <a href="{{ object.qrz_url }}" target="_blank" rel="noopener" class="btn-tint">QRZ ↗</a>
+        {% if object.session_id %}<a href="{{ object.session.get_absolute_url }}" class="btn-tint">Tape #{{ object.session_id }}</a>{% endif %}
+        <a href="{% url 'cw/log-delete' object.pk %}" class="btn-tint" style="color: var(--error-fg);">Delete</a>
+        {% endif %}
+        <a href="{% url 'cw/log-list' %}" class="btn-tint">Logbook</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<form method="post" class="cw-qso-form" id="qso-form">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="cw-errors">{{ form.non_field_errors|join:" " }}</div>{% endif %}
+
+    <div class="cw-qso-grid">
+        {# ── THE CONTACT LINE ── #}
+        <div class="card cw-qso-contact">
+            <div class="card-header"><h2>Contact</h2></div>
+            <div class="card-body">
+                <div class="cw-qso-row">
+                    <div class="cw-field cw-qso-callwrap">
+                        <label for="{{ form.call.id_for_label }}">Callsign</label>
+                        <input type="text" name="call" id="{{ form.call.id_for_label }}"
+                               class="cw-call-input cw-mono" value="{{ form.call.value|default:'' }}"
+                               placeholder="W1AW" autocomplete="off" spellcheck="false" autofocus>
+                        {% if form.call.errors %}<div class="cw-errors">{{ form.call.errors|join:" " }}</div>{% endif %}
+                    </div>
+                    <div class="cw-field">
+                        <label>RST <span style="color: var(--text-muted);">sent ⁄ rcvd</span></label>
+                        <div class="cw-qso-rstpair">
+                            <input type="text" name="rst_sent" value="{{ form.rst_sent.value|default:'599' }}"
+                                   class="cw-bank-text cw-mono" maxlength="3" inputmode="numeric" aria-label="RST sent">
+                            <span>⁄</span>
+                            <input type="text" name="rst_rcvd" value="{{ form.rst_rcvd.value|default:'' }}"
+                                   class="cw-bank-text cw-mono" maxlength="3" inputmode="numeric"
+                                   placeholder="—" aria-label="RST received">
+                        </div>
+                        <div class="cw-prosigns" style="margin-top: 6px;">
+                            <button type="button" class="cw-prosign cw-rst-chip" data-rst="599">599</button>
+                            <button type="button" class="cw-prosign cw-rst-chip" data-rst="579">579</button>
+                            <button type="button" class="cw-prosign cw-rst-chip" data-rst="559">559</button>
+                        </div>
+                    </div>
+                    <div class="cw-field">
+                        <label for="{{ form.when.id_for_label }}">{{ form.when.label }}
+                            <button type="button" class="cw-prosign" id="qso-now" style="margin-left: 6px;">now</button>
+                        </label>
+                        {{ form.when }}
+                        {% if form.when.errors %}<div class="cw-errors">{{ form.when.errors|join:" " }}</div>{% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# ── RIG ── #}
+        <div class="card">
+            <div class="card-header"><h2>Rig</h2></div>
+            <div class="card-body">
+                <div class="cw-qso-row">
+                    <div class="cw-field">
+                        <label for="{{ form.freq_mhz.id_for_label }}">Frequency · MHz
+                            <b class="cw-log-band" id="qso-band" style="display: none; margin-left: 6px;"></b>
+                        </label>
+                        <input type="text" name="freq_mhz" id="{{ form.freq_mhz.id_for_label }}"
+                               class="cw-bank-text cw-mono" inputmode="decimal"
+                               value="{{ form.freq_mhz.value|default:'' }}" placeholder="14.0550">
+                        {% if form.freq_mhz.errors %}<div class="cw-errors">{{ form.freq_mhz.errors|join:" " }}</div>{% endif %}
+                    </div>
+                    <div class="cw-field" style="flex: 1;">
+                        <label for="{{ form.mode.id_for_label }}">Mode</label>
+                        <div class="cw-qso-modes">
+                            <input type="text" name="mode" id="{{ form.mode.id_for_label }}"
+                                   class="cw-bank-text cw-mono" value="{{ form.mode.value|default:'CW' }}"
+                                   maxlength="12" style="width: 90px;">
+                            <button type="button" class="cw-prosign cw-mode-chip" data-mode="CW">CW</button>
+                            <button type="button" class="cw-prosign cw-mode-chip" data-mode="PSK31">PSK31</button>
+                            <button type="button" class="cw-prosign cw-mode-chip" data-mode="RTTY">RTTY</button>
+                            <button type="button" class="cw-prosign cw-mode-chip" data-mode="SSB">SSB</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# ── STATION (auto-fills from history / QRZ on callsign blur) ── #}
+        <div class="card">
+            <div class="card-header"><h2>Station</h2></div>
+            <div class="card-body">
+                <div class="cw-qso-row">
+                    <div class="cw-field" style="flex: 1.4;">
+                        <label for="{{ form.name.id_for_label }}">Operator</label>
+                        <input type="text" name="name" id="{{ form.name.id_for_label }}"
+                               class="cw-bank-text" value="{{ form.name.value|default:'' }}" placeholder="—">
+                    </div>
+                    <div class="cw-field" style="flex: 1.4;">
+                        <label for="{{ form.qth.id_for_label }}">QTH</label>
+                        <input type="text" name="qth" id="{{ form.qth.id_for_label }}"
+                               class="cw-bank-text" value="{{ form.qth.value|default:'' }}" placeholder="—">
+                    </div>
+                    <div class="cw-field" style="flex: 0.7;">
+                        <label for="{{ form.gridsquare.id_for_label }}">Grid</label>
+                        <input type="text" name="gridsquare" id="{{ form.gridsquare.id_for_label }}"
+                               class="cw-bank-text cw-mono" value="{{ form.gridsquare.value|default:'' }}"
+                               maxlength="8" placeholder="FN31">
+                    </div>
+                    <div class="cw-field" style="flex: 1;">
+                        <label for="{{ form.country.id_for_label }}">Country</label>
+                        <input type="text" name="country" id="{{ form.country.id_for_label }}"
+                               class="cw-bank-text" value="{{ form.country.value|default:'' }}" placeholder="—">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# ── NOTES ── #}
+        <div class="card">
+            <div class="card-header"><h2>Notes</h2></div>
+            <div class="card-body">
+                <textarea name="comment" rows="2" class="cw-bank-text" style="width: 100%; resize: vertical;"
+                          placeholder="Anything worth remembering about this one…">{{ form.comment.value|default:'' }}</textarea>
+            </div>
+        </div>
+    </div>
+
+    <div class="cw-qso-footer">
+        <button type="submit" class="btn-primary">{% if object %}Save changes{% else %}Log it{% endif %}</button>
+        <a href="{% url 'cw/log-list' %}" class="btn-tint">Cancel</a>
+        <span style="color: var(--text-muted); font-size: 0.72rem; margin-left: auto;">
+            ⏎ saves · times are UTC · band derives from frequency on save
+        </span>
+    </div>
+</form>
+
+<script src="{% static 'cw/qsoform.js' %}"></script>
+<script>
+    initCWQSOForm({ lookupUrl: "{% url 'cw-log-lookup' %}" });
+</script>
+{% endblock %}

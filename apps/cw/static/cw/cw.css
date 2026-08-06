@@ -646,6 +646,58 @@ body.cw-logbook .crud-table td { padding-top: 7px; padding-bottom: 7px; vertical
 .cw-logst > b { font-family: inherit; letter-spacing: 0; }
 .cw-logst > i { font-family: inherit; letter-spacing: 0; }
 
+/* ── QSO form: the logbook line as a radio panel ─────────────────────── */
+.cw-qso-grid { display: flex; flex-direction: column; gap: 14px; max-width: 880px; }
+.cw-qso-row { display: flex; gap: 18px; flex-wrap: wrap; }
+.cw-qso-row .cw-field { margin-bottom: 0; }
+.cw-qso-callwrap { flex: 1.2; min-width: 200px; }
+.cw-call-input {
+    width: 100%;
+    box-sizing: border-box;
+    background: color-mix(in srgb, black 26%, var(--body-bg));
+    border: 1px solid var(--input-border);
+    border-radius: 8px;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+    color: var(--primary);
+    padding: 8px 12px;
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-shadow: 0 0 10px color-mix(in srgb, var(--primary) 40%, transparent);
+}
+.cw-call-input:focus { outline: none; border-color: var(--input-focus-border); }
+.cw-call-input::placeholder { color: var(--text-muted); text-shadow: none; }
+.cw-qso-rstpair { display: flex; align-items: center; gap: 6px; }
+.cw-qso-rstpair input { width: 56px; text-align: center; font-size: 1rem; }
+.cw-qso-rstpair span { color: var(--text-muted); }
+.cw-qso-modes { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cw-qso-form input[type="datetime-local"] {
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    color: var(--body-fg);
+    padding: 7px 10px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.85rem;
+}
+.cw-qso-form input[type="datetime-local"]:focus { outline: none; border-color: var(--input-focus-border); }
+.cw-qso-footer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 16px;
+    max-width: 880px;
+}
+.cw-lookup-status {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    color: var(--success-fg);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 /* ── rig setup: port + model pickers ─────────────────────────────────── */
 .cw-modelpick { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .cw-portrow {

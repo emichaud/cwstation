@@ -237,6 +237,37 @@ def log_adif(request: HttpRequest) -> Any:
     return response
 
 
+@api_view(methods=["GET"], require_auth=True)
+def log_lookup(request: HttpRequest) -> dict[str, Any] | Any:
+    """Side-effect-free callsign intel for the QSO form: worked-before
+    history and (when configured) a live QRZ record."""
+    from . import logbook
+    from .engine.bridge import CALLSIGN_RE
+
+    call = (request.GET.get("call") or "").strip().upper()
+    if not CALLSIGN_RE.fullmatch(call):
+        return api_error("Not a callsign", 400)
+    history = logbook.worked_before(request.user, call)
+    last = history.first()
+    payload: dict[str, Any] = {
+        "call": call,
+        "worked": history.count(),
+        "last": None,
+        "qrz": None,
+    }
+    if last is not None:
+        payload["last"] = {
+            "when": last.when.isoformat(),
+            "name": last.name, "qth": last.qth,
+            "gridsquare": last.gridsquare, "country": last.country,
+            "mode": last.mode, "band": last.band,
+        }
+    from .qrz import lookup_for_user
+
+    payload["qrz"] = lookup_for_user(request.user, call)
+    return payload
+
+
 @api_view(methods=["POST"], require_auth=True)
 def log_import(request: HttpRequest) -> dict[str, Any] | Any:
     """Import an uploaded ADIF file into the operator's log. Duplicate

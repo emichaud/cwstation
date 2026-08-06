@@ -17,7 +17,7 @@ from apps.search.access import SearchAccess
 from apps.smallstack.crud import Action, CRUDView
 
 from . import services
-from .forms import PracticeDecodeForm, RecordingDecodeForm, SendForm
+from .forms import PracticeDecodeForm, QSOForm, RecordingDecodeForm, SendForm
 from .models import QSO, CWSession
 
 
@@ -166,6 +166,7 @@ class LogbookCRUDView(CRUDView):
     url_base = "cw/log"
     paginate_by = 15
     mixins = [LoginRequiredMixin]
+    form_class = QSOForm
     actions = [Action.LIST, Action.CREATE, Action.UPDATE, Action.DELETE]
 
     list_fields = ["call", "when", "freq_mhz", "mode", "rst", "station", "session"]
@@ -210,13 +211,32 @@ class LogbookCRUDView(CRUDView):
     def _get_template_names(cls, suffix: str) -> list[str]:
         if suffix == "list":
             return ["cw/log_list.html"]
+        if suffix in ("form", "create", "edit"):
+            return ["cw/qso_form.html"]
         return super()._get_template_names(suffix)
 
     @classmethod
     def _make_view(cls, base_class: type) -> type:
-        from apps.smallstack.crud import _CRUDDeleteBase, _CRUDListBase, _CRUDUpdateBase
+        from apps.smallstack.crud import (
+            _CRUDCreateBase,
+            _CRUDDeleteBase,
+            _CRUDListBase,
+            _CRUDUpdateBase,
+        )
 
         view_class = super()._make_view(base_class)
+
+        if base_class is _CRUDCreateBase:
+            # the framework's CreateView saves directly (on_form_valid only
+            # fires on updates) — the owner must land before the INSERT
+            def form_valid(self, form: Any) -> Any:
+                from .logbook import band_for_freq
+
+                form.instance.user = self.request.user
+                form.instance.band = band_for_freq(form.cleaned_data.get("freq_mhz"))
+                return super(view_class, self).form_valid(form)
+
+            view_class.form_valid = form_valid
 
         if base_class in (_CRUDUpdateBase, _CRUDDeleteBase):
 
