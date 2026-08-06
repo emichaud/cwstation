@@ -163,6 +163,69 @@ def rig_tx(request: HttpRequest) -> dict[str, Any] | Any:
         return api_error(str(e), 409)
 
 
+@api_view(methods=["GET"], require_auth=True)
+def rig_setup_data(request: HttpRequest) -> dict[str, Any]:
+    """Everything the Rig Setup page needs: Hamlib presence, serial ports,
+    the rig catalog, daemon status, and the operator's saved choices."""
+    from . import rigdaemon
+
+    config, _ = CWRig.objects.get_or_create(user=request.user)
+    return {
+        "hamlib": rigdaemon.hamlib_status(),
+        "serial_ports": rigdaemon.list_serial_ports(),
+        "models": rigdaemon.list_models(),
+        "daemon": rigdaemon.status(),
+        "saved": {
+            "rig_model": config.rig_model,
+            "serial_port": config.serial_port,
+            "baud": config.baud,
+            "port": config.port,
+        },
+    }
+
+
+@api_view(methods=["POST"], require_auth=True)
+def rig_daemon(request: HttpRequest) -> dict[str, Any] | Any:
+    """Start/stop the managed rigctld.
+
+    {action: "start", model, serial_port?, baud?}  |  {action: "stop"}
+    Starting also saves the choice and points the operator's rig config at
+    the daemon, so the Rig panel and TX light up immediately."""
+    from . import rigdaemon
+
+    data = request.json
+    if not isinstance(data, dict):
+        return api_error("Expected a JSON object", 400)
+    action = data.get("action")
+
+    if action == "stop":
+        return {"daemon": rigdaemon.stop()}
+
+    if action != "start":
+        return api_error("action must be 'start' or 'stop'", 400)
+    try:
+        model = int(data.get("model"))
+    except (TypeError, ValueError):
+        return api_error("A rig model number is required (try the dummy rig, model 1)", 400)
+    serial_port = (data.get("serial_port") or "").strip() or None
+    baud = data.get("baud") or None
+    try:
+        state = rigdaemon.start(model, serial_port=serial_port, baud=baud)
+    except RigError as e:
+        return api_error(str(e), 409)
+
+    config, _ = CWRig.objects.get_or_create(user=request.user)
+    config.enabled = True
+    config.host = "127.0.0.1"
+    config.port = state["spec"]["tcp_port"]
+    config.rig_model = model
+    config.serial_port = serial_port or ""
+    if baud:
+        config.baud = int(baud)
+    config.save()
+    return {"daemon": state}
+
+
 _CONTROL_FIELDS = ("noise_level", "input_gain", "squelch_db", "afc", "paused_signals")
 
 

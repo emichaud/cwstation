@@ -134,6 +134,13 @@ class LiveView(LoginRequiredMixin, TemplateView):
     template_name = "cw/live.html"
 
 
+class RigSetupView(LoginRequiredMixin, TemplateView):
+    """The rig launcher — pick the serial port and rig model (the 'select the
+    right modem' step), start/supervise rigctld, verify the link."""
+
+    template_name = "cw/rig_setup.html"
+
+
 class SimulatorView(LoginRequiredMixin, TemplateView):
     """The band simulator — the live tape plus level/AFC knobs that steer a
     running `cw_simulate` process."""

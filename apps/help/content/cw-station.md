@@ -167,7 +167,16 @@ software radio that answers every CAT command. Enable the rig in the panel (host
 track it — the exact same code path a real rig uses. This station's rig client is
 verified against both a protocol test double and genuine Hamlib via this dummy rig.
 
-Then open the **Rig** panel on the Live page: expand *rigctld setup*, tick
+**The easy way — the Rig Setup launcher** (CW Monitor → Rig Setup): it scans the
+machine's USB-serial ports (with chip hints so you can tell the radio from an
+Arduino), lets you search Hamlib's catalog for your rig model — the "pick the right
+modem driver" step — choose a baud, and starts and supervises `rigctld` for you. The
+daemon log shows the exact command line, and the Verify module reads the dial over
+CAT the moment the link is up. **Test with dummy rig** runs the whole path with no
+hardware. Starting the daemon also arms the Rig panel and the send sheet's on-air
+toggle automatically.
+
+Or by hand: open the **Rig** panel on the Live page, expand *rigctld setup*, tick
 **enabled**, and the panel shows the dial — frequency, mode, and an ON AIR indicator,
 refreshed every few seconds. **Tune** sets the frequency; **CW mode** puts the rig in
 CW.

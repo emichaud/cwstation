@@ -596,6 +596,44 @@ html[data-theme="light"] body.cw-console .cw-rig-freq > .cw-mono:first-child {
 .cw-rig-err:empty { display: none; }
 .cw-rig-err { margin-bottom: 8px; }
 
+/* ── rig setup: port + model pickers ─────────────────────────────────── */
+.cw-modelpick { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.cw-portrow {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+    padding: 7px 10px;
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    background: var(--card-bg);
+    color: var(--body-fg);
+    cursor: pointer;
+    font-size: 0.82rem;
+}
+/* state-pinned (base button:hover would gold-fill otherwise) */
+.cw-portrow:hover {
+    background: color-mix(in srgb, var(--body-fg) 5%, var(--card-bg));
+    border-color: var(--input-focus-border);
+    color: var(--body-fg);
+}
+.cw-portrow.picked,
+.cw-portrow.picked:hover {
+    border-color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 10%, var(--card-bg));
+    box-shadow: inset 3px 0 0 var(--primary);
+    color: var(--body-fg);
+}
+.cw-portrow .cw-mono { color: var(--primary); font-weight: 700; }
+.cw-porthint { color: var(--text-muted); font-size: 0.72rem; }
+.cw-prosign.picked,
+.cw-prosign.picked:hover {
+    color: var(--button-fg);
+    background: var(--primary);
+    border-color: var(--primary);
+}
+
 /* ── sent log: what went out, under the tape ─────────────────────────── */
 .cw-txlog { margin-top: 16px; display: none; }
 .cw-txlog.has-rows { display: block; }

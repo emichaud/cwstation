@@ -92,6 +92,12 @@ class CWRig(models.Model):
     use_ptt = models.BooleanField(
         default=True, help_text="Key PTT via CAT. Off = rely on the rig's VOX."
     )
+    # Rig Setup launcher: what the managed rigctld was last started with
+    rig_model = models.PositiveIntegerField(
+        null=True, blank=True, help_text="Hamlib rig model number (rigctl -l)"
+    )
+    serial_port = models.CharField(max_length=200, blank=True)
+    baud = models.PositiveIntegerField(default=115200)
     audio_output = models.CharField(
         max_length=200, blank=True,
         help_text="Output sound device name/index for TX audio (blank = system default)",

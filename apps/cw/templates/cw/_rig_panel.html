@@ -25,9 +25,9 @@ Rig panel — Hamlib rigctld state + control. Wired by static/cw/rigpanel.js.
         <details id="rig-setup">
             <summary style="cursor: pointer; color: var(--body-quiet-color); font-size: 0.8rem; padding: 4px 0;">rigctld setup</summary>
             <p style="color: var(--text-muted); font-size: 0.78rem;">
-                Run Hamlib's daemon on the machine wired to the radio —
-                <code>rigctld -m 1</code> (dummy rig, for testing) or e.g.
-                <code>rigctld -m 3085 -r /dev/ttyUSB0</code> for an IC-7300.
+                Easiest: the <a href="{% url 'cw-rig-setup' %}" style="color: var(--link-color);">Rig Setup</a>
+                launcher — pick the serial port and rig model, and it starts and supervises
+                <code>rigctld</code> for you. Or run the daemon by hand and point host/port at it.
             </p>
             <div class="cw-bank-row" style="grid-template-columns: auto 1fr 90px;">
                 <label style="display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--body-quiet-color);">

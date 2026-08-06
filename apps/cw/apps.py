@@ -41,3 +41,7 @@ class CwConfig(AppConfig):
             section="main", label="Sessions", url_name="cw/sessions-list",
             parent="CW Monitor", auth_required=True, order=4,
         )
+        nav.register(
+            section="main", label="Rig Setup", url_name="cw-rig-setup",
+            parent="CW Monitor", auth_required=True, order=5,
+        )
