@@ -10,6 +10,11 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 ## [Unreleased]
 
 ### Fixed
+- **`api_view` no longer force-parses multipart/form bodies as JSON.** File
+  uploads to custom API endpoints returned 400 "Invalid JSON" because the
+  decorator read `request.body` and demanded JSON for every write method.
+  Multipart and form-encoded content types now skip JSON parsing
+  (`request.json` is `None`; use `request.POST`/`request.FILES` as usual).
 - **Bare-button hover styling no longer outranks custom button classes.** The
   base `button` / `input[type=submit|button]` rules put only the wrapper inside
   `:where()`, so `button:hover` still carried (0,1,1) specificity — enough to
