@@ -1,0 +1,227 @@
+{% extends "smallstack/base.html" %}
+{% load static theme_tags %}
+
+{% block title %}Callbook · QRZ.com{% endblock %}
+{% block breadcrumbs %}{% endblock %}
+{% block body_class %}cw-console{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'cw/cw.css' %}">
+{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions">
+    <div class="page-header-content">
+        <h1>Callbook · QRZ.com <span class="cw-live-pill" id="cb-pill" data-state="off">…</span></h1>
+    </div>
+    <div class="cw-strip-leds">
+        <span class="cw-led"><b id="cb-total">–</b><span>logged</span></span>
+        <span class="cw-led"><b id="cb-unsent">–</b><span>not on qrz</span></span>
+    </div>
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <a href="{% url 'cw/log-list' %}" class="btn-tint">Logbook</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="cw-form-grid">
+    {# ── LOOKUP CONSOLE ── #}
+    <div class="card">
+        <div class="card-header"><h2>Lookup console</h2></div>
+        <div class="card-body">
+            <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
+                Review any station's QRZ record — and see your own history with them.
+            </p>
+            <div class="cw-qso-rstpair" style="gap: 8px;">
+                <input type="text" id="cb-call" class="cw-call-input cw-mono" placeholder="W1AW"
+                       autocomplete="off" spellcheck="false" style="max-width: 220px; font-size: 1.2rem;">
+                <button type="button" class="btn-primary" id="cb-lookup">Look up</button>
+            </div>
+            <div id="cb-result" style="margin-top: 12px;"></div>
+        </div>
+    </div>
+
+    {# ── ACCOUNT ── #}
+    <div class="card">
+        <div class="card-header"><h2>Account — XML lookups</h2></div>
+        <div class="card-body">
+            <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
+                Your QRZ login powers callsign lookups (needs a QRZ XML subscription).
+                To <b>change the password later</b>, type the new one here and Save &amp; test —
+                it's write-only, encrypted at rest, and never shown again.
+            </p>
+            <div class="cw-bank-row" style="grid-template-columns: 1fr 1fr;">
+                <input type="text" id="cb-user" class="cw-bank-text cw-mono" placeholder="QRZ username" autocomplete="off">
+                <input type="password" id="cb-pass" class="cw-bank-text cw-mono" placeholder="password (unchanged if blank)" autocomplete="new-password">
+            </div>
+            <div class="cw-bank-row" style="grid-template-columns: 1fr auto auto; margin-top: 8px;">
+                <input type="text" id="cb-testcall" class="cw-bank-text cw-mono" placeholder="test with a call — default W1AW" autocomplete="off">
+                <button type="button" class="btn-tint" id="cb-save">Save &amp; test</button>
+                <button type="button" class="btn-tint" id="cb-unlink" style="color: var(--error-fg);">Unlink</button>
+            </div>
+            <div id="cb-acct-result" style="font-size: 0.8rem; margin-top: 8px; color: var(--body-quiet-color);"></div>
+        </div>
+    </div>
+
+    {# ── QRZ LOGBOOK SYNC ── #}
+    <div class="card">
+        <div class="card-header"><h2>QRZ logbook — import / export</h2></div>
+        <div class="card-body">
+            <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
+                QRZ hosts its own logbook at logbook.qrz.com, with a separate <b>per-logbook API
+                key</b> (on QRZ: My Logbook → Settings → API) — not your account password.
+                With the key saved: <b>Import</b> pulls your entire QRZ log in here (duplicates
+                skipped, safe to repeat — the way to feel at home on day one), and
+                <b>Export</b> pushes contacts logged here up to QRZ, marking them so nothing
+                double-sends.
+            </p>
+            <div class="cw-bank-row" style="grid-template-columns: 1fr auto;">
+                <input type="password" id="cb-lbkey" class="cw-bank-text cw-mono"
+                       placeholder="logbook API key (unchanged if blank)" autocomplete="new-password">
+                <button type="button" class="btn-tint" id="cb-lbsave">Save key</button>
+            </div>
+            <div class="cw-qso-rstpair" style="gap: 8px; margin-top: 10px;">
+                <button type="button" class="btn-primary" id="cb-import">⇊ Import from QRZ</button>
+                <button type="button" class="btn-tint" id="cb-export">⇈ Export to QRZ</button>
+            </div>
+            <div id="cb-sync-result" style="font-size: 0.8rem; margin-top: 8px; color: var(--body-quiet-color);"></div>
+        </div>
+    </div>
+
+    {# ── HOW IT FITS ── #}
+    <div class="card">
+        <div class="card-header"><h2>How the pieces fit</h2></div>
+        <div class="card-body" style="font-size: 0.85rem; color: var(--body-quiet-color);">
+            <ul style="margin: 0; padding-left: 18px; line-height: 1.8;">
+                <li><b style="color: var(--body-fg);">No account needed:</b> every callsign in the app links to its QRZ page (<span class="cw-mono">qrz↗</span>).</li>
+                <li><b style="color: var(--body-fg);">XML login:</b> quick-logs and the QSO form auto-fill operator name, QTH, grid, and country.</li>
+                <li><b style="color: var(--body-fg);">Logbook key:</b> your QRZ log and this log stay in sync — import once to bring your history home, export whenever you've logged new contacts.</li>
+                <li><b style="color: var(--body-fg);">ADIF is the common tongue:</b> the same UTC-clean records go to QRZ, eQSL, or any file you ↓ export.</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function () {
+        const CFG = "{% url 'cw-log-qrz' %}";
+        const SYNC = "{% url 'cw-qrz-logbook' %}";
+        const LOOKUP = "{% url 'cw-log-lookup' %}";
+        const QUICK = "{% url 'cw-log-quick' %}";
+        const el = (id) => document.getElementById(id);
+
+        function jpost(url, body) {
+            return fetch(url, {
+                method: "POST", credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            }).then((r) => r.json().then((j) => ({ ok: r.ok, d: j.data || j })));
+        }
+
+        function refresh() {
+            fetch(CFG, { credentials: "same-origin" })
+                .then((r) => r.json())
+                .then((j) => {
+                    const d = j.data || j;
+                    el("cb-pill").dataset.state = d.configured ? "live" : "off";
+                    el("cb-pill").textContent = d.configured
+                        ? "● linked as " + d.username : "not linked";
+                    if (d.username && !el("cb-user").value) el("cb-user").value = d.username;
+                    el("cb-total").textContent = d.total;
+                    el("cb-unsent").textContent = d.logbook_configured ? d.unsent : "–";
+                    el("cb-import").disabled = el("cb-export").disabled = !d.logbook_configured;
+                });
+        }
+
+        el("cb-save").addEventListener("click", () => {
+            el("cb-acct-result").textContent = "testing…";
+            jpost(CFG, {
+                username: el("cb-user").value,
+                password: el("cb-pass").value,
+                test_call: el("cb-testcall").value.trim() || "W1AW",
+            }).then(({ ok, d }) => {
+                if (!ok) { el("cb-acct-result").textContent = "✗ " + (d.error || "failed"); return; }
+                const t = d.test || {};
+                el("cb-acct-result").textContent = t.name
+                    ? "✓ works — " + (t.call || "") + " is " + t.name + (t.qth ? ", " + t.qth : "")
+                    : "✓ saved";
+                el("cb-pass").value = "";
+                refresh();
+            });
+        });
+
+        el("cb-unlink").addEventListener("click", () => {
+            jpost(CFG, { unlink: true }).then(() => {
+                el("cb-user").value = ""; el("cb-pass").value = "";
+                el("cb-acct-result").textContent = "unlinked — lookups disabled, links still work";
+                refresh();
+            });
+        });
+
+        el("cb-lbsave").addEventListener("click", () => {
+            jpost(CFG, { logbook_key: el("cb-lbkey").value }).then(({ ok }) => {
+                el("cb-sync-result").textContent = ok ? "✓ key saved (encrypted)" : "✗ failed";
+                el("cb-lbkey").value = "";
+                refresh();
+            });
+        });
+
+        el("cb-import").addEventListener("click", () => {
+            el("cb-sync-result").textContent = "importing from logbook.qrz.com…";
+            jpost(SYNC, { action: "import" }).then(({ ok, d }) => {
+                el("cb-sync-result").textContent = ok
+                    ? "✓ imported " + d.created + " QSOs (" + d.duplicates + " already here)"
+                    : "✗ " + (d.error || "failed");
+                refresh();
+            });
+        });
+
+        el("cb-export").addEventListener("click", () => {
+            el("cb-sync-result").textContent = "exporting to logbook.qrz.com…";
+            jpost(SYNC, { action: "export" }).then(({ ok, d }) => {
+                el("cb-sync-result").textContent = ok
+                    ? "✓ " + (d.message || d.exported + " sent") : "✗ " + (d.error || "failed");
+                refresh();
+            });
+        });
+
+        // ── lookup console ──
+        function lookUp() {
+            const call = el("cb-call").value.trim().toUpperCase();
+            if (!call) return;
+            el("cb-result").innerHTML = '<span style="color: var(--body-quiet-color); font-size: 0.8rem;">looking up ' + call + "…</span>";
+            fetch(LOOKUP + "?call=" + encodeURIComponent(call), { credentials: "same-origin" })
+                .then((r) => r.json().then((j) => ({ ok: r.ok, d: j.data || j })))
+                .then(({ ok, d }) => {
+                    if (!ok) { el("cb-result").innerHTML = '<span class="cw-errors">' + (d.error || "lookup failed") + "</span>"; return; }
+                    const q = d.qrz || {};
+                    const rows = [
+                        ["Operator", q.name || (d.last && d.last.name) || "—"],
+                        ["QTH", q.qth || (d.last && d.last.qth) || "—"],
+                        ["Grid", q.grid || (d.last && d.last.gridsquare) || "—"],
+                        ["Country", q.country || (d.last && d.last.country) || "—"],
+                        ["In your log", d.worked ? "worked ×" + d.worked + (d.last ? " · last " + d.last.when.slice(0, 10) : "") : "never worked"],
+                    ];
+                    el("cb-result").innerHTML =
+                        '<div class="cw-cbcard">' +
+                        rows.map(([k, v]) => "<div><span>" + k + "</span><b>" + v + "</b></div>").join("") +
+                        "</div>" +
+                        '<div class="cw-qso-rstpair" style="gap: 8px; margin-top: 10px;">' +
+                        '<button type="button" class="btn-primary" id="cb-logit">+ Log ' + call + "</button>" +
+                        '<a class="btn-tint" target="_blank" rel="noopener" href="https://www.qrz.com/db/' + call + '">Open on QRZ ↗</a></div>';
+                    document.getElementById("cb-logit").addEventListener("click", () => {
+                        jpost(QUICK, { call: call, source: "manual" }).then(({ ok, d }) => {
+                            if (ok) window.location = d.qso.url;
+                        });
+                    });
+                });
+        }
+        el("cb-lookup").addEventListener("click", lookUp);
+        el("cb-call").addEventListener("keydown", (e) => { if (e.key === "Enter") lookUp(); });
+        el("cb-call").addEventListener("input", () => { el("cb-call").value = el("cb-call").value.toUpperCase(); });
+
+        refresh();
+    })();
+</script>
+{% endblock %}

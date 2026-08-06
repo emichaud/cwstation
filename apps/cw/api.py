@@ -336,19 +336,31 @@ def eqsl_config(request: HttpRequest) -> dict[str, Any] | Any:
 
 @api_view(methods=["GET", "POST"], require_auth=True)
 def qrz_config(request: HttpRequest) -> dict[str, Any] | Any:
-    """QRZ XML-API credentials. POST {username, password} saves;
-    POST {test_call} additionally runs a live lookup to prove them."""
+    """QRZ credentials. POST {username, password} saves the XML login;
+    {logbook_key} saves the logbook.qrz.com API key; {unlink: true} clears
+    everything; {test_call} runs a live lookup to prove the XML login."""
+    from django.utils import timezone
+
     profile, _ = QRZProfile.objects.get_or_create(user=request.user)
     if request.method == "POST":
         data = request.json
         if not isinstance(data, dict):
             return api_error("Expected a JSON object", 400)
-        if "username" in data:
-            profile.username = str(data["username"]).strip()
-        if "password" in data and data["password"]:
-            profile.set_password(str(data["password"]))  # encrypted at rest
-        profile.session_key = ""  # force re-auth with new credentials
-        profile.save()
+        if data.get("unlink"):
+            profile.username = ""
+            profile.password = ""
+            profile.session_key = ""
+            profile.logbook_key = ""
+            profile.save()
+        else:
+            if "username" in data:
+                profile.username = str(data["username"]).strip()
+            if "password" in data and data["password"]:
+                profile.set_password(str(data["password"]))  # encrypted at rest
+                profile.session_key = ""  # force re-auth with new credentials
+            if "logbook_key" in data and data["logbook_key"]:
+                profile.set_logbook_key(str(data["logbook_key"]).strip())
+            profile.save()
         if data.get("test_call"):
             from .qrz import QRZError, authenticate, lookup
 
@@ -360,8 +372,70 @@ def qrz_config(request: HttpRequest) -> dict[str, Any] | Any:
                 return {"configured": True, "test": info or {"error": "call not found"}}
             except QRZError as e:
                 return api_error(str(e), 502)
-    return {"configured": bool(profile.username and profile.password),
-            "username": profile.username}
+    unsent = QSO.objects.filter(user=request.user, qrz_sent_at__isnull=True).count()
+    return {
+        "configured": bool(profile.username and profile.password),
+        "username": profile.username,
+        "logbook_configured": bool(profile.logbook_key),
+        "unsent": unsent,
+        "total": QSO.objects.filter(user=request.user).count(),
+        "now": timezone.now().isoformat(),
+    }
+
+
+@api_view(methods=["POST"], require_auth=True)
+def qrz_logbook_sync(request: HttpRequest) -> dict[str, Any] | Any:
+    """Sync with the operator's QRZ.com logbook.
+
+    {action: "import"} → FETCH their QRZ log as ADIF and import it
+    (duplicates skipped — safe to repeat).
+    {action: "export"} → INSERT QSOs not yet sent to QRZ, mark them."""
+    from django.utils import timezone
+
+    from . import logbook
+    from .qrzlogbook import QRZLogbookError, fetch_adif, insert_record
+
+    profile = QRZProfile.objects.filter(user=request.user).first()
+    key = profile.get_logbook_key() if profile else ""
+    if not key:
+        return api_error("No QRZ logbook API key configured yet.", 400)
+
+    data = request.json if isinstance(request.json, dict) else {}
+    action = data.get("action")
+
+    if action == "import":
+        try:
+            adif = fetch_adif(key)
+        except QRZLogbookError as e:
+            return api_error(str(e), 502)
+        stats = logbook.import_adif(request.user, adif)
+        stats["source"] = "qrz"
+        return stats
+
+    if action == "export":
+        qsos = list(QSO.objects.filter(user=request.user, qrz_sent_at__isnull=True))
+        if not qsos:
+            return {"exported": 0, "duplicates": 0, "message": "Nothing new to send."}
+        exported = duplicates = 0
+        now = timezone.now()
+        try:
+            for qso in qsos:
+                record = logbook.adif_export([qso]).split("<EOH>", 1)[-1].strip()
+                outcome = insert_record(key, record)
+                if outcome == "duplicate":
+                    duplicates += 1
+                else:
+                    exported += 1
+                qso.qrz_sent_at = now
+                qso.save(update_fields=["qrz_sent_at"])
+        except QRZLogbookError as e:
+            return api_error(
+                f"{e} — {exported + duplicates} of {len(qsos)} sent before the failure", 502
+            )
+        return {"exported": exported, "duplicates": duplicates,
+                "message": f"{exported} added, {duplicates} already there."}
+
+    return api_error("action must be 'import' or 'export'", 400)
 
 
 @api_view(methods=["GET"], require_auth=True)

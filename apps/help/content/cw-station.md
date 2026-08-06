@@ -173,6 +173,14 @@ The station logs contacts the way it does everything else — quietly, from the 
 - **eQSL.cc upload.** Save your eQSL credentials in the card at the bottom of the
   Logbook and the **↥ eQSL** button appears: it uploads QSOs not yet sent
   (respecting the current filters) and marks them, so nothing double-uploads.
+- **The Callbook page** (CW Monitor → Callbook) is the QRZ.com integration home:
+  a **lookup console** to review any station's QRZ record alongside your own history
+  with them (and log them from there), the **account panel** where you change or
+  test the XML password later (write-only — type a new one and Save & test) or
+  unlink entirely, and **QRZ logbook sync** — with a per-logbook API key from QRZ
+  (My Logbook → Settings → API), *Import* pulls your entire QRZ log in (duplicates
+  skipped, safe to repeat) and *Export* pushes contacts logged here up to QRZ,
+  marking them so nothing double-sends.
 - **Credentials are encrypted at rest.** QRZ and eQSL passwords are stored
   Fernet-encrypted with a key held in `.cw_credentials_key` next to the project
   (created automatically, permissions 0600, gitignored) — not in the database, and

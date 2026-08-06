@@ -240,3 +240,130 @@ class TestEQSL:
             reverse("cw-log-eqsl"), "{}", content_type="application/json"
         )
         assert response.status_code == 400
+
+
+# ── QRZ logbook sync against a fake logbook.qrz.com ───────────────────────
+class FakeQRZLogbookHandler(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def do_POST(self):
+        import html as _html
+        from urllib.parse import parse_qs
+
+        length = int(self.headers.get("Content-Length", 0))
+        params = {k: v[0] for k, v in parse_qs(self.rfile.read(length).decode()).items()}
+        server = self.server
+        if params.get("KEY") != "GOODKEY":
+            body = "RESULT=FAIL&REASON=invalid api key"
+        elif params.get("ACTION") == "FETCH":
+            adif = ("<call:4>W9ZZ <qso_date:8>20250101 <time_on:4>1200 "
+                    "<band:3>40m <mode:2>CW <eor>")
+            body = "RESULT=OK&COUNT=1&ADIF=" + _html.escape(adif)
+        elif params.get("ACTION") == "INSERT":
+            record = params.get("ADIF", "")
+            server.inserted.append(record)  # type: ignore[attr-defined]
+            if "DUP1AA" in record:
+                body = "RESULT=FAIL&REASON=Unable to add QSO to database: duplicate"
+            else:
+                body = "RESULT=OK&COUNT=1&LOGID=42"
+        else:
+            body = "RESULT=FAIL&REASON=unknown action"
+        data = body.encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+
+@pytest.fixture
+def fake_qrz_logbook(settings):
+    server = HTTPServer(("127.0.0.1", 0), FakeQRZLogbookHandler)
+    server.inserted = []
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    settings.QRZ_LOGBOOK_URL = f"http://127.0.0.1:{server.server_address[1]}/api"
+    yield server
+    server.shutdown()
+    server.server_close()
+
+
+class TestQRZLogbookSync:
+    def _configure(self, user, key="GOODKEY"):
+        profile = QRZProfile(user=user, username="op")
+        profile.set_logbook_key(key)
+        profile.save()
+
+    def test_import_pulls_qrz_log(self, client_logged, user, fake_qrz_logbook):
+        self._configure(user)
+        response = client_logged.post(
+            reverse("cw-qrz-logbook"), json.dumps({"action": "import"}),
+            content_type="application/json",
+        )
+        payload = response.json().get("data") or response.json()
+        assert payload["created"] == 1
+        qso = QSO.objects.get(user=user, call="W9ZZ")
+        assert qso.band == "40m"
+        assert qso.source == "import"
+        # repeat is a no-op
+        response = client_logged.post(
+            reverse("cw-qrz-logbook"), json.dumps({"action": "import"}),
+            content_type="application/json",
+        )
+        payload = response.json().get("data") or response.json()
+        assert payload["created"] == 0 and payload["duplicates"] == 1
+
+    def test_export_pushes_unsent_and_marks(self, client_logged, user, fake_qrz_logbook):
+        self._configure(user)
+        QSO.objects.create(user=user, call="W1AW")
+        QSO.objects.create(user=user, call="DUP1AA")  # fake server calls it a dup
+        response = client_logged.post(
+            reverse("cw-qrz-logbook"), json.dumps({"action": "export"}),
+            content_type="application/json",
+        )
+        payload = response.json().get("data") or response.json()
+        assert payload["exported"] == 1
+        assert payload["duplicates"] == 1
+        assert QSO.objects.filter(user=user, qrz_sent_at__isnull=True).count() == 0
+        assert len(fake_qrz_logbook.inserted) == 2
+        assert "<eor>" in fake_qrz_logbook.inserted[0].lower()
+        # second export finds nothing new
+        response = client_logged.post(
+            reverse("cw-qrz-logbook"), json.dumps({"action": "export"}),
+            content_type="application/json",
+        )
+        payload = response.json().get("data") or response.json()
+        assert payload["exported"] == 0
+
+    def test_bad_key_surfaces_error(self, client_logged, user, fake_qrz_logbook):
+        self._configure(user, key="WRONG")
+        response = client_logged.post(
+            reverse("cw-qrz-logbook"), json.dumps({"action": "import"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 502
+
+    def test_requires_key(self, client_logged, user):
+        response = client_logged.post(
+            reverse("cw-qrz-logbook"), json.dumps({"action": "import"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    def test_unlink_clears_everything(self, client_logged, user):
+        profile = QRZProfile(user=user, username="op")
+        profile.set_password("x")
+        profile.set_logbook_key("GOODKEY")
+        profile.save()
+        client_logged.post(
+            reverse("cw-log-qrz"), json.dumps({"unlink": True}),
+            content_type="application/json",
+        )
+        profile.refresh_from_db()
+        assert profile.username == "" and profile.password == "" and profile.logbook_key == ""
+
+    def test_callbook_page_renders(self, client_logged):
+        content = client_logged.get(reverse("cw-callbook")).content.decode()
+        assert 'id="cb-lookup"' in content
+        assert 'id="cb-import"' in content
+        assert 'id="cb-unlink"' in content

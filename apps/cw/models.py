@@ -203,6 +203,7 @@ class QSO(models.Model):
         ],
     )
     eqsl_sent_at = models.DateTimeField(null=True, blank=True)
+    qrz_sent_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -250,13 +251,25 @@ class _CredentialMixin(models.Model):
 
 
 class QRZProfile(_CredentialMixin):
-    """QRZ.com XML-API credentials (requires a QRZ XML subscription).
-    The session key is cached and refreshed on timeout."""
+    """QRZ.com credentials: the XML-API login (lookups) and, separately,
+    a logbook.qrz.com API key (log import/export) — QRZ issues those
+    per-logbook, distinct from the account password. Both encrypted."""
 
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="qrz_profile"
     )
     session_key = models.CharField(max_length=64, blank=True)
+    logbook_key = models.CharField(max_length=512, blank=True)  # enc:<token>
+
+    def set_logbook_key(self, raw: str) -> None:
+        from .fieldcrypto import encrypt
+
+        self.logbook_key = encrypt(raw)
+
+    def get_logbook_key(self) -> str:
+        from .fieldcrypto import decrypt
+
+        return decrypt(self.logbook_key)
 
     def __str__(self) -> str:
         return f"QRZ credentials for {self.user}"

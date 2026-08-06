@@ -307,6 +307,12 @@ class RigSetupView(LoginRequiredMixin, TemplateView):
     template_name = "cw/rig_setup.html"
 
 
+class CallbookView(LoginRequiredMixin, TemplateView):
+    """The QRZ.com integration home: account, lookup console, log sync."""
+
+    template_name = "cw/callbook.html"
+
+
 class SimulatorView(LoginRequiredMixin, TemplateView):
     """The band simulator — the live tape plus level/AFC knobs that steer a
     running `cw_simulate` process."""

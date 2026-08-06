@@ -698,6 +698,26 @@ body.cw-logbook .crud-table td { padding-top: 7px; padding-bottom: 7px; vertical
     text-overflow: ellipsis;
 }
 
+/* ── callbook lookup result card ─────────────────────────────────────── */
+.cw-cbcard {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 20px;
+    padding: 12px 14px;
+    border: 1px solid var(--card-border);
+    border-left: 3px solid var(--primary);
+    border-radius: 8px;
+    background: color-mix(in srgb, black 15%, var(--body-bg));
+}
+.cw-cbcard > div { display: flex; flex-direction: column; }
+.cw-cbcard span {
+    font-size: 0.6rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--body-quiet-color);
+}
+.cw-cbcard b { font-size: 0.9rem; color: var(--body-fg); font-weight: 600; }
+
 /* ── rig setup: port + model pickers ─────────────────────────────────── */
 .cw-modelpick { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .cw-portrow {

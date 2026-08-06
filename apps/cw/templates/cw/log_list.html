@@ -71,7 +71,9 @@
             <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
                 With a QRZ XML subscription, quick-logged calls fill name/QTH/grid/country
                 automatically. Without one, every call still links to its QRZ page.
-                Credentials are stored on this instance.
+                The full integration — lookup console, changing credentials, and importing
+                from / exporting to your QRZ logbook — lives on the
+                <a href="{% url 'cw-callbook' %}" style="color: var(--link-color);">Callbook page</a>.
             </p>
             <div class="cw-bank-row" style="grid-template-columns: 1fr 1fr auto;">
                 <input type="text" id="qrz-user" class="cw-bank-text cw-mono" placeholder="QRZ username" autocomplete="off">

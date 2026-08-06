@@ -12,6 +12,7 @@ from .api import (
     log_quick,
     macros,
     qrz_config,
+    qrz_logbook_sync,
     rig,
     rig_daemon,
     rig_setup_data,
@@ -19,6 +20,7 @@ from .api import (
     sim_control,
 )
 from .views import (
+    CallbookView,
     CWSessionCRUDView,
     DecodeView,
     LiveView,
@@ -40,6 +42,8 @@ urlpatterns = [
     path("cw/log/quick/", log_quick, name="cw-log-quick"),
     path("cw/log/adif/", log_adif, name="cw-log-adif"),
     path("cw/log/qrz/", qrz_config, name="cw-log-qrz"),
+    path("cw/callbook/", CallbookView.as_view(), name="cw-callbook"),
+    path("cw/callbook/sync/", qrz_logbook_sync, name="cw-qrz-logbook"),
     path("cw/log/import/", log_import, name="cw-log-import"),
     path("cw/log/lookup/", log_lookup, name="cw-log-lookup"),
     path("cw/log/eqsl/", log_eqsl_upload, name="cw-log-eqsl"),
