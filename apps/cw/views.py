@@ -114,19 +114,43 @@ def _render_qso_call(value: str, obj: QSO) -> SafeString:
     )
 
 
-def _render_qso_when(value: object, obj: QSO) -> str:
-    return obj.when.strftime("%Y-%m-%d %H:%M")
+def _render_qso_when(value: object, obj: QSO) -> SafeString:
+    import datetime as _dt
+
+    utc = obj.when.astimezone(_dt.timezone.utc)
+    return format_html(
+        '<span class="cw-log2"><b>{}</b><i>{}z</i></span>',
+        utc.strftime("%d %b %y"), utc.strftime("%H:%M"),
+    )
 
 
 def _render_qso_freq(value: object, obj: QSO) -> SafeString:
-    band = obj.band or "—"
-    freq = f" · {obj.freq_mhz:.4f}" if obj.freq_mhz else ""
-    return format_html('<span class="cw-mono">{}{}</span>', band, freq)
+    if not obj.band and not obj.freq_mhz:
+        return mark_safe('<span style="color: var(--text-muted);">—</span>')
+    band = format_html('<b class="cw-log-band">{}</b>', obj.band) if obj.band else ""
+    freq = format_html("<i>{}</i>", f"{obj.freq_mhz:.4f}") if obj.freq_mhz else ""
+    return format_html('<span class="cw-log2">{}{}</span>', band, freq)
+
+
+def _render_qso_rst(value: object, obj: QSO) -> SafeString:
+    return format_html(
+        '<span class="cw-mono">{} <span style="color: var(--text-muted);">⁄</span> {}</span>',
+        obj.rst_sent or "—", obj.rst_rcvd or "—",
+    )
+
+
+def _render_qso_station(value: object, obj: QSO) -> SafeString:
+    if not obj.name and not obj.qth:
+        return mark_safe('<span style="color: var(--text-muted);">—</span>')
+    title = " · ".join(p for p in (obj.name, obj.qth, obj.country) if p)
+    name = format_html("<b>{}</b>", obj.name) if obj.name else ""
+    qth = format_html("<i>{}</i>", obj.qth) if obj.qth else ""
+    return format_html('<span class="cw-log2 cw-logst" title="{}">{}{}</span>', title, name, qth)
 
 
 def _render_qso_session(value: object, obj: QSO) -> SafeString:
     if obj.session_id is None:
-        return mark_safe('<span style="color: var(--body-quiet-color);">—</span>')
+        return mark_safe('<span style="color: var(--text-muted);">—</span>')
     return format_html(
         '<a href="{}" title="Replay the tape" style="color: var(--link-color);">tape #{}</a>',
         obj.session.get_absolute_url(), obj.session_id,
@@ -144,12 +168,14 @@ class LogbookCRUDView(CRUDView):
     mixins = [LoginRequiredMixin]
     actions = [Action.LIST, Action.CREATE, Action.UPDATE, Action.DELETE]
 
-    list_fields = ["call", "when", "freq_mhz", "mode", "rst_sent", "rst_rcvd", "name", "session"]
+    list_fields = ["call", "when", "freq_mhz", "mode", "rst", "station", "session"]
     link_field = "call"
     field_transforms = {
         "call": _render_qso_call,
         "when": _render_qso_when,
         "freq_mhz": _render_qso_freq,
+        "rst": _render_qso_rst,
+        "station": _render_qso_station,
         "session": _render_qso_session,
     }
 

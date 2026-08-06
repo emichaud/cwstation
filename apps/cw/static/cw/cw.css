@@ -596,6 +596,56 @@ html[data-theme="light"] body.cw-console .cw-rig-freq > .cw-mono:first-child {
 .cw-rig-err:empty { display: none; }
 .cw-rig-err { margin-bottom: 8px; }
 
+/* ── logbook table: proportioned columns + two-line cells ────────────
+   The CRUD table is table-layout:fixed with equal columns by default;
+   the log reads better with widths tuned per column and date/freq/station
+   stacked on two compact lines (times shown in UTC with the z suffix). */
+body.cw-logbook .crud-table th:nth-child(1) { width: 13%; }  /* call */
+body.cw-logbook .crud-table th:nth-child(2) { width: 11%; }  /* when */
+body.cw-logbook .crud-table th:nth-child(3) { width: 11%; }  /* freq */
+body.cw-logbook .crud-table th:nth-child(4) { width: 8%;  }  /* mode */
+body.cw-logbook .crud-table th:nth-child(5) { width: 11%; }  /* rst */
+body.cw-logbook .crud-table th:nth-child(6) { width: 24%; }  /* station */
+body.cw-logbook .crud-table th:nth-child(7) { width: 12%; }  /* session */
+body.cw-logbook .crud-table th:nth-child(8) { width: 10%; }  /* actions */
+body.cw-logbook .crud-table td { padding-top: 7px; padding-bottom: 7px; vertical-align: middle; }
+
+.cw-log2 {
+    display: inline-flex;
+    flex-direction: column;
+    line-height: 1.3;
+    max-width: 100%;
+    vertical-align: middle;
+}
+.cw-log2 > b {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--body-fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.cw-log2 > i {
+    font-style: normal;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.05em;
+    color: var(--body-quiet-color);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.cw-log-band {
+    align-self: flex-start;
+    padding: 0 6px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--primary) 14%, var(--card-bg));
+    color: var(--primary);
+    font-size: 0.7rem !important;
+    letter-spacing: 0.06em;
+}
+.cw-logst > b { font-family: inherit; letter-spacing: 0; }
+.cw-logst > i { font-family: inherit; letter-spacing: 0; }
+
 /* ── rig setup: port + model pickers ─────────────────────────────────── */
 .cw-modelpick { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .cw-portrow {
