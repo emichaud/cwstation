@@ -441,6 +441,9 @@
     transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s;
 }
 .cw-sendbar.hidden { transform: translateX(-50%) translateY(120%); opacity: 0; pointer-events: none; }
+/* Styled as a primary action: --button-bg/--button-fg are a palette-managed
+   contrast pair, so the label and hint stay readable on every palette and
+   theme (mixing surface + text vars here broke on custom palettes). */
 .cw-sendbar-btn {
     display: flex;
     align-items: center;
@@ -449,26 +452,31 @@
     cursor: pointer;
     padding: 10px 18px;
     border-radius: 999px;
-    border: 1px solid var(--card-border);
-    background: linear-gradient(var(--card-bg), var(--card-bg)), var(--body-bg);
-    color: var(--body-fg);
+    border: 1px solid color-mix(in srgb, var(--button-fg) 18%, transparent);
+    background: var(--button-bg, var(--primary));
+    color: var(--button-fg);
     font-size: 0.9rem;
     font-weight: 600;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-    transition: border-color 0.15s;
+    transition: filter 0.15s;
 }
-.cw-sendbar-btn:hover { border-color: var(--primary); }
+.cw-sendbar-btn:hover { filter: brightness(1.08); }
 .cw-sendbar-key {
     display: grid;
     place-items: center;
     width: 22px;
     height: 22px;
     border-radius: 6px;
-    background: var(--primary);
+    background: color-mix(in srgb, var(--button-fg) 20%, transparent);
     color: var(--button-fg);
     font-size: 0.8rem;
 }
-.cw-sendbar-hint { color: var(--text-muted); font-size: 0.7rem; font-weight: 400; }
+.cw-sendbar-hint {
+    color: var(--button-fg);
+    opacity: 0.75;
+    font-size: 0.7rem;
+    font-weight: 400;
+}
 
 .cw-sheet-scrim {
     position: fixed;
