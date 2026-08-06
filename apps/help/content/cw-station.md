@@ -1,8 +1,12 @@
 # CW Station — Operator's Guide
 
-The CW Station decodes and sends Morse through your sound card — no CAT control, no
-special hardware. Three pages do the work: **Monitor** (the paper tape), **Decode**,
-and **Send**. Every pass is saved as a session you can replay.
+The CW Station decodes and sends Morse through your sound card — no special
+hardware required. Three pages do the work: **Monitor** (the paper tape),
+**Decode**, and **Send**. Every pass is saved as a session you can replay.
+
+New here? Start with the [Tutorial](/smallstack/help/cw-tutorial/) — ten minutes,
+step by step. Character tables live in the
+[Morse Code Reference](/smallstack/help/morse-reference/).
 
 ## Decoding off the air
 
@@ -142,14 +146,26 @@ pumped audio is hard for anything to copy.
 
 ## Rig control (Hamlib) — transmit for real
 
-With Hamlib's `rigctld` running on the machine wired to the radio, the station gets
-real CAT control. Install Hamlib (`brew install hamlib` / `apt install hamlib-utils`)
-and start the daemon:
+**Do you need Hamlib? No — not until a real radio is on the desk.** Everything else
+in the station (decode, practice, send, the simulator, the live tape fed by
+recordings) works with no Hamlib installed. Skip this whole section until you have a
+rig to control; nothing you learn elsewhere changes when you come back.
+
+When that day comes: with Hamlib's `rigctld` daemon running on the machine wired to
+the radio, the station gets real CAT control — frequency, mode, and PTT for ~250 rig
+models. Install Hamlib (`brew install hamlib` / `apt install hamlib-utils`) and start
+the daemon:
 
 ```bash
 rigctld -m 1                        # dummy rig — test everything with no radio
 rigctld -m 3085 -r /dev/ttyUSB0     # a real rig, e.g. IC-7300 (rigctl -l lists models)
 ```
+
+**Try it before you own a radio**: `rigctld -m 1` is Hamlib's built-in dummy rig — a
+software radio that answers every CAT command. Enable the rig in the panel (host
+`127.0.0.1`, port `4532`), and you can tune it, switch modes, and watch the panel
+track it — the exact same code path a real rig uses. This station's rig client is
+verified against both a protocol test double and genuine Hamlib via this dummy rig.
 
 Then open the **Rig** panel on the Live page: expand *rigctld setup*, tick
 **enabled**, and the panel shows the dial — frequency, mode, and an ON AIR indicator,

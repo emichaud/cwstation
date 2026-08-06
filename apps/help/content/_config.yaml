@@ -22,10 +22,18 @@ sections:
         title: "Welcome"
         description: "Project documentation home"
         icon: "home"
+      - slug: cw-tutorial
+        title: "Tutorial: Your First Ten Minutes"
+        description: "Step-by-step from first decode to working a simulated band"
+        icon: "rocket"
       - slug: cw-station
         title: "CW Station — Operator's Guide"
         description: "Decode CW off the air, practice, send — and replay it on the tape"
         icon: "radio"
+      - slug: morse-reference
+        title: "Appendix: Morse Code Reference"
+        description: "Every letter, number, punctuation mark, and prosign the station speaks"
+        icon: "book"
       - slug: getting-started
         title: "Getting Started"
         description: "First-run setup, branding, pages, and deployment basics"
