@@ -269,9 +269,9 @@ ul.pagination li.active span {
 
 /* Buttons: use :where() for zero specificity so any class (.btn-primary,
    .tab-btn, .filter-toggle, .crud-modal-btn-*, etc.) naturally overrides. */
-:where(.content-wrapper) button,
-:where(.content-wrapper) input[type="submit"],
-:where(.content-wrapper) input[type="button"] {
+:where(.content-wrapper button),
+:where(.content-wrapper input[type="submit"]),
+:where(.content-wrapper input[type="button"]) {
     background: var(--primary);
     color: var(--button-fg);
     padding: 0.5rem 1rem;
@@ -283,9 +283,9 @@ ul.pagination li.active span {
     transition: background 0.15s;
 }
 
-:where(.content-wrapper) button:hover,
-:where(.content-wrapper) input[type="submit"]:hover,
-:where(.content-wrapper) input[type="button"]:hover {
+:where(.content-wrapper button:hover),
+:where(.content-wrapper input[type="submit"]:hover),
+:where(.content-wrapper input[type="button"]:hover) {
     background: var(--primary-hover);
 }
 
