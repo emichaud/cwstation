@@ -52,6 +52,25 @@ them is the main way changes here go wrong.
 | `logbook.py` / `qrz.py` / `models.QSO`+`QRZProfile` | The logbook: `quick_log()` links the session, inherits mode from the session's engine (fldigi:BPSK31 → PSK31), maps freq→band, prefills from worked-before history then QRZ (XML API, session-key cached, re-auth-once on timeout, always degrades to no-enrichment — never breaks logging; base URL swappable via `settings.QRZ_XML_URL` for the fake-server tests). `adif_export()` emits ADIF 3 with UTC dates/times. Keying a reply auto-logs (sendsheet); session pages get `+log` per callsign. LogbookCRUDView: search-registered (owner-visibility), band/mode chip filters (`.order_by()` before `.distinct()` or Meta.ordering duplicates chips — regression-tested), filtered ↓ADIF. |
 | `models.CWMacro` / `/cw/macros/` / `static/cw/macros.js` | Message keys: per-user slash macros (defaults seeded on first GET), single GET/POST endpoint (create/update/delete by shape), and the composer UI — keycap chips + slash palette + snippet-style `{placeholder}` fill (known context expands, first unknown is left selected). Popover background uses the layered `linear-gradient(var(--card-bg),var(--card-bg)), var(--body-bg)` recipe so it stays opaque under any palette. |
 
+## Branding & template overrides
+
+The product is **CW Monitor** (BRAND_* in `config/settings/smallstack.py`).
+Assets live in `static/brand/`: `cw-monitor-text.svg` (topbar wordmark),
+`cw-monitor-icon.svg`, `cw-monitor-icon.ico` (multi-size, generated with
+Pillow — see git history for the generator), `cw-monitor-social.png`. The
+mark is the tape keying **K** (dah·dit·dah, "go ahead") crossing the green
+now-line; brand colors #e0b84c amber / #3fb950 green / #7d8590 slate.
+
+Downstream template overrides in `templates/smallstack/includes/`:
+- `sidebar.html` — operator-console sidebar: skips the `admin` nav section
+  entirely (admin tools live in the staff-gated topbar apps grid and the
+  user menu's Admin link, both framework-provided).
+- `topbar.html` — sidebar-toggle hamburger wears the brand mark instead of
+  the stock green squares.
+When pulling from upstream smallstack, diff these two against the originals.
+Django `{# #}` comments are single-line — multi-line notes in templates must
+use `{% comment %}` or they render as page text.
+
 ## Working on it
 
 - **Test loop is synthesize → decode → assert** (`apps/cw/tests/test_engine.py`). Any

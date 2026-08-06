@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- CW Monitor mark: the paper tape keying "K" (dah dit dah — "go ahead")
+       crossing the decode now-line -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#10151c"/>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="none" stroke="#2a313c" stroke-width="2"/>
+  <g fill="#e0b84c">
+    <rect x="10" y="26" width="16" height="12" rx="3"/>
+    <rect x="30" y="26" width="7"  height="12" rx="3"/>
+    <rect x="41" y="26" width="16" height="12" rx="3"/>
+  </g>
+  <rect x="47.5" y="10" width="2.5" height="44" rx="1.25" fill="#3fb950"/>
+  <path d="M46 10 h6 l-3 5 z" fill="#3fb950"/>
+</svg>
