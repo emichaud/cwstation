@@ -107,9 +107,16 @@ uv run python manage.py cw_monitor_live --stream {{ request.user.username }} --s
                 callsEl: document.getElementById("cw-heard"),
                 callsEmptyEl: document.getElementById("cw-heard-empty"),
                 onReply: function (call) { sheet.open(call); },
-                onStatus: function (state) {
+                onStatus: function (state, feed) {
+                    if (state === "live" && feed && feed.conflict) {
+                        pill.dataset.state = "warn";
+                        pill.textContent = "⚠ two feeds interleaving — stop one";
+                        return;
+                    }
                     pill.dataset.state = state;
-                    pill.textContent = labels[state] || state;
+                    pill.textContent = (state === "live" && feed && feed.source)
+                        ? "● live · " + feed.source
+                        : (labels[state] || state);
                 },
             },
         });

@@ -59,6 +59,29 @@ class TestResultStreamer:
         ResultStreamer(result, batches.append).flush()
         assert batches[0]["meta"]["calls"] == ["W1AW"]
 
+    def test_meta_carries_feed_identity(self):
+        src = SyntheticCWSource("SOS", wpm=20, tone_hz=600, block_size=512)
+        result = monitor_live(src, tone_hz=600)
+        batches: list[dict[str, Any]] = []
+        ResultStreamer(result, batches.append, source="simulator").flush()
+        meta = batches[0]["meta"]
+        assert meta["source"] == "simulator"
+        assert len(meta["feed"]) == 8  # per-run id for interleave detection
+
+    def test_feed_ids_differ_per_streamer(self):
+        from apps.cw.engine.events import DecodeResult
+
+        a = ResultStreamer(DecodeResult(), lambda b: None)
+        b = ResultStreamer(DecodeResult(), lambda b: None)
+        assert a.feed_id != b.feed_id
+
+    def test_source_defaults_to_engine_name(self):
+        src = SyntheticCWSource("E", wpm=20, tone_hz=600, block_size=512)
+        result = monitor_live(src, tone_hz=600)
+        batches: list[dict[str, Any]] = []
+        ResultStreamer(result, batches.append).flush()
+        assert batches[0]["meta"]["source"] == "cw"
+
     def test_partial_trailing_word_is_not_a_callsign(self):
         # mid-decode "CQ DE W1A" must not spawn a spurious W1A chip — only
         # completed words (followed by a space) are scanned

@@ -107,7 +107,7 @@ class Command(BaseCommand):
                         self.stderr.write(f"\nstream : {ingest_url} unreachable ({e}); retrying quietly")
                         warned[0] = True
 
-            streamer = ResultStreamer(decoder.result, send_batch)
+            streamer = ResultStreamer(decoder.result, send_batch, source="simulator")
             self.stdout.write(f"stream : {ingest_url} → simulator tape for {stream_user.username}")
 
         self.stdout.write(self.style.MIGRATE_HEADING(

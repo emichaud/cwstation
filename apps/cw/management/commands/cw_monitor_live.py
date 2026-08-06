@@ -143,7 +143,7 @@ class Command(BaseCommand):
                         warned[0] = True
 
             def streamer_factory(result):  # noqa: F811
-                return ResultStreamer(result, send_batch)
+                return ResultStreamer(result, send_batch, source="sound card")
 
             self.stdout.write(f"stream : {ingest_url} → live tape for {stream_user.username}")
 

@@ -8,6 +8,7 @@ caller's business; this module stays Django-free and unit-testable.
 """
 from __future__ import annotations
 
+import uuid
 from typing import Any, Callable
 
 from .bridge import extract_callsigns
@@ -18,11 +19,19 @@ Sender = Callable[[dict[str, Any]], None]
 
 class ResultStreamer:
     def __init__(
-        self, result: DecodeResult, send: Sender, interval_s: float = 0.25
+        self,
+        result: DecodeResult,
+        send: Sender,
+        interval_s: float = 0.25,
+        source: str = "",
     ) -> None:
         self.result = result
         self.send = send
         self.interval_s = interval_s
+        # feed identity: the live tape shows `source` in its pill and uses the
+        # per-run `feed` id to detect two streamers interleaving on one tape
+        self.source = source
+        self.feed_id = uuid.uuid4().hex[:8]
         self._chars = 0
         self._runs = 0
         self._env = 0
@@ -77,6 +86,8 @@ class ResultStreamer:
                 "tone_hz": r.tone_hz,
                 "wpm": last_char.wpm if last_char else 0.0,
                 "snr": last_char.snr_db if last_char else 0.0,
+                "source": self.source or r.engine,
+                "feed": self.feed_id,
                 # every callsign heard so far — the live pages render these as
                 # "reply" chips (the responder). Only completed words are
                 # scanned: a station mid-word ("...DE W1A") must not spawn a

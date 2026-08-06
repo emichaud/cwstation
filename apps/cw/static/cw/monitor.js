@@ -285,6 +285,42 @@ function initCWMonitor(opts) {
       ctx.shadowBlur = 0; ctx.globalAlpha = 1;
     }
 
+    // text-mode traffic (fldigi taps): no key runs — draw a continuous
+    // carrier ribbon with a tick at each character commit (varicode
+    // character boundaries are real decoder events; the ribbon between
+    // them is the mode's continuous carrier)
+    const textChars = S.chars.filter((c) => c.m === "" && c.c !== " ");
+    if (textChars.length) {
+      const ribbonH = 12;
+      let spanStart = null, prevEnd = null;
+      const spans = [];
+      for (const c of textChars) {
+        if (spanStart === null) { spanStart = c.t0; }
+        else if (c.t0 - prevEnd > 2.0) { spans.push([spanStart, prevEnd]); spanStart = c.t0; }
+        prevEnd = c.t1;
+      }
+      if (spanStart !== null) spans.push([spanStart, prevEnd]);
+      for (const [a0, b0] of spans) {
+        const a = Math.max(a0 - 0.15, t0), b = Math.min(b0 + 0.15, t1);
+        if (b < t0 || a > t1) continue;
+        const passed = b0 <= t;
+        ctx.fillStyle = C.signal;
+        ctx.globalAlpha = passed ? 0.75 : 0.3;
+        ctx.fillRect(X(a), baseY - ribbonH / 2, Math.max(2, X(b) - X(a)), ribbonH);
+      }
+      for (const c of textChars) {
+        if (c.t1 < t0 || c.t1 > t1) continue;
+        const passed = c.t1 <= t;
+        ctx.fillStyle = C.signal;
+        ctx.globalAlpha = passed ? 1 : 0.35;
+        ctx.shadowColor = passed ? C.signal : "transparent";
+        ctx.shadowBlur = passed ? 8 : 0;
+        ctx.fillRect(X(c.t1) - 1, baseY - 14, 2, 28);
+        ctx.shadowBlur = 0;
+      }
+      ctx.globalAlpha = 1;
+    }
+
     // decoded characters above their elements
     ctx.textAlign = "center";
     for (const c of S.chars) {
@@ -346,7 +382,11 @@ function initCWMonitor(opts) {
   }
 
   // ── live feed ─────────────────────────────────────────────────────────
-  function liveStatus(state) { if (live && live.onStatus) live.onStatus(state); }
+  function liveStatus(state) {
+    if (live && live.onStatus) {
+      live.onStatus(state, { source: feeds.source, conflict: feeds.conflict });
+    }
+  }
 
   const heardCalls = new Set();
   function liveHeard(calls) {
@@ -376,8 +416,27 @@ function initCWMonitor(opts) {
     if (live.callsEmptyEl && heardCalls.size) live.callsEmptyEl.style.display = "none";
   }
 
+  // feed identity: which command is driving this tape, and is a second one
+  // interleaving with it? (two streamers on one tape scramble the copy)
+  const feeds = { current: null, source: "", lastSeen: 0, conflict: false };
+
+  function trackFeed(meta) {
+    if (!meta || !meta.feed) return;
+    const now = performance.now();
+    if (feeds.current && meta.feed !== feeds.current && now - feeds.lastSeen < 6000) {
+      feeds.conflict = true;  // two live feeds alternating within seconds
+    } else if (meta.feed !== feeds.current) {
+      feeds.conflict = false; // clean handover to a new feed
+    }
+    feeds.current = meta.feed;
+    feeds.source = meta.source || "";
+    feeds.lastSeen = now;
+    liveStatus("live");
+  }
+
   function liveMerge(b) {
     if (b.meta) {
+      trackFeed(b.meta);
       if (b.meta.tone_hz && el.toneEl) el.toneEl.textContent = Math.round(b.meta.tone_hz);
       if (b.meta.tone_hz) { S.meta.tone_hz = b.meta.tone_hz; renderRF(); }
       if (b.meta.calls) liveHeard(b.meta.calls);

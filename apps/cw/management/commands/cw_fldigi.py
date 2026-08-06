@@ -103,7 +103,7 @@ class Command(BaseCommand):
                         self.stderr.write(f"\nstream : {ingest_url} unreachable ({e}); retrying quietly")
                         warned[0] = True
 
-            streamer = ResultStreamer(result, send_batch)
+            streamer = ResultStreamer(result, send_batch, source=f"fldigi {info['modem']}")
             self.stdout.write(f"stream : {ingest_url} → live tape for {stream_user.username}")
 
         def on_char(ev: CharEvent) -> None:

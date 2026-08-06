@@ -166,11 +166,16 @@ fldigi does the demodulating (it's best-in-class at it); the tap adapts its text
 the station's event stream. Everything downstream just works: the decode window fills
 in real time, callsigns spotted in PSK31 copy become **Heard on the band** reply
 chips, `--save` stores the copy as a session, and with a rig connected the RF gauge
-reads dial + fldigi's carrier. One feed at a time per tape — stop the simulator or
-CW monitor before starting the tap, or the streams interleave.
+reads dial + fldigi's carrier.
 
-Note the tape itself stays quiet in text modes (PSK31 is a continuous carrier, not
-on-off keying) — the decode window and chips are the live surface.
+In text modes the tape draws a **carrier ribbon** — a continuous bar (PSK31's carrier
+never stops) with a bright tick at each character commit and the glyph above it, so
+traffic is visible on the tape even without on-off keying.
+
+**One feed at a time per tape.** The live pill names whichever command is feeding it
+(`● live · simulator`, `· sound card`, `· fldigi BPSK31`) — and if two streamers run
+at once, it flips to a red **⚠ two feeds interleaving — stop one** warning, because
+interleaved streams scramble the copy.
 
 ## Rig control (Hamlib) — transmit for real
 

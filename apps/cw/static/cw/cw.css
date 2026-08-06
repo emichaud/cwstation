@@ -909,6 +909,11 @@ html[data-theme="light"] body.cw-console .cw-rig-freq > .cw-mono:first-child {
     border-color: var(--success-fg);
     background: color-mix(in srgb, var(--success-fg) 12%, var(--card-bg));
 }
+.cw-live-pill[data-state="warn"] {
+    color: var(--error-fg);
+    border-color: var(--error-fg);
+    background: color-mix(in srgb, var(--error-fg) 12%, var(--card-bg));
+}
 .cw-live-pill[data-state="off"] {
     color: var(--warning-fg);
     border-color: var(--warning-fg);
