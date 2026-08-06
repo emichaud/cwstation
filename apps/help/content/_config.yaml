@@ -27,7 +27,7 @@ sections:
         description: "Step-by-step from first decode to working a simulated band"
         icon: "rocket"
       - slug: cw-station
-        title: "CW Monitor — Operator's Guide"
+        title: "CW Station — Operator's Guide"
         description: "Decode CW off the air, practice, send — and replay it on the tape"
         icon: "radio"
       - slug: morse-reference

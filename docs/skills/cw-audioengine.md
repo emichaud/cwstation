@@ -54,10 +54,10 @@ them is the main way changes here go wrong.
 
 ## Branding & template overrides
 
-The product is **CW Monitor** (BRAND_* in `config/settings/smallstack.py`).
-Assets live in `static/brand/`: `cw-monitor-text.svg` (topbar wordmark),
-`cw-monitor-icon.svg`, `cw-monitor-icon.ico` (multi-size, generated with
-Pillow — see git history for the generator), `cw-monitor-social.png`. The
+The product is **CW Station** (BRAND_* in `config/settings/smallstack.py`).
+Assets live in `static/brand/`: `cw-station-text.svg` (topbar wordmark),
+`cw-station-icon.svg`, `cw-station-icon.ico` (multi-size, generated with
+Pillow — see git history for the generator), `cw-station-social.png`. The
 mark is the tape keying **K** (dah·dit·dah, "go ahead") crossing the green
 now-line; brand colors #e0b84c amber / #3fb950 green / #7d8590 slate.
 

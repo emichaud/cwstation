@@ -51,13 +51,13 @@ TIME_ZONE = config("TIME_ZONE", default="America/New_York")
 # Branding
 # ---------------------------------------------------------------------------
 # These paths are relative to STATIC_URL. Override to customize branding.
-BRAND_NAME = config("BRAND_NAME", default="CW Monitor")
-BRAND_LOGO = config("BRAND_LOGO", default="brand/cw-monitor-text.svg")
-BRAND_LOGO_DARK = config("BRAND_LOGO_DARK", default="brand/cw-monitor-text.svg")
-BRAND_LOGO_TEXT = config("BRAND_LOGO_TEXT", default="brand/cw-monitor-text.svg")
-BRAND_ICON = config("BRAND_ICON", default="brand/cw-monitor-icon.svg")
-BRAND_FAVICON = config("BRAND_FAVICON", default="brand/cw-monitor-icon.ico")
-BRAND_SOCIAL_IMAGE = config("BRAND_SOCIAL_IMAGE", default="brand/cw-monitor-social.png")
+BRAND_NAME = config("BRAND_NAME", default="CW Station")
+BRAND_LOGO = config("BRAND_LOGO", default="brand/cw-station-text.svg")
+BRAND_LOGO_DARK = config("BRAND_LOGO_DARK", default="brand/cw-station-text.svg")
+BRAND_LOGO_TEXT = config("BRAND_LOGO_TEXT", default="brand/cw-station-text.svg")
+BRAND_ICON = config("BRAND_ICON", default="brand/cw-station-icon.svg")
+BRAND_FAVICON = config("BRAND_FAVICON", default="brand/cw-station-icon.ico")
+BRAND_SOCIAL_IMAGE = config("BRAND_SOCIAL_IMAGE", default="brand/cw-station-social.png")
 BRAND_TAGLINE = config("BRAND_TAGLINE", default="Morse code decoder, scanner and logger")
 
 # Legal / Consent

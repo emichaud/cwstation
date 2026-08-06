@@ -1,6 +1,6 @@
-# CW Monitor — Operator's Guide
+# CW Station — Operator's Guide
 
-The CW Monitor decodes and sends Morse through your sound card — no special
+The CW Station decodes and sends Morse through your sound card — no special
 hardware required. Three pages do the work: **Monitor** (the paper tape),
 **Decode**, and **Send**. Every pass is saved as a session you can replay.
 

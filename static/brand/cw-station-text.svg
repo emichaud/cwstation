@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 44" role="img" aria-label="CW Monitor">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 44" role="img" aria-label="CW Station">
   <!-- mark -->
   <g>
     <rect x="1" y="4" width="36" height="36" rx="9" fill="#10151c"/>
@@ -13,7 +13,7 @@
   <!-- wordmark -->
   <text x="48" y="27" font-family="ui-monospace,'SF Mono',Menlo,Consolas,monospace"
         font-size="19" font-weight="700" letter-spacing="3">
-    <tspan fill="#e0b84c">CW</tspan><tspan fill="#7d8590" dx="6">MONITOR</tspan>
+    <tspan fill="#e0b84c">CW</tspan><tspan fill="#7d8590" dx="6">STATION</tspan>
   </text>
   <text x="49" y="39" font-family="ui-monospace,'SF Mono',Menlo,Consolas,monospace"
         font-size="7.5" letter-spacing="1.6" fill="#7d8590" opacity="0.85">MORSE DECODER · SCANNER · LOGGER</text>
