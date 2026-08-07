@@ -166,7 +166,69 @@ body.cw-console .cw-slider-val {
     background: color-mix(in srgb, black 26%, var(--body-bg));
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
 }
-body.cw-console input[type="range"] { height: 18px; }
+/* ── big, grabbable sliders across the app ───────────────────────────────
+   Native thumbs are tiny and easy to overshoot. Custom track + a 22px round
+   thumb with a generous invisible hit area; the gold "filled" portion is
+   driven by --cw-range-fill (set per input by range.js — webkit has no
+   progress pseudo, so JS paints the track gradient; Firefox uses its own
+   ::-moz-range-progress). All theme-variable colored. */
+input[type="range"].cw-range,
+body.cw-console input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 26px;                 /* the grab target, not the visible track */
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+    --cw-range-fill: 0%;
+}
+body.cw-console input[type="range"]::-webkit-slider-runnable-track {
+    height: 8px;
+    border-radius: 5px;
+    background: linear-gradient(90deg,
+        var(--primary) var(--cw-range-fill),
+        color-mix(in srgb, var(--body-fg) 16%, var(--card-bg)) var(--cw-range-fill));
+}
+body.cw-console input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 22px;
+    height: 22px;
+    margin-top: -7px;             /* center on the 8px track */
+    border-radius: 50%;
+    background: var(--primary);
+    border: 3px solid var(--card-bg);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+    transition: transform 0.1s ease;
+}
+body.cw-console input[type="range"]:hover::-webkit-slider-thumb,
+body.cw-console input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
+body.cw-console input[type="range"]:focus-visible::-webkit-slider-thumb {
+    outline: 2px solid var(--input-focus-border);
+    outline-offset: 2px;
+}
+/* Firefox */
+body.cw-console input[type="range"]::-moz-range-track {
+    height: 8px;
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--body-fg) 16%, var(--card-bg));
+}
+body.cw-console input[type="range"]::-moz-range-progress {
+    height: 8px;
+    border-radius: 5px;
+    background: var(--primary);
+}
+body.cw-console input[type="range"]::-moz-range-thumb {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--primary);
+    border: 3px solid var(--card-bg);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+body.cw-console input[type="range"]:hover::-moz-range-thumb,
+body.cw-console input[type="range"]:active::-moz-range-thumb { transform: scale(1.15); }
 
 /* -- rig dial reads like a frequency counter ----------------------------- */
 body.cw-console .cw-rig-freq > .cw-mono:first-child {
@@ -416,6 +478,7 @@ html[data-theme="light"] body.cw-console .cw-rig-freq > .cw-mono:first-child {
     margin-left: auto;
 }
 .cw-speed input { accent-color: var(--primary); }
+body.cw-console .cw-speed input[type="range"] { width: 150px; }
 
 /* ── forms ───────────────────────────────────────────────────────────── */
 .cw-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }

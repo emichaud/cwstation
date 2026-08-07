@@ -127,4 +127,5 @@ uv run python manage.py cw_simulate --stream {{ request.user.username }} --serve
         mon.setDial(14050000, "USB", true);
     })();
 </script>
+<script src="{% static 'cw/range.js' %}"></script>
 {% endblock %}
