@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.urls import path
 
 from .api import (
+    abbrev,
     eqsl_config,
     live_ingest,
     log_adif,
@@ -39,6 +40,7 @@ urlpatterns = [
     path("cw/sim/", SimulatorView.as_view(), name="cw-sim"),
     path("cw/sim/control/", sim_control, name="cw-sim-control"),
     path("cw/macros/", macros, name="cw-macros"),
+    path("cw/abbrev/", abbrev, name="cw-abbrev"),
     path("cw/log/quick/", log_quick, name="cw-log-quick"),
     path("cw/log/adif/", log_adif, name="cw-log-adif"),
     path("cw/log/qrz/", qrz_config, name="cw-log-qrz"),

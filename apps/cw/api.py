@@ -238,6 +238,14 @@ def log_adif(request: HttpRequest) -> Any:
 
 
 @api_view(methods=["GET"], require_auth=True)
+def abbrev(request: HttpRequest) -> dict[str, Any]:
+    """The CW shorthand dictionary for tutor mode (static reference data)."""
+    from .abbrev import LOOKUP
+
+    return {"lookup": LOOKUP}
+
+
+@api_view(methods=["GET"], require_auth=True)
 def log_lookup(request: HttpRequest) -> dict[str, Any] | Any:
     """Side-effect-free callsign intel for the QSO form: worked-before
     history and (when configured) a live QRZ record."""

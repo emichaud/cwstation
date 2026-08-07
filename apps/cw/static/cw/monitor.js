@@ -92,6 +92,62 @@ function initCWMonitor(opts) {
     renderRF();
   }
 
+  // ── tutor mode: expand CW shorthand into plain English ────────────────
+  // The dictionary (Python source of truth) is fetched once on first enable;
+  // the panel shows only the abbreviations actually present in the copy.
+  let tutorOn = false;
+  let tutorDict = null;
+  const MAX_GLOSS = 30;
+
+  function cleanToken(raw) {
+    if (raw === "=" || raw === "+") return raw;
+    return raw.replace(/^[.,?!;:/()]+|[.,?!;:/()]+$/g, "").toUpperCase();
+  }
+
+  function renderGloss() {
+    if (!el.glossChipsEl) return;
+    if (!tutorOn || !tutorDict) return;
+    const text = decodedUpTo(t).txt;
+    const seen = new Set();
+    const hits = [];
+    for (const raw of text.split(/\s+/)) {
+      const tok = cleanToken(raw);
+      if (tok && tutorDict[tok] && !seen.has(tok)) {
+        seen.add(tok);
+        hits.push(tok);
+      }
+    }
+    const shown = hits.slice(-MAX_GLOSS);
+    el.glossChipsEl.innerHTML = "";
+    if (!shown.length) {
+      el.glossChipsEl.innerHTML = '<span class="cw-gloss-empty">watching for shorthand…</span>';
+      return;
+    }
+    for (const tok of shown) {
+      const chip = document.createElement("span");
+      chip.className = "cw-gloss-chip";
+      const b = document.createElement("b");
+      b.textContent = tok;
+      chip.appendChild(b);
+      chip.appendChild(document.createTextNode(tutorDict[tok]));
+      el.glossChipsEl.appendChild(chip);
+    }
+  }
+
+  function tutorToggle() {
+    tutorOn = !tutorOn;
+    if (el.tutorBtn) el.tutorBtn.setAttribute("aria-pressed", String(tutorOn));
+    if (el.glossEl) el.glossEl.classList.toggle("open", tutorOn);
+    if (tutorOn && !tutorDict) {
+      fetch("/cw/abbrev/", { credentials: "same-origin" })
+        .then((r) => r.json())
+        .then((j) => { tutorDict = (j.data || j).lookup || {}; renderGloss(); })
+        .catch(() => { tutorDict = {}; });
+    } else {
+      renderGloss();
+    }
+  }
+
   // ── sidetone (WebAudio) ───────────────────────────────────────────────
   // The keying data comes from the decoder's key runs; this just sounds it.
   let audioOn = !!opts.audioStart, actx = null, oscGain = null, osc = null;
@@ -224,6 +280,7 @@ function initCWMonitor(opts) {
     if (el.wpmEl) el.wpmEl.textContent = d.wpm ? (+d.wpm).toFixed(0) : "–";
     if (el.snrEl) el.snrEl.textContent = d.snr === "–" ? "–" : (+d.snr).toFixed(0);
     if (el.confEl) el.confEl.textContent = d.conf;
+    renderGloss();
   }
 
   function roundRect(x, y, w, h, r) {
@@ -475,6 +532,7 @@ function initCWMonitor(opts) {
   if (el.playBtn) el.playBtn.onclick = () => { if (t >= dur) seek(0); play(!playing); };
   if (el.restartBtn) el.restartBtn.onclick = () => { seek(0); play(true); };
   if (el.audioBtn) { el.audioBtn.onclick = audioToggle; updateAudioBtn(); }
+  if (el.tutorBtn) el.tutorBtn.onclick = tutorToggle;
   if (el.rateInput) el.rateInput.oninput = (e) => {
     rate = +e.target.value;
     if (el.rateLabel) el.rateLabel.textContent = rate.toFixed(1) + "×";

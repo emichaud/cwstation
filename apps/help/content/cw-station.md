@@ -147,6 +147,12 @@ identifies a station, its callsign appears under the tape in **Heard on the band
 click **reply** and the Send composer opens pre-filled with a standard answer
 (`W1AW DE YOU YOU K`) ready to key into audio.
 
+**Tutor mode** — hit the **Aa** button under the tape and a *plain English* panel
+appears, expanding the CW shorthand in your copy as it comes in (`CQ` → calling any
+station, `QTH` → location, `73` → best regards…). It only shows what's actually on
+the tape, so it teaches in context without cluttering. The full table is in the
+[Morse Code Reference](/smallstack/help/morse-reference/).
+
 Radio-side tips: tune the signal so its note sits at one steady pitch (the narrow CW
 filter helps), and prefer slow AGC — the decoder rides through fading, but heavily
 pumped audio is hard for anything to copy.

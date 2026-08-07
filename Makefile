@@ -4,7 +4,7 @@
 .PHONY: help run sim services migrate migrations superuser shell test coverage collectstatic docker-up docker-down lint clean deploy logs backup screenshot-auth optimize-images mcp-doctor mcp-test api-test
 
 # Default port for development server
-PORT ?= 8005
+PORT ?= 8010
 
 help:
 	@echo "Django SmallStack - Available commands:"
