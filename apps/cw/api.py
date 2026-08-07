@@ -458,6 +458,7 @@ def rig_setup_data(request: HttpRequest) -> dict[str, Any]:
         "serial_ports": rigdaemon.list_serial_ports(),
         "models": rigdaemon.list_models(),
         "daemon": rigdaemon.status(),
+        "custom_images": _custom_rig_images(),
         "saved": {
             "rig_model": config.rig_model,
             "serial_port": config.serial_port,
@@ -465,6 +466,28 @@ def rig_setup_data(request: HttpRequest) -> dict[str, Any]:
             "port": config.port,
         },
     }
+
+
+def _custom_rig_images() -> dict[str, str]:
+    """Operator-supplied rig photos keyed by Hamlib model number.
+
+    Drop a licensed image at `static/cw/rigs/<model>.png` (or webp/jpg) and
+    the Rig Setup rows use it instead of the built-in illustration. We ship
+    no manufacturer photos (copyright); this is the seam for your own."""
+    import os
+
+    from django.conf import settings
+    from django.templatetags.static import static as static_url
+
+    rigs_dir = os.path.join(settings.BASE_DIR, "static", "cw", "rigs")
+    out: dict[str, str] = {}
+    if not os.path.isdir(rigs_dir):
+        return out
+    for fname in os.listdir(rigs_dir):
+        stem, ext = os.path.splitext(fname)
+        if stem.isdigit() and ext.lower() in (".png", ".webp", ".jpg", ".jpeg"):
+            out[stem] = static_url(f"cw/rigs/{fname}")
+    return out
 
 
 @api_view(methods=["POST"], require_auth=True)

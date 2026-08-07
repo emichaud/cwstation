@@ -120,6 +120,19 @@ class TestSetupEndpoints:
         assert len(payload["models"]) > 100
         assert payload["daemon"]["running"] is False
 
+    def test_setup_data_lists_custom_images(self, client_logged, tmp_path, settings):
+        # no folder / no images -> empty dict; a numbered file -> mapped to a URL
+        import os
+        settings.BASE_DIR = tmp_path
+        os.makedirs(tmp_path / "static" / "cw" / "rigs")
+        (tmp_path / "static" / "cw" / "rigs" / "3085.png").write_bytes(b"x")
+        (tmp_path / "static" / "cw" / "rigs" / "notes.txt").write_text("ignore me")
+        data = client_logged.get(reverse("cw-rig-setup-data")).json()
+        payload = data.get("data") or data
+        assert "3085" in payload["custom_images"]
+        assert payload["custom_images"]["3085"].endswith("cw/rigs/3085.png")
+        assert "notes" not in payload["custom_images"]
+
     def test_daemon_start_requires_model(self, client_logged):
         response = client_logged.post(
             reverse("cw-rig-daemon"), json.dumps({"action": "start"}),

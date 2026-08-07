@@ -1006,7 +1006,19 @@ body.cw-setup {
     background: color-mix(in srgb, var(--primary) 12%, var(--card-bg));
     box-shadow: inset 3px 0 0 var(--primary);
 }
-.cw-model-name { font-weight: 600; }
+.cw-model-thumb {
+    flex: 0 0 auto;
+    display: inline-flex;
+    width: 52px;
+    margin-right: 4px;
+}
+.cw-model-thumb svg { width: 52px; height: auto; display: block; }
+.cw-model-thumb img {
+    width: 52px; height: 36px; object-fit: contain; display: block;
+    border-radius: 4px;
+}
+.cw-model-thumb.broken { display: none; }  /* missing photo → just show text */
+.cw-model-name { font-weight: 600; flex: 1; }
 .cw-model-id, .cw-port-hint { color: var(--text-muted); font-size: 0.82rem; }
 .cw-port-hint { flex: 1; text-align: right; }
 .cw-rescan {

@@ -13,6 +13,7 @@ function initCWRigSetup(opts) {
                   "Ten-Tec", "Alinco", "Xiegu"];
 
   let models = [];
+  let customImages = {}; // {modelId: url} — operator-supplied photos
   let sel = { port: null, model: null, baud: 115200, dummy: false };
   let mfgFilter = "";
 
@@ -24,6 +25,68 @@ function initCWRigSetup(opts) {
       body: JSON.stringify(body),
     } : { credentials: "same-origin" })
       .then((r) => r.json().then((j) => ({ ok: r.ok, data: j.data || j })));
+  }
+
+  // ── rig-type thumbnails ────────────────────────────────────────────────
+  // Original illustrations by rig archetype (not manufacturer photos — those
+  // are copyrighted). Heuristics from the Hamlib model name give each row a
+  // recognizable icon: base station, compact/QRP, mobile, handheld, or SDR.
+  function rigArchetype(mfg, model, id) {
+    const s = (mfg + " " + model).toLowerCase();
+    if (id === 1 || /dummy|network|flrig|rigctl|gnuradio|\bsdr\b|flex|powersdr|hpsdr|hamlib/.test(s))
+      return "software";
+    if (/handheld|\bht\b|\bvx-|\bft-?[1-6]\b|\bid-?(31|51|52|5100)|\bth-|\bd7[0-9]|\bdj-|kg-?uv|handie/.test(s))
+      return "handheld";
+    if (/kx[0-9]|kx-|xiegu|x6100|x5105|g90|g106|\bqrp\b|mtr|mountain|penntek|tr-?35|\bk1\b|\bk2\b/.test(s))
+      return "compact";
+    if (/mobile|ic-?2\d\d\d|ic-?27|ic-?29|ft-?8[59]7|ftm-|\btm-|ic-?706|ic-?7000|ic-?2730|ft-?891| id-?4100/.test(s))
+      return "mobile";
+    return "base";
+  }
+
+  const THUMBS = {
+    base:
+      '<rect x="1" y="4" width="46" height="25" rx="4" fill="#232a34" stroke="#3a4150"/>' +
+      '<rect x="4" y="8" width="22" height="17" rx="2" fill="#0b0e13"/>' +
+      '<rect x="6" y="12" width="15" height="3" rx="1" fill="#e0b84c"/>' +
+      '<rect x="6" y="18" width="9" height="2" rx="1" fill="#7a6733"/>' +
+      '<circle cx="38" cy="16" r="7.5" fill="#161b22" stroke="#3a4150"/>' +
+      '<circle cx="38" cy="10.5" r="1.6" fill="#e0b84c"/>',
+    compact:
+      '<rect x="8" y="6" width="32" height="21" rx="4" fill="#232a34" stroke="#3a4150"/>' +
+      '<rect x="11" y="10" width="15" height="12" rx="2" fill="#0b0e13"/>' +
+      '<rect x="13" y="13" width="10" height="3" rx="1" fill="#e0b84c"/>' +
+      '<circle cx="33" cy="16" r="5" fill="#161b22" stroke="#3a4150"/>',
+    mobile:
+      '<rect x="2" y="9" width="38" height="15" rx="3" fill="#232a34" stroke="#3a4150"/>' +
+      '<rect x="5" y="12" width="20" height="9" rx="1.5" fill="#0b0e13"/>' +
+      '<rect x="7" y="14.5" width="13" height="3" rx="1" fill="#e0b84c"/>' +
+      '<circle cx="33" cy="16.5" r="4" fill="#161b22" stroke="#3a4150"/>' +
+      '<rect x="42" y="7" width="4" height="20" rx="2" fill="#2b323d"/>',
+    handheld:
+      '<rect x="17" y="6" width="16" height="24" rx="3" fill="#232a34" stroke="#3a4150"/>' +
+      '<rect x="28" y="1" width="2.5" height="7" rx="1" fill="#3a4150"/>' +
+      '<rect x="20" y="9" width="10" height="7" rx="1.5" fill="#0b0e13"/>' +
+      '<rect x="21.5" y="11" width="7" height="2.5" rx="1" fill="#e0b84c"/>' +
+      '<circle cx="22" cy="21" r="1.4" fill="#3a4150"/><circle cx="25" cy="21" r="1.4" fill="#3a4150"/>' +
+      '<circle cx="28" cy="21" r="1.4" fill="#3a4150"/><circle cx="23.5" cy="25" r="1.4" fill="#3a4150"/>' +
+      '<circle cx="26.5" cy="25" r="1.4" fill="#3a4150"/>',
+    software:
+      '<rect x="3" y="4" width="42" height="22" rx="3" fill="#232a34" stroke="#3a4150"/>' +
+      '<rect x="6" y="7" width="36" height="16" rx="2" fill="#0b0e13"/>' +
+      '<polyline points="9,15 15,15 18,10 22,20 26,12 30,17 33,15 39,15" fill="none" ' +
+      'stroke="#e0b84c" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>' +
+      '<rect x="20" y="26" width="8" height="3" rx="1" fill="#2b323d"/>',
+  };
+  function rigThumb(m) {
+    const img = customImages[m.id];
+    if (img) {
+      return '<span class="cw-model-thumb"><img src="' + img + '" alt="" ' +
+        'onerror="this.parentNode.classList.add(\'broken\')"></span>';
+    }
+    const kind = rigArchetype(m.mfg, m.model, m.id);
+    return '<span class="cw-model-thumb"><svg viewBox="0 0 48 32" aria-hidden="true">' +
+      (THUMBS[kind] || THUMBS.base) + "</svg></span>";
   }
 
   // ── the rig illustration ──────────────────────────────────────────────
@@ -94,6 +157,7 @@ function initCWRigSetup(opts) {
       row.type = "button";
       row.className = "cw-model-row" + (sel.model === m.id && !sel.dummy ? " picked" : "");
       row.innerHTML =
+        rigThumb(m) +
         '<span class="cw-model-name">' + m.mfg + " " + m.model + "</span>" +
         '<span class="cw-model-id cw-mono">#' + m.id + "</span>";
       row.addEventListener("click", () => {
@@ -215,6 +279,7 @@ function initCWRigSetup(opts) {
       el("rs-panels").style.pointerEvents = hamlib ? "" : "none";
 
       models = data.models || [];
+      customImages = data.custom_images || {};
       // restore saved choice
       if (sel.model === null && sel.dummy === false && data.saved) {
         if (data.saved.rig_model === 1) { sel.dummy = true; sel.model = 1; }
