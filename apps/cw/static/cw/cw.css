@@ -348,6 +348,13 @@ html[data-theme="light"] body.cw-console .cw-rig-freq > .cw-mono:first-child {
     scrollbar-color: var(--card-border) transparent;
 }
 .cw-decoded .cw-unknown { color: var(--error-fg); }
+/* prosigns in decoded copy — discoverable underline + hover tooltip */
+.cw-ps-gloss {
+    cursor: help;
+    border-bottom: 1px dotted color-mix(in srgb, currentColor 55%, transparent);
+    text-underline-offset: 3px;
+}
+.cw-ps-gloss:hover { color: var(--success-fg); }
 .cw-cursor {
     display: inline-block;
     width: 9px;

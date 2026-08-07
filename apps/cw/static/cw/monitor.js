@@ -252,6 +252,37 @@ function initCWMonitor(opts) {
     return s.replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m]));
   }
 
+  // Prosigns in decoded copy get a hover tooltip. The decoder renders them as
+  // signs, so these are the forms actually seen (kept in step with abbrev.py).
+  const PROSIGN_GLOSS = {
+    "<SK>": "SK — end of contact, signing off",
+    "<BK>": "BK — break-in, over to you",
+    "<CT>": "KA — start of message",
+    "+": "AR — end of message",
+    "=": "BT — separator / new thought",
+    "(": "KN — go ahead, named station only",
+    "&": "AS — wait / stand by",
+  };
+  const PROSIGN_RE = /<SK>|<BK>|<CT>|[+=(&]|�/g;
+
+  function copyHtml(text) {
+    // escape, wrap prosigns in a titled span, mark unknown chars
+    let out = "", last = 0, m;
+    PROSIGN_RE.lastIndex = 0;
+    while ((m = PROSIGN_RE.exec(text)) !== null) {
+      out += escapeHtml(text.slice(last, m.index));
+      const tok = m[0];
+      if (tok === "�") {
+        out += '<span class="cw-unknown">▯</span>';
+      } else {
+        out += '<span class="cw-ps-gloss" title="' + PROSIGN_GLOSS[tok] + '">' +
+          escapeHtml(tok) + "</span>";
+      }
+      last = m.index + tok.length;
+    }
+    return out + escapeHtml(text.slice(last));
+  }
+
   // The decode window sticks to its newest text unless the operator has
   // scrolled up to read older copy.
   let decodedPinned = true;
@@ -266,9 +297,7 @@ function initCWMonitor(opts) {
     draw();
     const d = decodedUpTo(t);
     if (el.decodedEl) {
-      el.decodedEl.innerHTML =
-        escapeHtml(d.txt).replace(/�/g, '<span class="cw-unknown">▯</span>') +
-        '<span class="cw-cursor"></span>';
+      el.decodedEl.innerHTML = copyHtml(d.txt) + '<span class="cw-cursor"></span>';
       if (decodedPinned) el.decodedEl.scrollTop = el.decodedEl.scrollHeight;
     }
     for (const { sp, c } of msgSpans) {
