@@ -125,8 +125,21 @@ The abbreviations, Q-codes, and signs an operator hears constantly. Toggle **Aa*
 | **BK** | break — quick back-and-forth |
 | **BT** | separator / new paragraph |
 | **AS** | wait / stand by |
+| **CT** | start of message |
 | **R** | roger — received OK |
 | **CL** | closing station |
+
+### Prosigns — as they appear in copy
+
+| | |
+|:--|:--|
+| `+` | end of message (AR) |
+| `=` | separator (BT) — new thought |
+| `(` | go ahead — named station only (KN) |
+| `&` | wait / stand by (AS) |
+| `<SK>` | end of contact — signing off |
+| `<BK>` | break-in — over to you |
+| `<CT>` | start of message (KA) |
 
 ### Common words
 
@@ -188,6 +201,3 @@ The abbreviations, Q-codes, and signs an operator hears constantly. Toggle **Aa*
 | **73** | best regards |
 | **88** | love and kisses |
 | **5NN** | 599 — a perfect report |
-| `=` | separator (BT) — new thought |
-| `+` | end of message (AR) |
-

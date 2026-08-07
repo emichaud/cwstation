@@ -38,8 +38,20 @@ ABBREVIATIONS: dict[str, dict[str, str]] = {
         "BK": "break — quick back-and-forth",
         "BT": "separator / new paragraph",
         "AS": "wait / stand by",
+        "CT": "start of message",
         "R": "roger — received OK",
         "CL": "closing station",
+    },
+    "Prosigns — as they appear in copy": {
+        # the decoder renders run-together prosigns as these signs/brackets,
+        # so tutor mode must gloss the forms actually seen on the tape
+        "+": "end of message (AR)",
+        "=": "separator (BT) — new thought",
+        "(": "go ahead — named station only (KN)",
+        "&": "wait / stand by (AS)",
+        "<SK>": "end of contact — signing off",
+        "<BK>": "break-in — over to you",
+        "<CT>": "start of message (KA)",
     },
     "Common words": {
         "ABT": "about",
@@ -95,10 +107,12 @@ ABBREVIATIONS: dict[str, dict[str, str]] = {
         "73": "best regards",
         "88": "love and kisses",
         "5NN": "599 — a perfect report",
-        "=": "separator (BT) — new thought",
-        "+": "end of message (AR)",
     },
 }
+
+# Signs that carry meaning on their own — passed through the tokenizer intact
+# instead of being stripped as trailing punctuation.
+SIGN_TOKENS = frozenset({"+", "=", "(", ")", "&"})
 
 # token → meaning, everything flattened
 LOOKUP: dict[str, str] = {
@@ -109,11 +123,12 @@ LOOKUP: dict[str, str] = {
 
 
 def _clean(token: str) -> str:
-    """Normalize a copied word for lookup: keep '=' and '+' as-is, otherwise
-    strip surrounding punctuation and uppercase."""
-    if token in ("=", "+"):
+    """Normalize a copied word for lookup: standalone signs pass through,
+    prosign brackets are preserved, otherwise strip surrounding punctuation
+    and uppercase."""
+    if token in SIGN_TOKENS:
         return token
-    return token.strip(".,?!;:/()").upper()
+    return token.strip(".,?!;:/").upper()  # keep <>, () — they carry meaning
 
 
 def gloss(text: str) -> list[dict[str, str]]:

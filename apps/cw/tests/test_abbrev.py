@@ -26,6 +26,21 @@ class TestGloss:
         tokens = [g["token"] for g in out]
         assert "=" in tokens and "+" in tokens and "SK" in tokens
 
+    def test_glosses_prosigns_as_decoded(self):
+        # every reference prosign in the form the decoder actually emits:
+        # AR→+ BT→= KN→( AS→& SK/BK/CT keep <>
+        out = gloss("R R UR 599 ( PSE = W1AW & <SK> <BK> <CT> +")
+        tokens = [g["token"] for g in out]
+        for form in ("(", "&", "=", "<SK>", "<BK>", "<CT>", "+"):
+            assert form in tokens, form
+
+    def test_covers_reference_prosigns(self):
+        # the Morse-reference Prosigns section, by their decoded forms
+        from apps.cw.abbrev import LOOKUP
+
+        for form in ("+", "=", "(", "&", "<SK>", "<BK>", "<CT>"):
+            assert form in LOOKUP and LOOKUP[form]
+
     def test_ignores_plain_words_and_callsigns(self):
         assert gloss("HELLO WORLD N0CALL BOSTON") == []
 

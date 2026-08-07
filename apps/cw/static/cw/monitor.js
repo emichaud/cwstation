@@ -99,9 +99,11 @@ function initCWMonitor(opts) {
   let tutorDict = null;
   const MAX_GLOSS = 30;
 
+  const SIGN_TOKENS = new Set(["+", "=", "(", ")", "&"]);
   function cleanToken(raw) {
-    if (raw === "=" || raw === "+") return raw;
-    return raw.replace(/^[.,?!;:/()]+|[.,?!;:/()]+$/g, "").toUpperCase();
+    if (SIGN_TOKENS.has(raw)) return raw;
+    // strip trailing punctuation but keep <> and () — they carry meaning
+    return raw.replace(/^[.,?!;:/]+|[.,?!;:/]+$/g, "").toUpperCase();
   }
 
   function renderGloss() {
