@@ -1,9 +1,9 @@
 {% extends "smallstack/base.html" %}
 {% load static theme_tags %}
 
-{% block title %}Rig Setup{% endblock %}
+{% block title %}Connect Your Radio{% endblock %}
 {% block breadcrumbs %}{% endblock %}
-{% block body_class %}cw-console{% endblock %}
+{% block body_class %}cw-console cw-setup{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'cw/cw.css' %}">
@@ -21,89 +21,177 @@
 {% endblock %}
 
 {% block content %}
-<div id="rs-nohamlib" class="card" style="display: none; margin-bottom: 14px;">
-    <div class="card-header"><h2>Hamlib required</h2></div>
-    <div class="card-body">
-        <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
-            Rig control rides on Hamlib's <code>rigctld</code> daemon (~250 rig models).
-            Install it once on the machine the radio plugs into, then reload this page:
-        </p>
-        <pre style="background: var(--card-header-bg); border: 1px solid var(--card-border); border-radius: 6px; padding: 12px 14px; font-size: 0.8rem; margin: 0;"><code>brew install hamlib        # macOS
-sudo apt install hamlib-utils   # Debian/Ubuntu</code></pre>
-    </div>
-</div>
+<div class="cw-setup-wrap">
+    <header class="cw-setup-head">
+        <h2>Connect your radio</h2>
+        <p>Three steps. Pick your radio, press <b>Connect</b>, and watch the lights turn green.
+           No radio handy? Use the practice radio to try it all with no hardware.</p>
+    </header>
 
-<div class="cw-form-grid" id="rs-panels" style="grid-template-columns: 1fr 1fr;">
-    {# ── 1 · CONNECTION ── #}
-    <div class="card">
-        <div class="card-header"><h2>1 · Connection</h2></div>
-        <div class="card-body">
-            <div class="cw-field">
-                <label>Serial port
-                    <button type="button" class="cw-prosign" id="rs-rescan" style="margin-left: 8px;">rescan</button>
-                </label>
-                <div id="rs-ports" class="cw-bank"></div>
-                <p class="cw-heard-empty" id="rs-noports" style="display: none; margin: 6px 0 0;">
-                    No USB-serial devices found. Plug the rig (or its interface) in and rescan —
-                    or start with the dummy rig below, no hardware needed.
-                </p>
-            </div>
-            <div class="cw-field">
-                <label for="rs-model-filter">Rig model <span style="color: var(--text-muted); text-transform: none; letter-spacing: 0;">— like picking the right modem driver</span></label>
-                <input type="text" id="rs-model-filter" class="cw-bank-text cw-mono"
-                       placeholder="TYPE TO SEARCH — IC-7300, FT-891, K3…" spellcheck="false" autocomplete="off">
-                <div id="rs-models" class="cw-modelpick"></div>
-            </div>
-            <div class="cw-field" style="margin-bottom: 0;">
-                <label>Baud</label>
-                <div class="cw-prosigns" id="rs-bauds"></div>
-            </div>
-        </div>
+    {# ── Hamlib missing banner ── #}
+    <div class="cw-setup-card cw-setup-warn" id="rs-nohamlib" style="display: none;">
+        <h3>The radio-control software isn't installed yet</h3>
+        <p>CW Station talks to your radio through <b>Hamlib</b>. Install it once on this computer,
+           then reload this page:</p>
+        <pre><code>brew install hamlib          (on a Mac)
+sudo apt install hamlib-utils   (on Linux)</code></pre>
     </div>
 
-    {# ── 2 · DAEMON ── #}
-    <div class="card">
-        <div class="card-header"><h2>2 · Daemon</h2></div>
-        <div class="card-body">
-            <div class="cw-rig-freq" style="margin-bottom: 8px;">
-                <span class="cw-led"><b id="rs-d-state">–</b><span>rigctld</span></span>
-                <span class="cw-led" id="rs-d-pid-wrap" style="display: none;"><b id="rs-d-pid">–</b><span>pid</span></span>
-                <span class="cw-led" id="rs-d-model-wrap" style="display: none;"><b id="rs-d-model">–</b><span>model</span></span>
-            </div>
-            <div class="cw-rig-tune" style="flex-wrap: wrap;">
-                <button type="button" class="btn-primary" id="rs-start">Start rigctld</button>
-                <button type="button" class="btn-tint" id="rs-dummy" title="Hamlib's built-in software rig — no hardware">Test with dummy rig</button>
-                <button type="button" class="btn-tint" id="rs-stop" style="display: none; color: var(--error-fg);">Stop</button>
-            </div>
-            <div class="cw-errors" id="rs-err" style="margin: 6px 0;"></div>
-            <label class="cw-lab" style="display: block; margin: 10px 0 4px;">Daemon log</label>
-            <pre id="rs-log" class="cw-mono" style="background: color-mix(in srgb, black 26%, var(--body-bg)); border: 1px solid var(--card-border); border-radius: 6px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.5); padding: 10px 12px; font-size: 0.72rem; line-height: 1.5; max-height: 150px; overflow-y: auto; margin: 0; color: var(--body-quiet-color);">—</pre>
-        </div>
-    </div>
-</div>
+    <div id="rs-panels">
+        {# ═══ STEP 1 — CHOOSE ═══ #}
+        <section class="cw-setup-card">
+            <div class="cw-step-head"><span class="cw-step-num">1</span><h3>Choose your radio</h3></div>
 
-{# ── 3 · VERIFY ── #}
-<div class="card" style="margin-top: 14px;">
-    <div class="card-header"><h2>3 · Verify</h2></div>
-    <div class="card-body">
-        <div id="rs-verify-off" style="color: var(--body-quiet-color); font-size: 0.85rem;">
-            Start the daemon and the link check runs automatically.
-        </div>
-        <div id="rs-verify-on" style="display: none;">
-            <div class="cw-rig-freq">
-                <span class="cw-mono" id="rs-v-freq" style="font-size: 1.9rem; font-weight: 700; color: var(--primary);">–</span>
-                <span class="cw-rig-unit">MHz</span>
-                <span class="cw-badge cw-badge-call" id="rs-v-mode">–</span>
-                <span class="cw-badge cw-badge-tx" id="rs-v-ptt" style="display: none;">PTT DOWN</span>
+            <div class="cw-setup-choose">
+                {# the rig illustration #}
+                <figure class="cw-rig" id="rs-rig">
+                    <svg viewBox="0 0 400 210" class="cw-rig-svg" role="img" aria-label="Radio">
+                        {# ── hardware transceiver ── #}
+                        <g id="rig-hw">
+                            <rect x="6" y="8" width="388" height="194" rx="16"
+                                  fill="var(--rig-body)" stroke="var(--card-border)" stroke-width="2"/>
+                            <rect x="6" y="8" width="388" height="20" rx="16" fill="var(--rig-top)"/>
+                            {# LCD #}
+                            <rect x="24" y="44" width="210" height="112" rx="8" fill="var(--rig-lcd)"/>
+                            <rect x="24" y="44" width="210" height="112" rx="8" fill="none"
+                                  stroke="var(--card-border)"/>
+                            <text id="rig-hw-freq" x="129" y="98" text-anchor="middle"
+                                  class="cw-rig-freq">—.———</text>
+                            <text id="rig-hw-mode" x="40" y="140" class="cw-rig-lcd-lab">———</text>
+                            {# S-meter #}
+                            <g id="rig-hw-smeter">
+                                <rect x="150" y="128" width="8" height="16" rx="1" fill="var(--rig-smeter)"/>
+                                <rect x="161" y="124" width="8" height="20" rx="1" fill="var(--rig-smeter)"/>
+                                <rect x="172" y="120" width="8" height="24" rx="1" fill="var(--rig-smeter)"/>
+                                <rect x="183" y="126" width="8" height="18" rx="1" fill="var(--rig-smeter-dim)"/>
+                                <rect x="194" y="130" width="8" height="14" rx="1" fill="var(--rig-smeter-dim)"/>
+                                <rect x="205" y="132" width="8" height="12" rx="1" fill="var(--rig-smeter-dim)"/>
+                            </g>
+                            {# tuning knob #}
+                            <circle cx="318" cy="112" r="54" fill="var(--rig-knob-ring)"/>
+                            <circle cx="318" cy="112" r="46" fill="var(--rig-knob)"
+                                    stroke="var(--card-border)" stroke-width="2"/>
+                            <circle cx="318" cy="86" r="6" fill="var(--primary)"/>
+                            {# function buttons #}
+                            <rect x="24" y="168" width="34" height="18" rx="4" fill="var(--rig-btn)"/>
+                            <rect x="66" y="168" width="34" height="18" rx="4" fill="var(--rig-btn)"/>
+                            <rect x="108" y="168" width="34" height="18" rx="4" fill="var(--rig-btn)"/>
+                            {# power LED #}
+                            <circle id="rig-led" cx="372" cy="30" r="7" fill="var(--rig-led-off)"/>
+                        </g>
+
+                        {# ── software test rig ── #}
+                        <g id="rig-sw" style="display: none;">
+                            <rect x="70" y="14" width="260" height="150" rx="12"
+                                  fill="var(--rig-body)" stroke="var(--card-border)" stroke-width="2"/>
+                            <rect x="84" y="28" width="232" height="112" rx="6" fill="var(--rig-lcd)"/>
+                            <polyline points="94,96 118,96 130,66 146,126 162,80 178,110 196,96 306,96"
+                                      fill="none" stroke="var(--primary)" stroke-width="3"
+                                      stroke-linejoin="round" stroke-linecap="round"/>
+                            <text id="rig-sw-freq" x="200" y="52" text-anchor="middle"
+                                  class="cw-rig-freq" style="font-size: 20px;">—.———</text>
+                            <rect x="150" y="164" width="100" height="10" rx="2" fill="var(--rig-top)"/>
+                            <rect x="120" y="174" width="160" height="12" rx="3" fill="var(--rig-body)"
+                                  stroke="var(--card-border)"/>
+                        </g>
+                    </svg>
+                    <figcaption id="rs-rig-plate">No radio selected</figcaption>
+                </figure>
+
+                {# the selector #}
+                <div class="cw-choose">
+                    <button type="button" class="cw-practice-btn" id="rs-dummy">
+                        <span class="cw-practice-icon">▶</span>
+                        <span>
+                            <b>Test radio</b>
+                            <i>No hardware needed — try everything now</i>
+                        </span>
+                    </button>
+
+                    <div class="cw-choose-or"><span>or connect your own radio</span></div>
+
+                    <label class="cw-setup-label">Brand</label>
+                    <div class="cw-mfg-chips" id="rs-mfgs"></div>
+
+                    <label class="cw-setup-label" for="rs-model-filter">Model
+                        <span class="cw-setup-hint">— type to search, e.g. IC-7300, FT-891, K3</span>
+                    </label>
+                    <input type="text" id="rs-model-filter" class="cw-setup-input cw-mono"
+                           placeholder="Search radios…" autocomplete="off" spellcheck="false">
+                    <div class="cw-model-list" id="rs-models"></div>
+
+                    <label class="cw-setup-label">Connection
+                        <button type="button" class="cw-rescan" id="rs-rescan">↻ Rescan</button>
+                    </label>
+                    <div class="cw-model-list" id="rs-ports"></div>
+                    <p class="cw-setup-note" id="rs-noports" style="display: none;">
+                        No radio cable found. Plug the radio in and press Rescan — or use the Test radio above.
+                    </p>
+
+                    <details class="cw-setup-adv">
+                        <summary>Advanced — speed (baud)</summary>
+                        <div class="cw-mfg-chips" id="rs-bauds" style="margin-top: 10px;"></div>
+                    </details>
+                </div>
             </div>
-            <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin: 8px 0 0;">
-                Reading the dial over CAT — the link works. Head to the
-                <a href="{% url 'cw-live' %}" style="color: var(--link-color);">Live Tape</a>:
-                the Rig panel is now connected, and the send sheet's <b style="color: var(--error-fg);">on air</b>
-                toggle is armed.
-            </p>
-        </div>
-        <div class="cw-errors" id="rs-v-err"></div>
+        </section>
+
+        {# ═══ STEP 2 — CONNECT (stoplights) ═══ #}
+        <section class="cw-setup-card">
+            <div class="cw-step-head"><span class="cw-step-num">2</span><h3>Start the connection</h3></div>
+
+            <div class="cw-lights">
+                <div class="cw-light-row">
+                    <span class="cw-light" id="light-1" data-state="off"></span>
+                    <div class="cw-light-body">
+                        <div class="cw-light-name">Radio-control software</div>
+                        <div class="cw-light-status" id="status-1">checking…</div>
+                    </div>
+                </div>
+                <div class="cw-light-row">
+                    <span class="cw-light" id="light-2" data-state="off"></span>
+                    <div class="cw-light-body">
+                        <div class="cw-light-name">Radio service running</div>
+                        <div class="cw-light-status" id="status-2">not started</div>
+                    </div>
+                </div>
+                <div class="cw-light-row">
+                    <span class="cw-light" id="light-3" data-state="off"></span>
+                    <div class="cw-light-body">
+                        <div class="cw-light-name">Talking to the radio</div>
+                        <div class="cw-light-status" id="status-3">not started</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cw-connect-bar">
+                <button type="button" class="cw-btn-xl" id="rs-connect" disabled>Connect</button>
+                <button type="button" class="cw-btn-lg" id="rs-restart" style="display: none;">↻ Restart</button>
+                <button type="button" class="cw-btn-lg cw-btn-danger" id="rs-disconnect" style="display: none;">Disconnect</button>
+            </div>
+            <p class="cw-setup-error" id="rs-err"></p>
+        </section>
+
+        {# ═══ STEP 3 — CONNECTED ═══ #}
+        <section class="cw-setup-card cw-setup-done" id="rs-done" style="display: none;">
+            <div class="cw-step-head"><span class="cw-step-num cw-step-num-ok">✓</span><h3>You're connected</h3></div>
+            <div class="cw-done-row">
+                <div class="cw-done-dial">
+                    <span class="cw-mono" id="rs-v-freq">—.————</span>
+                    <span class="cw-done-unit">MHz</span>
+                    <span class="cw-badge cw-badge-call" id="rs-v-mode" style="font-size: 1rem;">—</span>
+                    <span class="cw-badge cw-badge-tx" id="rs-v-ptt" style="display: none; font-size: 1rem;">ON AIR</span>
+                </div>
+                <a href="{% url 'cw-live' %}" class="cw-btn-lg">Go to the Live Tape →</a>
+            </div>
+            <p class="cw-setup-note">CW Station is now reading your radio's dial over the cable. On the Live
+               Tape the Rig panel is connected and the on-air toggle is armed.</p>
+        </section>
+
+        <details class="cw-setup-tech">
+            <summary>Technical details (for troubleshooting)</summary>
+            <pre id="rs-log" class="cw-mono">—</pre>
+        </details>
     </div>
 </div>
 
