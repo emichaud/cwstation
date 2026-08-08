@@ -974,6 +974,58 @@ body.cw-setup {
 .cw-keyer-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
 .cw-keyer-actions .cw-btn-lg { min-height: 44px; }
 
+/* ── Sessions: roomy card list (replaces the dense CRUD table) ── */
+body.cw-console .card-grid { grid-template-columns: 1fr; gap: 12px; }
+.cw-session-card {
+    position: relative;
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    background: var(--card-bg);
+    transition: border-color 0.15s, transform 0.05s;
+}
+.cw-session-card:hover { border-color: var(--primary); }
+.cw-session-card:active { transform: translateY(1px); }
+.cw-sc-link { display: flex; gap: 0; text-decoration: none; color: inherit; padding: 0; }
+.cw-sc-rail { flex: 0 0 5px; border-radius: 12px 0 0 12px; background: var(--card-border); }
+.cw-session-card.is-rx .cw-sc-rail { background: var(--success-fg); }
+.cw-session-card.is-tx .cw-sc-rail { background: var(--warning-fg); }
+.cw-sc-body { flex: 1 1 auto; min-width: 0; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.cw-sc-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.cw-sc-source { font-size: 0.95rem; font-weight: 600; color: var(--body-fg); }
+.cw-sc-time { margin-left: auto; font-size: 0.85rem; color: var(--body-quiet-color); font-variant-numeric: tabular-nums; }
+.cw-sc-copy {
+    font-size: 1.15rem;
+    line-height: 1.45;
+    color: var(--body-fg);
+    letter-spacing: 0.02em;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+}
+.cw-sc-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cw-sc-chip {
+    font-family: ui-monospace, Menlo, monospace; font-size: 0.8rem; font-weight: 700;
+    color: var(--body-quiet-color); border: 1px solid var(--card-border);
+    border-radius: 6px; padding: 2px 9px;
+}
+.cw-sc-replay {
+    margin-left: auto; font-size: 0.85rem; font-weight: 700; color: var(--primary);
+    opacity: 0; transition: opacity 0.15s;
+}
+.cw-session-card:hover .cw-sc-replay { opacity: 1; }
+.cw-sc-del {
+    position: absolute; top: 10px; right: 10px;
+    width: 34px; height: 34px; display: grid; place-items: center;
+    border: 1px solid transparent; border-radius: 8px; background: transparent;
+    color: var(--body-quiet-color); cursor: pointer; transition: 0.15s; opacity: 0;
+}
+.cw-session-card:hover .cw-sc-del { opacity: 1; }
+.cw-sc-del:hover { color: var(--error-fg); border-color: color-mix(in srgb, var(--error-fg) 45%, var(--card-border)); }
+@media (hover: none) { .cw-sc-del, .cw-sc-replay { opacity: 1; } }
+@media (max-width: 560px) { .cw-sc-time { margin-left: 0; width: 100%; } }
+
 .cw-mycall { margin: 4px 0 16px; }
 .cw-mycall label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
 .cw-mycall-hint { font-weight: 400; color: var(--body-quiet-color); }

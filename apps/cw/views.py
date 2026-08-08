@@ -15,6 +15,7 @@ from django.views.generic import TemplateView
 
 from apps.search.access import SearchAccess
 from apps.smallstack.crud import Action, CRUDView
+from apps.smallstack.displays import CardDisplay
 
 from . import services
 from .forms import PracticeDecodeForm, QSOForm, RecordingDecodeForm, SendForm
@@ -41,6 +42,30 @@ def _render_wpm(value: float, obj: CWSession) -> str:
     return f"{value:.0f}" if value else "—"
 
 
+class SessionCardDisplay(CardDisplay):
+    """Roomy, readable session cards — the copy is the hero, with a TX/RX badge
+    and clean metadata (source, speed, calls, full timestamp). Replaces the dense
+    truncated table so the list reads easily at a glance."""
+
+    name = "cards"
+    supports_bulk = False
+    item_template = "cw/session_card.html"
+
+    def build_card(self, obj: CWSession, cfg: Any, request: HttpRequest) -> dict[str, Any]:
+        from django.urls import reverse
+
+        text = (obj.text or "").strip()
+        return {
+            "text": text or "(empty)",
+            "is_tx": obj.direction == CWSession.Direction.SENT,
+            "source_label": obj.get_source_display(),
+            "wpm": f"{obj.wpm:.0f}" if obj.wpm else "",
+            "calls": (obj.callsigns or [])[:5],
+            "when": obj.created_at,
+            "delete_url": reverse("cw/sessions-delete", args=[obj.pk]),
+        }
+
+
 class CWSessionCRUDView(CRUDView):
     model = CWSession
     fields = ["text"]
@@ -48,6 +73,9 @@ class CWSessionCRUDView(CRUDView):
     paginate_by = 10
     mixins = [LoginRequiredMixin]
     actions = [Action.LIST, Action.DETAIL, Action.DELETE]
+
+    # A single roomy card display replaces the dense table.
+    displays = [SessionCardDisplay()]
 
     list_fields = ["text", "direction", "source", "wpm", "callsigns", "created_at"]
     link_field = "text"
