@@ -69,6 +69,10 @@ urlpatterns = [
     # by external systems; the tick is IP-gated to localhost.
     path("webhooks/in/<slug:slug>/", incoming_webhook, name="webhooks_incoming"),
     path("webhooks/tick/", webhooks_tick, name="webhooks_tick"),
+    # Feeds: PUBLIC RSS/Atom publish surface at /feed/<slug>.rss (+ .atom).
+    # Per-feed access is enforced in the view (anonymous feeds are public;
+    # authenticated/staff feeds accept a session or an API token).
+    path("feed/", include("apps.feeds.urls")),
     # Utility routes
     path("health/", health_check, name="health_check"),
     path(

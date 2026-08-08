@@ -79,15 +79,18 @@ class EventFilterWidget(forms.Widget):
                 for opt in options
             ),
         )
+        extra_id = f"id_{name}_extra"
         return format_html(
             '<div class="event-filter-picker">'
             '<div style="max-height:180px; overflow:auto; border:1px solid var(--border-color,#333);'
             ' border-radius:6px; padding:6px 10px; margin-bottom:6px;">{}</div>'
-            '<label style="font-size:0.8rem; color:var(--body-quiet-color);">'
+            '<label for="{}" style="font-size:0.8rem; color:var(--body-quiet-color);">'
             'Custom patterns (one per line, e.g. <code>support.ticket.*</code>)</label>'
-            '<textarea name="{}_extra" rows="2" class="vTextField" style="width:100%;">{}</textarea>'
+            '<textarea id="{}" name="{}_extra" rows="2" class="vTextField" style="width:100%;">{}</textarea>'
             "</div>",
             checkboxes,
+            extra_id,
+            extra_id,
             name,
             "\n".join(extra),
         )

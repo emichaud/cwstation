@@ -59,6 +59,12 @@
     --button-bg: #417690;
     --button-fg: #ffffff;
     --button-hover-bg: #205067;
+    /* Foreground for the solid primary CTA (.btn-primary), separated from the
+       general --button-fg so palettes with a bright accent can pick the
+       black/white that meets WCAG AA against THAT accent without disturbing the
+       many other components that pair with --button-fg. Defaults to white;
+       palettes override to #000/#111 where white-on-accent is < 4.5:1. */
+    --btn-primary-fg: var(--button-fg);
 
     /* Text colors */
     --text-muted: #666666;
@@ -147,6 +153,10 @@
     --button-hover-bg: #5fcfa1;
 
     --text-muted: #b0b0b0;
+    /* Muted/quiet text (toolbar counts, unsorted <th> labels, help text).
+       Django admin's default #666 is only 3.0–3.5:1 on our dark surfaces —
+       below WCAG AA. #909090 clears 4.5:1 on every dark surface (body + card). */
+    --body-quiet-color: #909090;
     --link-color: #ffffff;
     --link-hover: #e0e0e0;
     --link-fg: #ffffff;
@@ -537,7 +547,7 @@ body.sidebar-closed .main-content {
 .apps-grid-item:focus-visible .apps-grid-icon {
     background-color: var(--primary);
     border-color: var(--primary);
-    color: var(--button-fg);
+    color: var(--btn-primary-fg);
     transform: translateY(-2px);
     box-shadow: 0 6px 18px -4px color-mix(in srgb, var(--primary) 55%, transparent);
 }
@@ -726,7 +736,7 @@ body.sidebar-closed .main-content {
 
 .dropdown-theme-toggle .dropdown-theme-btn.active {
     background-color: var(--primary);
-    color: var(--button-fg);
+    color: var(--btn-primary-fg);
     border-color: transparent;
     box-shadow: var(--shadow-sm);
 }
@@ -851,7 +861,7 @@ body.sidebar-closed .main-content {
 
 .topbar .auth-link.btn-primary {
     background-color: var(--primary);
-    color: var(--button-fg);
+    color: var(--btn-primary-fg);
     border: none;
 }
 
@@ -1604,11 +1614,11 @@ a:hover .tz-tip::after {
 .theme-toggle-btn.active {
     border-color: var(--primary);
     background-color: var(--primary);
-    color: var(--button-fg);
+    color: var(--btn-primary-fg);
 }
 
 .theme-toggle-btn.active svg {
-    fill: var(--button-fg);
+    fill: var(--btn-primary-fg);
 }
 
 .theme-toggle-btn svg {
@@ -1731,9 +1741,15 @@ body.sidebar-closed .site-footer {
     font-size: 0.85rem;
 }
 
-.footer-link {
+/* :link/:visited so this out-specifies the global `a:link, a:visited
+   { text-decoration: none }` reset (0-2-0) — a bare `.footer-link` (0-1-0)
+   loses that fight and renders with no underline. */
+.footer-link:link,
+.footer-link:visited {
     color: var(--footer-fg);
-    text-decoration: none;
+    /* Underline so the link is distinguishable from the adjacent footer text
+       by more than colour alone (WCAG 1.4.1). */
+    text-decoration: underline;
     opacity: 0.8;
 }
 
@@ -1780,6 +1796,8 @@ body.sidebar-closed .site-footer {
 
 .cookie-banner-content a {
     color: var(--link-color);
+    /* Inline link inside a text block must not rely on colour alone (WCAG 1.4.1). */
+    text-decoration: underline;
 }
 
 .cookie-banner-accept {
@@ -2223,7 +2241,7 @@ a.button.button-secondary:hover {
     border-radius: var(--radius-sm);
     padding: 6px 8px;
     cursor: pointer;
-    color: var(--button-fg);
+    color: var(--btn-primary-fg);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3165,7 +3183,7 @@ a.paginator-btn:hover {
 
 .theme-bar-segment.is-dark {
     background: var(--primary);
-    color: var(--button-fg);
+    color: var(--btn-primary-fg);
 }
 
 .theme-bar-segment.is-light {
@@ -3223,7 +3241,9 @@ a.paginator-btn:hover {
 
 .config-status-warning {
     border-color: color-mix(in srgb, var(--delete-button-bg, red) 40%, transparent);
-    color: var(--delete-button-bg, red);
+    /* Danger TEXT uses the AA-safe semantic foreground, not the admin button
+       *background* red (which is ~2.8:1 on dark). Border/bg keep the deep red. */
+    color: var(--error-fg);
 }
 
 .config-status-warning:hover {
@@ -3672,3 +3692,72 @@ a.dashboard-widget.widget-status-down        { border-left-color: var(--error-fg
    clickable hover) are defined once in components.css — see "Stat Cards"
    there. The duplicate block that lived here was removed during the
    admin-apps consistency pass (2026-06-25). */
+
+/* ==========================================================================
+   Accessibility primitives  (docs/skills/accessibility.md)
+
+   Reusable building blocks — prefer these over hand-rolling. `.sr-only` gives
+   an icon-only control a screen-reader name; `.skip-link` is the keyboard
+   bypass; the `:focus-visible` rules guarantee a keyboard focus ring on every
+   interactive element (the base input rules deliberately suppress the mouse
+   outline, so keyboard focus is re-added here). Do NOT reintroduce a bare
+   `outline: none` on `:focus` without a `:focus-visible` replacement.
+   ========================================================================== */
+
+/* Visually hidden, still announced by screen readers. */
+.sr-only {
+    position: absolute !important;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Skip-to-content: first focusable element on every page, off-screen until
+   focused. Targets <main id="main-content"> in base.html. */
+.skip-link {
+    position: absolute;
+    left: 8px;
+    top: -60px;
+    z-index: 2000;
+    padding: 10px 16px;
+    background: var(--card-bg);
+    color: var(--body-fg);
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    text-decoration: none;
+    transition: top var(--transition-fast);
+}
+.skip-link:focus {
+    top: 8px;
+}
+
+/* Keyboard focus ring for every interactive element. :focus-visible fires only
+   for keyboard/AT focus, so mouse clicks stay ring-free. */
+:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* Form fields suppress the native outline for aesthetics (see the :focus rules
+   above), so re-add a keyboard ring via box-shadow. The transparent outline
+   keeps a ring visible in Windows High Contrast / forced-colors mode, where
+   box-shadow is dropped. Later source order beats the equal-specificity
+   `outline: none` :focus rules. */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.form-group input:focus-visible,
+.form-group textarea:focus-visible,
+.form-group select:focus-visible,
+.vLargeTextField:focus-visible,
+.vTextField:focus-visible {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+    border-color: var(--input-focus-border);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 30%, transparent);
+}

@@ -316,6 +316,10 @@ SMALLSTACK_SCHEDULER_FAILURE_EMAILS = config(
 # fans out, and /webhooks/in/<slug>/ 404s. Harmless with zero endpoints, so on.
 SMALLSTACK_WEBHOOKS_ENABLED = config("SMALLSTACK_WEBHOOKS_ENABLED", default=True, cast=bool)
 
+# Feeds: publish CRUDViews as RSS/Atom (enable_rss) and consume external feeds
+# into a model (the collector). Off ⇒ /feed/ 404s and the collector no-ops.
+SMALLSTACK_FEEDS_ENABLED = config("SMALLSTACK_FEEDS_ENABLED", default=True, cast=bool)
+
 # Independent toggles for each direction (both gated by the master switch above).
 SMALLSTACK_WEBHOOKS_OUTBOUND = config("SMALLSTACK_WEBHOOKS_OUTBOUND", default=True, cast=bool)
 SMALLSTACK_WEBHOOKS_INBOUND = config("SMALLSTACK_WEBHOOKS_INBOUND", default=True, cast=bool)

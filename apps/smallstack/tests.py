@@ -566,6 +566,105 @@ class TestUserLocaltimeFilter:
         assert "empty" in output
 
 
+class TestStatCardAccessibility:
+    """The clickable (drill-down) stat card must be a real, keyboard-operable
+    control — not a <div onclick> (accessibility.md Anti-pattern 4). The static
+    and link modes keep their non-button markup."""
+
+    def _render(self, tag):
+        return Template("{% load theme_tags %}" + tag).render(Context({}))
+
+    def test_modal_card_is_a_button_with_accessible_name(self, db):
+        html = self._render(
+            '{% stat_card value=976 label="4XX Errors" title="Recent Requests" '
+            'detail_url="website:home" %}'
+        )
+        assert "<button" in html
+        assert 'type="button"' in html
+        # Opens the dialog + announces itself as a menu-to-dialog trigger.
+        assert 'aria-haspopup="dialog"' in html
+        assert "aria-label=" in html
+        assert "4XX Errors" in html and "976" in html
+        # The trigger passes itself so focus can be restored on close.
+        assert "openStatModal(" in html and ", this)" in html
+        # No bare clickable <div> for the interactive card.
+        assert "<div class=\"stat-card stat-card-clickable" not in html
+
+    def test_static_card_is_not_a_button(self, db):
+        html = self._render('{% stat_card value=12 label="Users" %}')
+        assert "<button" not in html
+        assert "stat-card-clickable" not in html
+        assert "stat-card" in html
+
+    def test_link_card_is_an_anchor(self, db):
+        html = self._render('{% stat_card value=5 label="Endpoints" link_url="website:home" %}')
+        assert "<a " in html and "href=" in html
+        assert "<button" not in html
+
+
+class TestSortableHeaderAccessibility:
+    """CRUD sortable column headers must be keyboard-operable — the sort trigger
+    is a real <button> inside <th scope="col" aria-sort>, not a bare hx-get <th>
+    (accessibility.md Anti-pattern 4, twin of the stat-card fix)."""
+
+    def _render_sortable_th(self, ordering="-name"):
+        request = RequestFactory().get(f"/?ordering={ordering}")
+        return Template(
+            '{% load crud_tags %}{% sortable_th "name" "Name" target="#tab-content" %}'
+        ).render(Context({"request": request}))
+
+    def test_sortable_th_wraps_button_and_keeps_aria_sort(self, db):
+        html = self._render_sortable_th("-name")
+        assert 'scope="col"' in html
+        assert 'aria-sort="descending"' in html  # -name → descending
+        # The clickable trigger is a focusable <button>, not the bare <th>.
+        assert '<button type="button" class="th-sort"' in html
+        assert "hx-get=" in html and "hx-target=" in html
+        assert "aria-label=" in html and "sort by Name" in html
+        # hx-get must live on the button (keyboard-operable), not the <th>.
+        th_open = html.split(">", 1)[0]
+        assert "hx-get" not in th_open
+
+    def test_sortable_th_unsorted_state(self, db):
+        html = self._render_sortable_th("other")  # sorting a different field
+        assert 'aria-sort="none"' in html
+        assert "not sorted" in html  # accessible name conveys state
+
+
+class TestCRUDFormAccessibility:
+    """The default CRUD form (object_form.html) must give every field — including
+    checkbox/boolean fields — a real associated <label for> (accessibility.md
+    Rule 6). Previously boolean fields fell back to a bare <span>."""
+
+    def test_boolean_field_gets_label_for(self, db):
+        """A BooleanField renders <label for=id_enabled> associated with the
+        checkbox — the label markup object_form.html now uses for every field."""
+        from django import forms
+
+        class DemoForm(forms.Form):
+            name = forms.CharField()
+            enabled = forms.BooleanField(required=False)
+
+        html = Template(
+            "{% for field in form %}"
+            '<label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}'
+            "{% endfor %}"
+        ).render(Context({"form": DemoForm()}))
+        assert 'id="id_enabled"' in html
+        assert 'for="id_enabled"' in html
+        assert "<span>Enabled</span>" not in html
+
+    def test_object_form_template_has_no_bare_span_label(self):
+        """Guard: the shared CRUD form template must not reintroduce the
+        unassociated <span>{{ field.label }}</span> checkbox branch."""
+        from django.template.loader import get_template
+
+        src = get_template("smallstack/crud/object_form.html").template.source
+        assert "<span>{{ field.label }}</span>" not in src
+        # Both field types flow through a single <label for=...>.
+        assert 'label for="{{ field.id_for_label }}"' in src
+
+
 class TestBackupStatDetailView:
     """Tests for stat detail filtering."""
 

@@ -23,6 +23,8 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpRequest, JsonResponse
 from django.views.generic import TemplateView, View
 
+from apps.smallstack.mixins import StaffRequiredMixin
+
 from .backends.base import SearchHit
 from .registry import all_views, get_indexed_sources, search_all, view_count
 
@@ -140,3 +142,26 @@ def group_by_model(hits: list[SearchHit]) -> list[dict[str, Any]]:
 # group cards even when the result set is empty for a model.
 def all_indexed_views():
     return list(all_views())
+
+
+class SearchDiagnosticsView(StaffRequiredMixin, TemplateView):
+    """Staff-only ``/smallstack/search/diagnostics/`` — search *performance*.
+
+    Answers "is search fast, and if not, where's the time?" — the question you
+    have in a Postgres incident. Shares its data + text report with the
+    ``search_diagnose`` command via :mod:`apps.search.diagnostics`, so the page
+    and the CLI never drift.
+    """
+
+    template_name = "search/diagnostics.html"
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        from .diagnostics import collect_diagnostics, format_diagnostics_text
+
+        ctx = super().get_context_data(**kwargs)
+        query = (self.request.GET.get("q") or "").strip() or None
+        diag = collect_diagnostics(query)
+        ctx["query"] = query or ""
+        ctx["diag"] = diag
+        ctx["report_text"] = format_diagnostics_text(diag)
+        return ctx

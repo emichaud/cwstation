@@ -3,6 +3,8 @@
 **Read this first** before building any new page, component, card, table, or admin surface in SmallStack. The patterns here produce pages that work correctly across every palette + theme combination on the first try. Following them avoids the most common AI-built-page failure mode: pages that look fine on the default palette but turn brown / olive / muddy on others.
 
 > **Other skill files**: `admin-page-styling.md` has many useful patterns (forms, modals, badges, etc.). When it conflicts with this file, **this file wins** — it reflects the post-v0.9 modern-dark refactor with the cool-biased near-black surfaces and vibrant Tailwind -500 accents.
+>
+> **Companion read**: `accessibility.md` — palette-correctness and accessibility are complementary. This file keeps your page on-palette; that one keeps it keyboard- and screen-reader-usable (focus rings, labelled controls, `trapFocus` for modals). Read both before building UI.
 
 ## The architecture in one paragraph
 
@@ -284,6 +286,15 @@ Or, if you need a custom hero element that isn't `.page-header-bleed`, **use the
 `--accent-band-bg` is defined in `theme.css` as `color-mix(in srgb, var(--primary) 15%, var(--body-bg))` and overridden per palette to `var(--card-bg)` for orange / django / high-contrast (where the default mix goes muddy).
 
 ## Anti-patterns: things to never do
+
+### 0. Assuming your button class beats the base button styling in every state
+The base styles bare `<button>` (and its `:hover`) at **zero specificity** —
+the whole selector sits inside `:where()` — precisely so a single custom class
+wins in every state. If you ever see an accent-colored hover background appear
+under a custom button's text (low-contrast accent-on-accent), some rule is
+styling `button:hover` outside `:where()`; fix the rule, don't pile on
+defensive `!important`s.
+
 
 ### 1. Hard-coded hex colors
 ```html

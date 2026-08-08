@@ -10,6 +10,7 @@ Loads from multiple sources:
 import html
 import logging
 import re
+from functools import lru_cache
 from pathlib import Path
 
 import markdown
@@ -488,8 +489,22 @@ def get_deck_slides(deck_slug: str, content_root: str | None = None) -> list | N
     return slides
 
 
-def build_search_index() -> list:
-    """Build a simple search index for client-side search."""
+@lru_cache(maxsize=1)
+def build_search_index() -> tuple:
+    """Build a search index over every bundled + user markdown doc.
+
+    Feeds three things: the client-side help search JSON, the help-article
+    FTS sync, and — on Postgres, where the help FTS index isn't built —
+    the per-query fallback scan (``apps.help.search._fallback_scan``) and
+    the article count.
+
+    Each call re-reads and re-renders **all** markdown from disk, which is
+    slow (~1.5s locally, several seconds on a small prod box). The docs are
+    static — baked into the image — so the result is memoized. Returning a
+    tuple keeps the cached value immutable. ``clear_search_index_cache()``
+    (called by ``sync_help_index``) drops the cache when content changes on
+    disk (dev autoreload / a fresh sync).
+    """
     index = []
     for section in get_all_sections():
         for page in section["pages"]:
@@ -511,7 +526,12 @@ def build_search_index() -> list:
                         "url": _resolve_help_url(page["slug"], page.get("section", "")),
                     }
                 )
-    return index
+    return tuple(index)
+
+
+def clear_search_index_cache() -> None:
+    """Drop the memoized help search index (call after docs change on disk)."""
+    build_search_index.cache_clear()
 
 
 def _resolve_help_url(slug: str, section: str) -> str:

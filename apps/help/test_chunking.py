@@ -2,8 +2,8 @@
 
 Covers apps/help/chunking.py (pure chunking + raw-markdown discovery) and the
 passage index in apps/help/search.py (sync_help_rag_index / search_help_chunks).
-Mirrors test_help_search.py conventions: the FTS parts are SQLite-only and
-skip elsewhere; the pure chunker tests need no database.
+Mirrors test_help_search.py conventions: the FTS parts run on SQLite and
+Postgres and skip on other engines; the pure chunker tests need no database.
 """
 
 from __future__ import annotations
@@ -14,8 +14,9 @@ from django.db import connection
 from apps.help.chunking import chunk_markdown
 
 
-def _is_sqlite() -> bool:
-    return "sqlite" in connection.settings_dict["ENGINE"]
+def _has_chunk_fts() -> bool:
+    """Passage FTS is real on SQLite (FTS5) and Postgres (tsvector+GIN)."""
+    return connection.vendor in ("sqlite", "postgresql")
 
 
 class TestChunkMarkdown:
@@ -82,22 +83,22 @@ class TestIterHelpMarkdown:
 
 
 class TestHelpRagIndex:
-    """Passage index + query — SQLite FTS5 only."""
+    """Passage index + query — SQLite FTS5 and Postgres tsvector+GIN."""
 
     @pytest.mark.django_db
     def test_sync_returns_chunk_count(self):
         from apps.help.search import sync_help_rag_index
 
         count = sync_help_rag_index()
-        if _is_sqlite():
+        if _has_chunk_fts():
             assert count >= 1
         else:
             assert count == 0
 
     @pytest.mark.django_db
     def test_chunk_index_is_finer_than_article_index(self):
-        if not _is_sqlite():
-            pytest.skip("FTS requires SQLite")
+        if not _has_chunk_fts():
+            pytest.skip("FTS requires SQLite or Postgres")
         from apps.help.search import sync_help_index, sync_help_rag_index
 
         articles = sync_help_index()
@@ -107,8 +108,8 @@ class TestHelpRagIndex:
 
     @pytest.mark.django_db
     def test_search_returns_cited_passages(self):
-        if not _is_sqlite():
-            pytest.skip("FTS requires SQLite")
+        if not _has_chunk_fts():
+            pytest.skip("FTS requires SQLite or Postgres")
         from apps.help.search import search_help_chunks, sync_help_rag_index
 
         sync_help_rag_index()

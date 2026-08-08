@@ -28,6 +28,7 @@ When the user asks you to do any of these, read the matching skill file BEFORE w
 | If the user wants to… | Read first |
 |---|---|
 | Build a new page, component, card, table, modal, badge (using SmallStack's theme) | `docs/skills/modern-dark-theme.md` |
+| Build/edit any page, form, table, modal, or interactive control — make it **accessible** (a11y / WCAG) | `docs/skills/accessibility.md` |
 | Change accent colors — add or tune a color palette | `docs/skills/modify-palettes.md` |
 | Ship your own look — Bootstrap / Tailwind / a bespoke base template, alongside ours | `docs/skills/adding-your-own-theme.md` |
 | Run any operational task (diagnose, smoke-test, mint, backup, screenshot, deploy) | `docs/skills/cli-tools.md` |
@@ -44,6 +45,8 @@ When the user asks you to do any of these, read the matching skill file BEFORE w
 | **Any integration work** (Zapier/n8n/Slack/Stripe/GitHub/Azure, or SmallStack↔SmallStack) — read this FIRST | `docs/skills/webhooks.md` |
 | Notify an external system when a model changes — **outbound webhooks** (`enable_webhooks = True`); shape the payload with `@webhook_transform` | `docs/skills/webhooks.md` |
 | Receive/verify an inbound webhook (`@webhook_handler`; provider signatures via `@webhook_verifier`, handshakes via `@webhook_challenge`) | `docs/skills/webhooks.md` |
+| **Publish a model as an RSS/Atom feed** (`enable_rss = True`) or a curated `Feed`; enclosures/podcasts via `rss_item_extra` | `docs/skills/rss.md` |
+| **Consume an external RSS/Atom feed** into a model on a schedule (`register_feed_source`, the collector) | `docs/skills/rss.md` |
 | Expose a model to AI clients via MCP | `docs/skills/mcp/build-mcp-solution.md` |
 | Add a custom REST endpoint (non-CRUD) | `docs/skills/custom-api-endpoints.md` |
 | Debug a "Swagger is empty" / "MCP can't see my tools" / "weird traffic" report | `docs/skills/api-doctor.md` or `docs/skills/mcp/debug-mcp-failure.md` |

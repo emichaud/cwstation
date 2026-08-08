@@ -13,7 +13,7 @@
     <link rel="stylesheet" href="{% static 'smallstack/css/components.css' %}">
 </head>
 <body class="auth-page">
-    <div class="auth-container">
+    <main id="main-content" class="auth-container">
         <div class="auth-brand">
             <img src="{% static brand.logo %}" alt="{{ brand.name }}" class="auth-logo auth-logo-light">
             <img src="{% static brand.logo_dark %}" alt="{{ brand.name }}" class="auth-logo auth-logo-dark">
@@ -21,7 +21,7 @@
         <div class="auth-card">
             {% block auth_content %}{% endblock %}
         </div>
-    </div>
+    </main>
 
     <script src="{% static 'smallstack/js/theme.js' %}"></script>
 </body>

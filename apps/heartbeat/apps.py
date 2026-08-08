@@ -54,3 +54,19 @@ class HeartbeatConfig(AppConfig):
             import logging
 
             logging.getLogger(__name__).exception("Failed to register heartbeat monitors")
+
+        # Publish the public status feed (RSS/Atom) — the reference integration
+        # for apps.feeds. Best-effort; never block startup on it.
+        try:
+            from django.conf import settings
+
+            if getattr(settings, "SMALLSTACK_FEEDS_ENABLED", True):
+                from apps.feeds import register_feed
+
+                from .feeds import StatusFeed
+
+                register_feed(StatusFeed())
+        except Exception:  # noqa: BLE001
+            import logging
+
+            logging.getLogger(__name__).exception("Failed to register status feed")

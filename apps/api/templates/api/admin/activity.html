@@ -62,8 +62,8 @@
           <td style="padding: 10px 16px; font-family: var(--font-monospace, ui-monospace, Menlo, monospace); font-size: 0.85rem;">{{ row.path }}</td>
           <td style="padding: 10px 16px; text-align: right;">{{ row.hits }}</td>
           <td style="padding: 10px 16px; text-align: right;">{{ row.avg_ms }}</td>
-          <td style="padding: 10px 16px; text-align: right; {% if row.errors %}color: var(--delete-button-bg, red);{% endif %}">{{ row.errors }}</td>
-          <td style="padding: 10px 16px; text-align: right; {% if row.error_rate >= 10 %}color: var(--delete-button-bg, red); font-weight: 600;{% elif row.error_rate >= 1 %}color: var(--message-warning-bg, orange);{% endif %}">{{ row.error_rate|floatformat:1 }}%</td>
+          <td style="padding: 10px 16px; text-align: right; {% if row.errors %}color: var(--error-fg);{% endif %}">{{ row.errors }}</td>
+          <td style="padding: 10px 16px; text-align: right; {% if row.error_rate >= 10 %}color: var(--error-fg); font-weight: 600;{% elif row.error_rate >= 1 %}color: var(--message-warning-bg, orange);{% endif %}">{{ row.error_rate|floatformat:1 }}%</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -99,7 +99,7 @@
           <tr>
             <td style="padding: 10px 16px; vertical-align: top;">
               {% if signal.severity == "high" %}
-                <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; background: color-mix(in srgb, var(--delete-button-bg, red) 15%, var(--card-bg)); color: var(--delete-button-bg, red);">HIGH</span>
+                <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; background: color-mix(in srgb, var(--delete-button-bg, red) 15%, var(--card-bg)); color: var(--error-fg);">HIGH</span>
               {% elif signal.severity == "medium" %}
                 <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; background: color-mix(in srgb, var(--message-warning-bg, orange) 18%, var(--card-bg)); color: var(--message-warning-bg, orange);">MEDIUM</span>
               {% else %}
@@ -198,7 +198,7 @@
           <td style="padding: 8px 16px; font-size: 0.8rem; color: var(--body-quiet-color);">{{ entry.timestamp|date:"M j, H:i:s" }}</td>
           <td style="padding: 8px 16px; font-family: var(--font-monospace, ui-monospace, Menlo, monospace); font-size: 0.8rem;">{{ entry.method }}</td>
           <td style="padding: 8px 16px; font-family: var(--font-monospace, ui-monospace, Menlo, monospace); font-size: 0.8rem;">{{ entry.path }}</td>
-          <td style="padding: 8px 16px; font-family: var(--font-monospace, ui-monospace, Menlo, monospace); font-size: 0.8rem; {% if entry.status_code >= 500 %}color: var(--delete-button-bg, red);{% elif entry.status_code >= 400 %}color: var(--message-warning-bg, orange);{% endif %}">{{ entry.status_code }}</td>
+          <td style="padding: 8px 16px; font-family: var(--font-monospace, ui-monospace, Menlo, monospace); font-size: 0.8rem; {% if entry.status_code >= 500 %}color: var(--error-fg);{% elif entry.status_code >= 400 %}color: var(--message-warning-bg, orange);{% endif %}">{{ entry.status_code }}</td>
           <td style="padding: 8px 16px; font-size: 0.8rem;">{{ entry.response_time_ms }}</td>
           <td style="padding: 8px 16px; font-family: var(--font-monospace, ui-monospace, Menlo, monospace); font-size: 0.8rem;">{{ entry.ip_address|default:"—" }}</td>
           <td style="padding: 8px 16px; font-size: 0.8rem;">

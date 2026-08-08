@@ -123,7 +123,7 @@
 }
 .photo-remove {
     font-size: 0.75rem;
-    color: var(--delete-button-bg, #dc3545);
+    color: var(--error-fg);
     cursor: pointer;
     background: none;
     border: none;
@@ -274,7 +274,7 @@
     {% if object %}
     <div style="display: flex; gap: 12px; align-items: stretch;">
         <div style="text-align: center; padding: 8px 16px; background: color-mix(in srgb, var(--primary) 10%, var(--body-bg)); border-radius: var(--radius-sm, 6px);">
-            <div style="font-size: 1.5rem; font-weight: 700; color: {% if object.is_active %}var(--success-fg, #28a745){% else %}var(--delete-button-bg, #dc3545){% endif %};">
+            <div style="font-size: 1.5rem; font-weight: 700; color: {% if object.is_active %}var(--success-fg, #28a745){% else %}var(--error-fg){% endif %};">
                 {% if object.is_active %}Active{% else %}Inactive{% endif %}
             </div>
             <div style="font-size: 0.7rem; color: var(--body-quiet-color); text-transform: uppercase; letter-spacing: 0.3px;">Status</div>

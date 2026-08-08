@@ -133,7 +133,7 @@
                     <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
                 </svg>
                 <div>
-                    <div style="font-weight: 700; font-size: 0.95rem; color: var(--delete-button-bg, red);">Missing</div>
+                    <div style="font-weight: 700; font-size: 0.95rem; color: var(--error-fg);">Missing</div>
                     <div style="color: var(--body-quiet-color); font-size: 0.75rem;">File not on disk</div>
                 </div>
             </div>
@@ -211,7 +211,7 @@
                             {% elif record.file_exists %}
                                 <span style="color: var(--success-fg);">Available</span>
                             {% elif record.filename %}
-                                <span style="color: var(--delete-button-bg, red);">Missing</span>
+                                <span style="color: var(--error-fg);">Missing</span>
                             {% else %}
                                 <span style="color: var(--body-quiet-color);">&mdash;</span>
                             {% endif %}

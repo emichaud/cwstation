@@ -48,6 +48,7 @@
       data-topbar-nav="{% block topbar_nav_mode %}{% if smallstack_topbar_nav_always %}always{% else %}auto{% endif %}{% endblock %}"
       {% if sidebar_state_forced %}data-sidebar-forced{% endif %}
       hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+    <a class="skip-link" href="#main-content">Skip to content</a>
     <div class="wrapper">
         <!-- Top Navigation Bar -->
         {% block topbar %}{% include "smallstack/includes/topbar.html" %}{% endblock %}

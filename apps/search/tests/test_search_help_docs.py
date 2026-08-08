@@ -4,8 +4,8 @@ search_help_docs exposes apps/help/search.py:search_help_chunks over MCP.
 Unlike search_help (whole articles), it returns focused, cited passages.
 Help docs are intentionally always-visible, so there is no access gate to
 assert here — these tests pin registration, output shape, and that the
-citation trail reaches the caller. SQLite-only for the FTS parts, mirroring
-test_help_search.py.
+citation trail reaches the caller. The FTS parts run on SQLite and Postgres,
+mirroring test_help_search.py.
 """
 
 from __future__ import annotations
@@ -28,8 +28,9 @@ from apps.mcp.server import (
 pytestmark = pytest.mark.django_db
 
 
-def _is_sqlite() -> bool:
-    return "sqlite" in connection.settings_dict["ENGINE"]
+def _has_chunk_fts() -> bool:
+    """Passage FTS is real on SQLite (FTS5) and Postgres (tsvector+GIN)."""
+    return connection.vendor in ("sqlite", "postgresql")
 
 
 @pytest.fixture(autouse=True)
@@ -70,8 +71,8 @@ def test_empty_query_returns_empty():
 
 
 def test_returns_cited_passages():
-    if not _is_sqlite():
-        pytest.skip("Help RAG FTS requires SQLite")
+    if not _has_chunk_fts():
+        pytest.skip("Help RAG FTS requires SQLite or Postgres")
     from apps.help.search import sync_help_rag_index
 
     sync_help_rag_index()
@@ -87,8 +88,8 @@ def test_returns_cited_passages():
 
 def test_readonly_non_staff_user_is_served():
     """Help docs are always visible — a readonly, non-staff caller gets results."""
-    if not _is_sqlite():
-        pytest.skip("Help RAG FTS requires SQLite")
+    if not _has_chunk_fts():
+        pytest.skip("Help RAG FTS requires SQLite or Postgres")
     from apps.help.search import sync_help_rag_index
 
     sync_help_rag_index()

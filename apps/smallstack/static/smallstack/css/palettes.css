@@ -41,6 +41,8 @@ html[data-palette="django"][data-theme="dark"] {
     --input-focus-border: #10b981;
     --button-bg: #10b981;
     --button-fg: #ffffff;
+    /* White-on-emerald is 2.5:1 — use black on the primary CTA for WCAG AA. */
+    --btn-primary-fg: #08130d;
     --button-hover-bg: #34d399;
 
     /* Links — lighter emerald to pop on near-black without competing
@@ -70,7 +72,7 @@ html[data-palette="django"][data-theme="dark"] {
     --sidebar-hover-bg: #131722;
     --sidebar-border: #232838;
     --footer-bg: #07080f;
-    --footer-fg: #71717a;
+    --footer-fg: #909096;
     --input-bg: #131722;
     --input-border: #383c4c;
 
@@ -288,6 +290,8 @@ html[data-palette="dark-blue"][data-theme="dark"] {
     --input-focus-border: #3b82f6;
     --button-bg: #3b82f6;
     --button-fg: #ffffff;
+    /* White-on-blue-500 is 3.7:1 — use black on the primary CTA for WCAG AA. */
+    --btn-primary-fg: #0a1220;
     --button-hover-bg: #60a5fa;
 
     /* Links — bright enough to pop on near-black, not so saturated they
@@ -316,7 +320,7 @@ html[data-palette="dark-blue"][data-theme="dark"] {
     --sidebar-hover-bg: #161b22;
     --sidebar-border: #262d3d;
     --footer-bg: #0a0b0f;
-    --footer-fg: #71717a;
+    --footer-fg: #909096;
     --input-bg: #161b22;
     --input-border: #3c4356;
 
@@ -340,6 +344,8 @@ html[data-palette="orange"] {
     --input-focus-border: #e65100;
     --button-bg: #e65100;
     --button-fg: #ffffff;
+    /* White-on-orange is 3.8:1 — use black on the primary CTA for WCAG AA. */
+    --btn-primary-fg: #1a0d00;
     --button-hover-bg: #bf360c;
     --link-color: #e65100;
     --link-hover: #bf360c;
@@ -364,6 +370,8 @@ html[data-palette="orange"][data-theme="dark"] {
     --input-focus-border: #f97316;
     --button-bg: #f97316;
     --button-fg: #ffffff;
+    /* White-on-orange-500 is 2.8:1 — use black on the primary CTA for WCAG AA. */
+    --btn-primary-fg: #1a0d00;
     --button-hover-bg: #fb923c;
 
     /* Links — lighter orange to pop on the warm near-black. */
@@ -385,7 +393,7 @@ html[data-palette="orange"][data-theme="dark"] {
     --sidebar-hover-bg: #1a1611;
     --sidebar-border: #332b20;
     --footer-bg: #0b0a08;
-    --footer-fg: #78716c;
+    --footer-fg: #94908c;
     --input-bg: #1a1611;
     --input-border: #4a3f30;
 
@@ -435,6 +443,8 @@ html[data-palette="gold"] {
     --input-focus-border: #a17c1a;
     --button-bg: #a17c1a;
     --button-fg: #ffffff;
+    /* White-on-gold is 3.9:1 — use black on the primary CTA for WCAG AA. */
+    --btn-primary-fg: #14100a;
     --button-hover-bg: #856616;
     --link-color: #a17c1a;
     --link-hover: #856616;
@@ -482,7 +492,7 @@ html[data-palette="gold"][data-theme="dark"] {
     --sidebar-hover-bg: #161b22;
     --sidebar-border: #262d3d;
     --footer-bg: #0a0b0f;
-    --footer-fg: #71717a;
+    --footer-fg: #909096;
     --input-bg: #161b22;
     --input-border: #3c4356;
 
@@ -540,6 +550,8 @@ html[data-palette="purple"][data-theme="dark"] {
     --input-focus-border: #a855f7;
     --button-bg: #a855f7;
     --button-fg: #ffffff;
+    /* White-on-purple-500 is 4.0:1 — use black on the primary CTA for WCAG AA. */
+    --btn-primary-fg: #140a1e;
     --button-hover-bg: #c084fc;
 
     /* Links — lighter purple to pop on near-black without competing
@@ -562,7 +574,7 @@ html[data-palette="purple"][data-theme="dark"] {
     --sidebar-hover-bg: #161b22;
     --sidebar-border: #262d3d;
     --footer-bg: #0a0b0f;
-    --footer-fg: #71717a;
+    --footer-fg: #909096;
     --input-bg: #161b22;
     --input-border: #3c4356;
 

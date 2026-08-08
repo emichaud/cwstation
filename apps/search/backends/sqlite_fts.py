@@ -31,15 +31,35 @@ class SQLiteFTSBackend:
     # ---- index lifecycle -------------------------------------------------
 
     def ensure_index(self, view: IndexedView) -> bool:
+        """Create the FTS5 table, recreating it if ``search_fields`` changed.
+
+        FTS5 bakes one column per search_field at CREATE time and offers no
+        ALTER, so a plain ``CREATE VIRTUAL TABLE IF NOT EXISTS`` silently
+        keeps the *old* column set after a field is added or removed — the
+        next ``rebuild_search_index`` then fails with "table … has no column
+        named <field>". We detect that drift and drop + recreate. The index
+        is empty until the next rebuild (same as a first-time create), so a
+        warning points the operator at ``rebuild_search_index``.
+        """
         table = _fts_table(view)
-        columns = ", ".join(view.fields)
-        sql = (
-            f'CREATE VIRTUAL TABLE IF NOT EXISTS "{table}" USING fts5'
-            f'("object_id" UNINDEXED, {columns}, tokenize="porter unicode61")'
-        )
+        expected = ["object_id", *view.fields]
         with connection.cursor() as cur:
             try:
-                cur.execute(sql)
+                existing = _fts_columns(cur, table)
+                if existing is not None and existing != expected:
+                    logger.warning(
+                        "search_fields drift for %s: FTS columns %s != configured %s "
+                        "— recreating index (run `rebuild_search_index %s` to repopulate)",
+                        view.model_label, existing, expected, view.model_label,
+                    )
+                    cur.execute(f'DROP TABLE IF EXISTS "{table}"')
+                    existing = None
+                if existing is None:
+                    columns = ", ".join(view.fields)
+                    cur.execute(
+                        f'CREATE VIRTUAL TABLE IF NOT EXISTS "{table}" USING fts5'
+                        f'("object_id" UNINDEXED, {columns}, tokenize="porter unicode61")'
+                    )
             except Exception:
                 logger.exception("ensure_index failed for %s", view.model_label)
                 return False
@@ -154,6 +174,21 @@ class SQLiteFTSBackend:
 
 def _fts_table(view: IndexedView) -> str:
     return f"{view.model._meta.app_label}_{view.model.__name__.lower()}_search_idx"
+
+
+def _fts_columns(cur, table: str) -> list[str] | None:
+    """Ordered column names of an existing FTS table, or None if it's absent.
+
+    Used to detect ``search_fields`` drift — FTS5 has no ALTER, so a changed
+    field set means the table must be dropped and recreated.
+    """
+    cur.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = %s", [table]
+    )
+    if cur.fetchone() is None:
+        return None
+    cur.execute(f'PRAGMA table_info("{table}")')
+    return [row[1] for row in cur.fetchall()]
 
 
 def _extract_values(view: IndexedView, obj: Any) -> list[str]:

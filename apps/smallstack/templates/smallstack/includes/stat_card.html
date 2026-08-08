@@ -8,8 +8,13 @@ drill-down modal lives in base.html. See docs/skills/dashboard-cards.md.
     <div class="stat-card-value">{{ value }}{% if unit %}<span class="stat-card-unit">{{ unit }}</span>{% endif %}</div>
     <div class="stat-card-label">{{ label }}</div>
 </a>
+{% elif mode == "modal" %}
+<button type="button" class="stat-card stat-card-clickable{% if state %} stat-card--{{ state }}{% endif %}" hx-get="{{ href }}" hx-target="#stat-modal-body" hx-swap="innerHTML" onclick="openStatModal('{{ title|escapejs }}', this)" aria-haspopup="dialog" aria-label="{{ label }}: {{ value }}{% if unit %} {{ unit }}{% endif %} — show details">
+    <div class="stat-card-value">{{ value }}{% if unit %}<span class="stat-card-unit">{{ unit }}</span>{% endif %}</div>
+    <div class="stat-card-label">{{ label }}</div>
+</button>
 {% else %}
-<div class="stat-card{% if state %} stat-card--{{ state }}{% endif %}{% if mode == "modal" %} stat-card-clickable{% endif %}"{% if mode == "modal" %} hx-get="{{ href }}" hx-target="#stat-modal-body" hx-swap="innerHTML" onclick="openStatModal('{{ title|escapejs }}')"{% endif %}>
+<div class="stat-card{% if state %} stat-card--{{ state }}{% endif %}">
     <div class="stat-card-value">{{ value }}{% if unit %}<span class="stat-card-unit">{{ unit }}</span>{% endif %}</div>
     <div class="stat-card-label">{{ label }}</div>
 </div>

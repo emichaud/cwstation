@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     "apps.runbook",  # Runbook: versioned markdown documents (label: smallstack_runbook)
     "apps.scheduler",  # Scheduler: DB-backed recurring jobs over django.tasks
     "apps.webhooks",  # Webhooks: outbound event delivery + inbound receivers
+    "apps.feeds",  # Feeds: RSS/Atom publish (enable_rss) + consume (collector)
     # Django built-in apps
     "django.contrib.admin",
     "django.contrib.auth",

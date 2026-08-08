@@ -7,11 +7,11 @@ Usage:
      hx-get="your-detail-url" hx-target="#stat-modal-body"
      onclick="openStatModal('Title')"
 {% endcomment %}
-<div id="stat-modal" class="stat-modal" onclick="if(event.target===this)closeStatModal()">
+<div id="stat-modal" class="stat-modal" role="dialog" aria-modal="true" aria-labelledby="stat-modal-title" onclick="if(event.target===this)closeStatModal()">
     <div class="card stat-modal-panel">
         <div class="card-header" style="display: flex; align-items: center; justify-content: space-between;">
             <h2 id="stat-modal-title">Details</h2>
-            <button type="button" onclick="closeStatModal()" style="background: none; border: none; font-size: 1.4rem; cursor: pointer; color: var(--body-quiet-color); line-height: 1; padding: 0 4px;">&times;</button>
+            <button type="button" onclick="closeStatModal()" aria-label="Close" style="background: none; border: none; font-size: 1.4rem; cursor: pointer; color: var(--body-quiet-color); line-height: 1; padding: 0 4px;"><span aria-hidden="true">&times;</span></button>
         </div>
         <div class="card-body" style="padding: 0;">
             <div id="stat-modal-body">
@@ -21,12 +21,23 @@ Usage:
     </div>
 </div>
 <script>
-function openStatModal(title) {
+var _rbStatTrigger = null;
+var _rbStatRelease = null;
+function openStatModal(title, trigger) {
+    _rbStatTrigger = trigger || document.activeElement;
     document.getElementById('stat-modal-title').textContent = title;
-    document.getElementById('stat-modal').classList.add('open');
+    var modal = document.getElementById('stat-modal');
+    modal.classList.add('open');
+    // Use the shared focus-trap primitive when present (base theme.js).
+    if (window.SmallStack && window.SmallStack.trapFocus) {
+        _rbStatRelease = window.SmallStack.trapFocus(modal.querySelector('.stat-modal-panel') || modal);
+    }
 }
 function closeStatModal() {
     document.getElementById('stat-modal').classList.remove('open');
+    if (_rbStatRelease) { _rbStatRelease(); _rbStatRelease = null; }
+    if (_rbStatTrigger && typeof _rbStatTrigger.focus === 'function') { _rbStatTrigger.focus(); }
+    _rbStatTrigger = null;
 }
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') closeStatModal();

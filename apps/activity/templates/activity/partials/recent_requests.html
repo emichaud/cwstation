@@ -40,7 +40,7 @@
                         <td title="{{ log.method }}"><code style="font-weight: 600;">{{ log.method }}</code></td>
                         <td style="font-family: monospace; font-size: 0.9rem;" title="{{ log.path }}">{{ log.path }}</td>
                         <td style="text-align: right;" title="{{ log.status_code }}">
-                            <span style="{% if log.status_code >= 500 %}color: var(--delete-button-bg, red);{% elif log.status_code >= 400 %}color: var(--message-warning-bg, orange);{% endif %}">
+                            <span style="{% if log.status_code >= 500 %}color: var(--error-fg);{% elif log.status_code >= 400 %}color: var(--message-warning-bg, orange);{% endif %}">
                                 {{ log.status_code }}
                             </span>
                         </td>

@@ -37,34 +37,38 @@
 {% block content %}
 <!-- Stats -->
 <div class="stat-cards" style="margin-bottom: 32px;">
-    <div class="stat-card stat-card-clickable"
+    <button type="button" class="stat-card stat-card-clickable"
          hx-get="{% url 'runbook:stat_detail' 'runbooks' %}"
          hx-target="#stat-modal-body"
-         onclick="openStatModal('All Runbooks')">
+         aria-haspopup="dialog" aria-label="Runbooks: {{ total_runbooks }} — show details"
+         onclick="openStatModal('All Runbooks', this)">
         <div class="stat-card-value">{{ total_runbooks }}</div>
         <div class="stat-card-label">Runbooks</div>
-    </div>
-    <div class="stat-card stat-card-clickable"
+    </button>
+    <button type="button" class="stat-card stat-card-clickable"
          hx-get="{% url 'runbook:stat_detail' 'documents' %}"
          hx-target="#stat-modal-body"
-         onclick="openStatModal('All Documents')">
+         aria-haspopup="dialog" aria-label="Documents: {{ total_docs }} — show details"
+         onclick="openStatModal('All Documents', this)">
         <div class="stat-card-value">{{ total_docs }}</div>
         <div class="stat-card-label">Documents</div>
-    </div>
-    <div class="stat-card stat-card-clickable"
+    </button>
+    <button type="button" class="stat-card stat-card-clickable"
          hx-get="{% url 'runbook:stat_detail' 'recent' %}"
          hx-target="#stat-modal-body"
-         onclick="openStatModal('Recent Uploads (7 Days)')">
+         aria-haspopup="dialog" aria-label="Recent uploads, 7 days: {{ recent_uploads }} — show details"
+         onclick="openStatModal('Recent Uploads (7 Days)', this)">
         <div class="stat-card-value">{{ recent_uploads }}</div>
         <div class="stat-card-label">Recent (7d)</div>
-    </div>
-    <div class="stat-card stat-card-clickable"
+    </button>
+    <button type="button" class="stat-card stat-card-clickable"
          hx-get="{% url 'runbook:stat_detail' 'images' %}"
          hx-target="#stat-modal-body"
-         onclick="openStatModal('Documents with Images')">
+         aria-haspopup="dialog" aria-label="Documents with images: {{ total_images }} — show details"
+         onclick="openStatModal('Documents with Images', this)">
         <div class="stat-card-value">{{ total_images }}</div>
         <div class="stat-card-label">Images</div>
-    </div>
+    </button>
 </div>
 
 <!-- My Runbooks -->

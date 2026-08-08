@@ -15,6 +15,6 @@ component. Owning view sets `page` to "health" / "endpoints" / "activity".
   </a>
   <a href="{% url 'api_admin:activity' %}" class="tab-btn{% if page == 'activity' %} active{% endif %}" style="text-decoration: none;">
     Activity
-    {% if threat_count %}<span class="tab-count" style="background: color-mix(in srgb, var(--delete-button-bg, red) 18%, var(--card-bg)); color: var(--delete-button-bg, red);">{{ threat_count }}</span>{% endif %}
+    {% if threat_count %}<span class="tab-count" style="background: color-mix(in srgb, var(--delete-button-bg, red) 18%, var(--card-bg)); color: var(--error-fg);">{{ threat_count }}</span>{% endif %}
   </a>
 </div>

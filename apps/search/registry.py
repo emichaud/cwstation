@@ -291,7 +291,7 @@ def get_indexed_sources(user: Any = None) -> list[dict]:
         total = 0
         try:
             qs = view.model.objects.all()
-            total = qs.count()
+            total = _display_row_count(view.model)
             recent = list(qs.order_by("-pk")[:5])
             for obj in recent:
                 display_val = ""
@@ -375,6 +375,33 @@ def get_indexed_sources(user: Any = None) -> list[dict]:
         pass
 
     return sources
+
+
+def _display_row_count(model) -> int:
+    """Row count for the "what's indexed" panel — fast on Postgres.
+
+    ``COUNT(*)`` is O(1) on SQLite but a full table scan on Postgres, and
+    this runs once per indexed model on every render of the search hub, so
+    the big tables dominate page load. On Postgres, read the planner's
+    ``reltuples`` estimate instead (an instant catalog lookup, kept fresh by
+    ANALYZE / autovacuum). Fall back to a real ``COUNT`` when the estimate is
+    unavailable (never analyzed → ``-1``) or the engine isn't Postgres.
+    """
+    from django.db import connection
+
+    if connection.vendor == "postgresql":
+        try:
+            with connection.cursor() as cur:
+                cur.execute(
+                    "SELECT reltuples::bigint FROM pg_class WHERE oid = to_regclass(%s)",
+                    [model._meta.db_table],
+                )
+                row = cur.fetchone()
+            if row and row[0] is not None and row[0] >= 0:
+                return int(row[0])
+        except Exception:
+            logger.exception("reltuples lookup failed for %s", model._meta.db_table)
+    return model.objects.count()
 
 
 def _mcp_tool_name_for(view) -> str:

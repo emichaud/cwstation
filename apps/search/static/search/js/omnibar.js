@@ -18,11 +18,18 @@
     let debounceTimer = null;
     let activeIndex = -1;
 
+    let releaseTrap = null;
+
     function open() {
       overlay.hidden = false;
       requestAnimationFrame(() => input.focus());
       // If the input is empty, show the discoverability panel.
       if (!input.value.trim()) renderSourcesPanel();
+      // Confine keyboard focus to the dialog while it's open (a11y).
+      const dialog = overlay.querySelector('[role="dialog"]') || overlay;
+      if (window.SmallStack && window.SmallStack.trapFocus) {
+        releaseTrap = window.SmallStack.trapFocus(dialog);
+      }
     }
 
     function close() {
@@ -30,6 +37,7 @@
       input.value = "";
       results.innerHTML = "";
       activeIndex = -1;
+      if (releaseTrap) { releaseTrap(); releaseTrap = null; }
     }
 
     function navigate(hit) {

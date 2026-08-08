@@ -7,8 +7,8 @@
 
 {% block extra_css %}
 <style>
-    /* Sortable log-table headers (sortable_th tag) */
-    .crud-table thead th[hx-get]:hover { color: var(--primary); }
+    /* Sortable log-table headers (sortable_th tag) — hover handled by .th-sort. */
+    .crud-table thead th .th-sort:hover { color: var(--primary); }
     .tab-bar {
         margin-top: 12px;
         margin-bottom: 0;
