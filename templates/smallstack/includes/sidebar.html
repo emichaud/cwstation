@@ -17,9 +17,10 @@ the topbar apps grid (staff-gated) and the user menu's Admin link.{% endcomment 
                 {% block nav_page_items %}{% endblock %}
             {% endif %}
 
-            {% if group.section != "main" %}
-            <li class="nav-section-title">{{ group.section|title }}</li>
-            {% endif %}
+            {% comment %}Label every group so the product (CW Station) reads as
+            clearly separate from Resources — the SmallStack admin tools live
+            entirely outside this sidebar (staff topbar menu).{% endcomment %}
+            <li class="nav-section-title">{% if group.section == "main" %}CW Station{% else %}{{ group.section|title }}{% endif %}</li>
 
             {% for item in group.items %}
                 {% if item.children %}

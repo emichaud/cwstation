@@ -24,6 +24,7 @@ from .api import (
     station_vars,
 )
 from .views import (
+    ArchitectureView,
     CallbookView,
     CWSessionCRUDView,
     DecodeView,
@@ -62,6 +63,7 @@ urlpatterns = [
     path("cw/rig/setup/data/", rig_setup_data, name="cw-rig-setup-data"),
     path("cw/rig/setup/photo/", rig_photo, name="cw-rig-photo"),
     path("cw/rig/daemon/", rig_daemon, name="cw-rig-daemon"),
+    path("cw/architecture/", ArchitectureView.as_view(), name="cw-architecture"),
     path("cw/decode/", DecodeView.as_view(), name="cw-decode"),
     path("cw/send/", SendView.as_view(), name="cw-send"),
     path("cw/sessions/<int:pk>/audio.wav", session_audio, name="cw-session-audio"),

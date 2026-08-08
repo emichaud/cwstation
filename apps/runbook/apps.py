@@ -44,11 +44,13 @@ class RunbookConfig(AppConfig):
             "m7 1.5L18.5 9H13V3.5zM8 12h8v2H8v-2zm0 4h8v2H8v-2z"
             '"/></svg>'
         )
+        # CW Station keeps the product sidebar (CW Monitor) clean — the Runbook
+        # is an operator reference, so it lives under Resources alongside Help.
         nav.register(
-            section="main",
+            section="resources",
             label="Runbook",
             url_name="runbook:dashboard",
             icon_svg=icon,
             auth_required=True,
-            order=5,
+            order=40,
         )

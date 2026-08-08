@@ -1,0 +1,379 @@
+{% extends "smallstack/base.html" %}
+{% load static theme_tags %}
+
+{% block title %}How CW Station Works{% endblock %}
+{% block breadcrumbs %}{% endblock %}
+{% block body_class %}cw-console cw-arch{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'cw/cw.css' %}">
+<style>
+  /* Blueprint aesthetic — everything rides the palette variables so it stays
+     correct across all five palettes and both themes. No hard-coded colours. */
+  .arch-wrap { max-width: 1080px; margin: 0 auto; }
+  .arch-lede {
+    font-size: 1.1rem; line-height: 1.6; color: var(--body-quiet-color);
+    max-width: 68ch; margin: 0 0 8px;
+  }
+  .arch-lede b { color: var(--body-fg); }
+
+  .arch-section { margin: 40px 0 0; }
+  .arch-section > h2 {
+    display: flex; align-items: baseline; gap: 12px;
+    font-size: 1.5rem; font-weight: 700; color: var(--body-fg);
+    margin: 0 0 4px; letter-spacing: -0.01em;
+  }
+  .arch-section > h2 .n {
+    font-family: ui-monospace, Menlo, monospace; font-size: 0.9rem; font-weight: 700;
+    color: var(--primary); border: 1px solid var(--card-border); border-radius: 6px;
+    padding: 2px 8px; background: var(--accent-band-bg);
+  }
+  .arch-section > p { color: var(--body-quiet-color); line-height: 1.6; max-width: 70ch; margin: 6px 0 18px; }
+
+  /* the pipeline lanes */
+  .arch-lane {
+    border: 1px solid var(--card-border); border-radius: 14px; background: var(--card-bg);
+    padding: 18px 16px; margin-bottom: 16px;
+    background-image:
+      linear-gradient(var(--card-border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--card-border) 1px, transparent 1px);
+    background-size: 26px 26px; background-position: -1px -1px;
+  }
+  .arch-lane-head {
+    display: flex; align-items: center; gap: 10px; margin: 0 4px 14px;
+    font-family: ui-monospace, Menlo, monospace; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; font-size: 0.8rem;
+  }
+  .arch-lane-head .dir { font-size: 1.1rem; }
+  .arch-lane.rx .arch-lane-head { color: var(--success-fg); }
+  .arch-lane.tx .arch-lane-head { color: var(--warning-fg); }
+
+  .arch-row { display: flex; align-items: stretch; flex-wrap: wrap; gap: 6px; }
+  .arch-node {
+    flex: 1 1 130px; min-width: 120px;
+    border: 1px solid var(--card-border); border-radius: 10px;
+    background: var(--body-bg); padding: 12px 12px 10px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .arch-node .t { font-weight: 700; font-size: 0.98rem; color: var(--body-fg); line-height: 1.2; }
+  .arch-node .d { font-size: 0.8rem; color: var(--body-quiet-color); line-height: 1.35; }
+  .arch-node.accent { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+  .arch-node.accent .t { color: var(--primary); }
+  .arch-arrow {
+    align-self: center; flex: 0 0 auto; color: var(--primary);
+    font-size: 1.3rem; font-weight: 700; padding: 0 2px; user-select: none;
+  }
+  @media (max-width: 720px) {
+    .arch-row { flex-direction: column; }
+    .arch-arrow { transform: rotate(90deg); align-self: flex-start; margin-left: 22px; }
+  }
+
+  .arch-lib {
+    display: inline-block; font-family: ui-monospace, Menlo, monospace; font-size: 0.72rem;
+    font-weight: 700; letter-spacing: 0.02em; color: var(--primary);
+    border: 1px solid var(--card-border); border-radius: 5px; padding: 1px 6px;
+    background: var(--accent-band-bg); align-self: flex-start;
+  }
+  .arch-lib.muted { color: var(--body-quiet-color); background: transparent; }
+
+  /* source cards + generic card grid */
+  .arch-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .arch-card {
+    border: 1px solid var(--card-border); border-radius: 12px; background: var(--card-bg);
+    padding: 16px 16px 14px;
+  }
+  .arch-card h3 { margin: 0 0 6px; font-size: 1.05rem; color: var(--body-fg); display: flex; align-items: center; gap: 8px; }
+  .arch-card p { margin: 0; font-size: 0.88rem; line-height: 1.5; color: var(--body-quiet-color); }
+  .arch-card .arch-lib { margin-top: 10px; }
+  .arch-card .ic { font-size: 1.2rem; }
+
+  /* the decode pipeline steps */
+  .arch-steps { counter-reset: step; display: grid; gap: 10px; }
+  .arch-step {
+    display: grid; grid-template-columns: 34px 1fr; gap: 14px; align-items: start;
+    border: 1px solid var(--card-border); border-radius: 10px; background: var(--card-bg); padding: 12px 14px;
+  }
+  .arch-step::before {
+    counter-increment: step; content: counter(step);
+    display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+    background: var(--accent-band-bg); border: 1px solid var(--primary); color: var(--primary);
+    font-family: ui-monospace, Menlo, monospace; font-weight: 700;
+  }
+  .arch-step .t { font-weight: 700; color: var(--body-fg); }
+  .arch-step .d { font-size: 0.86rem; color: var(--body-quiet-color); line-height: 1.45; }
+  .arch-step code, .arch-inline-code {
+    font-family: ui-monospace, Menlo, monospace; font-size: 0.82em;
+    background: var(--body-bg); border: 1px solid var(--card-border); border-radius: 4px; padding: 0 5px;
+  }
+
+  /* library legend + troubleshooting tables */
+  .arch-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  .arch-table th, .arch-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--card-border); vertical-align: top; }
+  .arch-table th { color: var(--body-quiet-color); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
+  .arch-table tr:last-child td { border-bottom: none; }
+  .arch-table td:first-child { white-space: nowrap; }
+  .arch-scroll { overflow-x: auto; border: 1px solid var(--card-border); border-radius: 12px; background: var(--card-bg); }
+
+  .arch-note {
+    border-left: 3px solid var(--primary); background: var(--accent-band-bg);
+    border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 14px 0;
+    font-size: 0.9rem; line-height: 1.55; color: var(--body-fg);
+  }
+  .arch-note b { color: var(--primary); }
+</style>
+{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed">
+    <div class="page-header-content">
+        <h1>How CW Station Works</h1>
+        <p class="page-subtitle">The signal path end to end — how Morse comes in, gets decoded, and goes
+            back out — with the libraries doing the work. A map for using it, understanding the design, and troubleshooting.</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="arch-wrap">
+    <p class="arch-lede">CW Station is one loop: <b>audio in → decode → read it</b>, and
+        <b>compose → key → audio out</b>. Everything else — the simulator, the recording upload, the
+        fldigi tap, rig control — is a different way to feed that loop or to send the audio somewhere.
+        The signal-processing core is <span class="arch-lib">numpy</span>, Django-free and testable on its own.</p>
+
+    {# ═══════════════ THE SIGNAL LOOP ═══════════════ #}
+    <section class="arch-section">
+        <h2><span class="n">01</span> The signal loop</h2>
+        <p>Two lanes. On receive, audio flows left→right into your browser. On transmit, a message
+            flows right→left back out to the air.</p>
+
+        <div class="arch-lane rx">
+            <div class="arch-lane-head"><span class="dir">▶</span> Receive — copying the band</div>
+            <div class="arch-row">
+                <div class="arch-node">
+                    <span class="t">Radio + antenna</span>
+                    <span class="d">RF off the air, demodulated to an audio tone by your receiver.</span>
+                </div>
+                <span class="arch-arrow">→</span>
+                <div class="arch-node">
+                    <span class="t">Sound card in</span>
+                    <span class="d">The rig's audio out → your PC's line-in, sampled to numbers.</span>
+                    <span class="arch-lib">sounddevice</span>
+                </div>
+                <span class="arch-arrow">→</span>
+                <div class="arch-node accent">
+                    <span class="t">Decode engine</span>
+                    <span class="d">Finds the CW note, tracks its speed, turns key-downs into letters.</span>
+                    <span class="arch-lib">numpy</span>
+                </div>
+                <span class="arch-arrow">→</span>
+                <div class="arch-node">
+                    <span class="t">Live relay</span>
+                    <span class="d">Decoded batches pushed to your open tabs over a WebSocket.</span>
+                    <span class="arch-lib">Channels · daphne</span>
+                </div>
+                <span class="arch-arrow">→</span>
+                <div class="arch-node">
+                    <span class="t">Paper tape</span>
+                    <span class="d">The browser renders dits &amp; dahs scrolling past the <i>now</i> line.</span>
+                    <span class="arch-lib muted">monitor.js</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="arch-lane tx">
+            <div class="arch-lane-head"><span class="dir">◀</span> Transmit — putting Morse back out</div>
+            <div class="arch-row">
+                <div class="arch-node">
+                    <span class="t">Radio + antenna</span>
+                    <span class="d">PTT keyed; the keyed audio drives the rig like any digital mode.</span>
+                </div>
+                <span class="arch-arrow">←</span>
+                <div class="arch-node">
+                    <span class="t">Sound card out</span>
+                    <span class="d">The WAV plays into the rig's audio input (or your speakers).</span>
+                    <span class="arch-lib">sounddevice</span>
+                </div>
+                <span class="arch-arrow">←</span>
+                <div class="arch-node accent">
+                    <span class="t">Synthesize</span>
+                    <span class="d">PARIS timing, raised-cosine edges — clean, click-free CW audio.</span>
+                    <span class="arch-lib">numpy</span>
+                </div>
+                <span class="arch-arrow">←</span>
+                <div class="arch-node">
+                    <span class="t">Compose</span>
+                    <span class="d">Your text with message keys &amp; <span class="arch-inline-code">{tags}</span> expanded.</span>
+                    <span class="arch-lib muted">macros.js</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="arch-note">The engine is <b>Django-free</b>: <span class="arch-inline-code">apps/cw/engine/</span>
+            is pure numpy with a typed event contract. <b>Python decodes, JavaScript renders</b> — the browser
+            never does DSP, it just draws what the engine already resolved. That seam is why an ML decoder or a
+            new audio source can drop in later without touching the UI.</div>
+    </section>
+
+    {# ═══════════════ SIGNAL SOURCES ═══════════════ #}
+    <section class="arch-section">
+        <h2><span class="n">02</span> Four ways to feed the decoder</h2>
+        <p>The same decode engine runs no matter where the audio comes from — that's the point of the seam.</p>
+        <div class="arch-grid">
+            <div class="arch-card">
+                <h3><span class="ic">📻</span> A real rig</h3>
+                <p>Your receiver's audio into the sound card. <code class="arch-inline-code">cw_monitor_live</code>
+                    reads the stream, decodes it, and posts batches to the live tape. This is the real thing.</p>
+                <span class="arch-lib">sounddevice → numpy</span>
+            </div>
+            <div class="arch-card">
+                <h3><span class="ic">🎛️</span> The simulator</h3>
+                <p>No radio? <code class="arch-inline-code">cw_simulate</code> generates CW with adjustable
+                    speed, noise (SNR) and drift, and feeds the <i>same</i> live tape — so you can learn the
+                    controls, test AFC/level, and see false-positives, exactly as a real signal would behave.</p>
+                <span class="arch-lib">numpy synth → live tape</span>
+            </div>
+            <div class="arch-card">
+                <h3><span class="ic">🎚️</span> A recording</h3>
+                <p>Upload a WAV/MP3/FLAC/OGG on the Decode page (W1AW practice files work as-is). The tone is
+                    auto-detected; the decoder adapts to the sender's speed on its own.</p>
+                <span class="arch-lib">audio_io → numpy</span>
+            </div>
+            <div class="arch-card">
+                <h3><span class="ic">🔌</span> The fldigi tap</h3>
+                <p>Point CW Station at a running <b>fldigi</b> and it reads decoded text over XML-RPC — PSK31
+                    and every other fldigi mode — onto the same tape, through the same event contract.</p>
+                <span class="arch-lib">fldigi XML-RPC</span>
+            </div>
+        </div>
+    </section>
+
+    {# ═══════════════ INSIDE THE DECODER ═══════════════ #}
+    <section class="arch-section">
+        <h2><span class="n">03</span> Inside the decode engine</h2>
+        <p>What happens between "audio samples" and "letters on the tape" — all in <span class="arch-lib">numpy</span>,
+            no radio-specific assumptions.</p>
+        <div class="arch-steps">
+            <div class="arch-step"><div>
+                <div class="t">Find the note — <code>detect_tone()</code></div>
+                <div class="d">An FFT over the first seconds picks the CW pitch, so you don't have to dial in a tone by hand.</div>
+            </div></div>
+            <div class="arch-step"><div>
+                <div class="t">Envelope &amp; key-state</div>
+                <div class="d">Band-pass around the tone, then track energy to decide key-down vs key-up moment to moment (this is what the level/AFC controls tune).</div>
+            </div></div>
+            <div class="arch-step"><div>
+                <div class="t">Adaptive timing</div>
+                <div class="d">Measure the dit length live and let it float with the sender — no fixed WPM required. Run lengths become dits, dahs, and gaps.</div>
+            </div></div>
+            <div class="arch-step"><div>
+                <div class="t">Morse → text</div>
+                <div class="d">The element pattern is looked up in the international Morse tables (<code>morse.py</code>), including prosigns.</div>
+            </div></div>
+            <div class="arch-step"><div>
+                <div class="t">Emit the event contract</div>
+                <div class="d">Out come typed events — <code>CharEvent</code>, <code>ElementEvent</code>, <code>KeyRun</code> — the single shape every renderer, the logbook, and replay all read.</div>
+            </div></div>
+        </div>
+        <div class="arch-note">Callsigns are pulled from the copy as it resolves, so the <b>logbook</b> can match a
+            contact to the session it was heard in — and every session can replay its exact tape.</div>
+    </section>
+
+    {# ═══════════════ RIG CONTROL ═══════════════ #}
+    <section class="arch-section">
+        <h2><span class="n">04</span> Rig control — reading the dial &amp; keying PTT</h2>
+        <p>Audio decoding needs no radio connection. <b>CAT control</b> is separate: it reads your frequency/mode
+            and can key PTT for transmit.</p>
+        <div class="arch-row" style="margin-bottom: 14px;">
+            <div class="arch-node">
+                <span class="t">Rig Setup page</span>
+                <span class="d">Pick your radio from Hamlib's catalog; CW Station starts &amp; supervises the daemon.</span>
+                <span class="arch-lib muted">rigdaemon.py</span>
+            </div>
+            <span class="arch-arrow">→</span>
+            <div class="arch-node accent">
+                <span class="t">rigctld</span>
+                <span class="d">Hamlib's control daemon on TCP :4532 — the single translator to hundreds of radios.</span>
+                <span class="arch-lib">Hamlib</span>
+            </div>
+            <span class="arch-arrow">→</span>
+            <div class="arch-node">
+                <span class="t">CAT over serial</span>
+                <span class="d">USB/serial cable to the rig: read freq &amp; mode, set PTT on/off.</span>
+            </div>
+            <span class="arch-arrow">→</span>
+            <div class="arch-node">
+                <span class="t">Your radio</span>
+                <span class="d">Live panel shows the dial; the send sheet's <b>on&nbsp;air</b> toggle keys it.</span>
+            </div>
+        </div>
+        <div class="arch-note"><b>Transmit path:</b> the send sheet keys PTT via rigctld, plays the synthesized
+            WAV out the sound card into the rig, then drops PTT. No Hamlib installed? Decode, practice, and
+            WAV-making all still work — only live CAT needs it.</div>
+    </section>
+
+    {# ═══════════════ RIG IMAGES ═══════════════ #}
+    <section class="arch-section">
+        <h2><span class="n">05</span> How your rig gets its picture</h2>
+        <p>The Rig Setup illustration reflects the radio you pick — and you can swap in a photo of your own.</p>
+        <div class="arch-grid">
+            <div class="arch-card">
+                <h3><span class="ic">✒️</span> Stock illustration (default)</h3>
+                <p>An archetype classifier reads the Hamlib model name and picks a drawn illustration —
+                    base station, compact/QRP, mobile, handheld, communications receiver, or software/SDR.
+                    We ship <b>no manufacturer photos</b> (copyright); these originals cover every one of the
+                    ~300 supported radios.</p>
+                <span class="arch-lib muted">rigsetup.js · SVG</span>
+            </div>
+            <div class="arch-card">
+                <h3><span class="ic">📷</span> Your own photo</h3>
+                <p>Upload a picture of your actual rig on the Rig Setup page. It's stored as <i>your</i> user
+                    data under <code class="arch-inline-code">MEDIA_ROOT</code> and shown in place of the
+                    illustration — so the copyright rests with you, and the product stays clean. Remove it to
+                    fall back to the drawing.</p>
+                <span class="arch-lib muted">CWRigPhoto · MEDIA_ROOT</span>
+            </div>
+        </div>
+    </section>
+
+    {# ═══════════════ LIBRARY LEGEND ═══════════════ #}
+    <section class="arch-section">
+        <h2><span class="n">06</span> The libraries, and what each one does</h2>
+        <div class="arch-scroll">
+            <table class="arch-table">
+                <thead><tr><th>Library</th><th>Where</th><th>What it does for CW Station</th></tr></thead>
+                <tbody>
+                    <tr><td><b>numpy</b></td><td>the engine</td><td>All DSP: tone detection, the streaming decoder, and CW synthesis. Django-free and unit-tested via a synthesize→decode→assert loop.</td></tr>
+                    <tr><td><b>Django&nbsp;Channels</b></td><td>live tape</td><td>WebSocket transport — a per-operator group relays decoded batches to every open Live/Simulator tab.</td></tr>
+                    <tr><td><b>daphne</b></td><td>server</td><td>The ASGI server that actually carries those WebSockets in production (not WSGI/gunicorn).</td></tr>
+                    <tr><td><b>Hamlib</b> (<code>rigctld</code>)</td><td>rig control</td><td>CAT translation to hundreds of radios over serial: read freq/mode, key PTT. Optional — only for a connected rig.</td></tr>
+                    <tr><td><b>sounddevice</b></td><td>live audio</td><td>Captures the rig's audio for live decode and plays keyed audio back out. Optional <code class="arch-inline-code">live</code> extra.</td></tr>
+                    <tr><td><b>fldigi</b> (XML-RPC)</td><td>digital modes</td><td>Optional tap: reads text decoded by fldigi (PSK31 &amp; more) onto the same tape.</td></tr>
+                    <tr><td><b>cryptography</b> (Fernet)</td><td>credentials</td><td>Encrypts your QRZ/eQSL passwords at rest — the key lives in a file kept off the database.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    {# ═══════════════ TROUBLESHOOTING ═══════════════ #}
+    <section class="arch-section">
+        <h2><span class="n">07</span> Troubleshooting — follow the signal</h2>
+        <p>Match the symptom to the stage that owns it.</p>
+        <div class="arch-scroll">
+            <table class="arch-table">
+                <thead><tr><th>Symptom</th><th>Stage</th><th>What to check</th></tr></thead>
+                <tbody>
+                    <tr><td>Live tape loads but never updates</td><td>Live relay</td><td>The WebSocket needs an <b>ASGI</b> server — running under WSGI/gunicorn drops it. Confirm daphne serves <code class="arch-inline-code">config.asgi</code>.</td></tr>
+                    <tr><td>Nothing decodes off the air</td><td>Sound card in</td><td>Is the rig's audio reaching the right input device, at a sane level? Try the <b>Simulator</b> to prove the decode path works without hardware.</td></tr>
+                    <tr><td>Garbled copy / random letters</td><td>Envelope &amp; timing</td><td>Tone mis-locked or too much noise. Pin the tone, raise the level/AFC threshold, or feed a cleaner signal.</td></tr>
+                    <tr><td>Rig panel won't connect</td><td>rigctld / CAT</td><td>Is <b>Hamlib</b> installed and the serial device correct? The Rig Setup stoplights show exactly which step failed.</td></tr>
+                    <tr><td>Transmit keys but no tone goes out</td><td>Sound card out</td><td>Audio output device + rig audio-input wiring; keep ALC low, like any digital mode.</td></tr>
+                    <tr><td>QRZ/eQSL passwords stopped working after a redeploy</td><td>credentials</td><td>The Fernet key file wasn't persisted — it must live on a volume with the database. See the Install guide.</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="arch-note">Still stuck? The <a href="{% url 'help:detail' slug='cw-install' %}">Install &amp; Deploy</a>
+            guide covers the production gotchas, and the <a href="{% url 'cw-rig-setup' %}">Rig Setup</a> stoplights
+            isolate a CAT problem to a single step.</div>
+    </section>
+</div>
+{% endblock %}

@@ -294,6 +294,14 @@ class MonitorView(LoginRequiredMixin, TemplateView):
         return context
 
 
+class ArchitectureView(LoginRequiredMixin, TemplateView):
+    """The signal-flow blueprint — how audio comes in, gets decoded, and goes
+    back out, and where the rig, simulator, and libraries fit. Reference +
+    troubleshooting aid, reachable from Help and Resources."""
+
+    template_name = "cw/architecture.html"
+
+
 class _StationCallMixin:
     """Adds the operator's station defaults to the context — the resolved
     callsign plus the default keying WPM/sidetone — so any page can seed a

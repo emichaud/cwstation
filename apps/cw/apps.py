@@ -53,3 +53,13 @@ class CwConfig(AppConfig):
             section="main", label="Rig Setup", url_name="cw-rig-setup",
             parent="CW Monitor", auth_required=True, order=7,
         )
+        # Signal-flow blueprint — lives under Resources (and linked from Help).
+        arch_icon = (
+            '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">'
+            '<path d="M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm13 0h-2v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/>'
+            "</svg>"
+        )
+        nav.register(
+            section="resources", label="How it works", url_name="cw-architecture",
+            icon_svg=arch_icon, auth_required=True, order=60,
+        )

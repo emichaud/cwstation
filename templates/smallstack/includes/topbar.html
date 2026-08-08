@@ -66,18 +66,21 @@
                 </li>
             {% elif group.section == "admin" %}
                 {% if user.is_staff %}
+                {% comment %}The SmallStack admin console — framework tools,
+                named apart from the CW Station product, staff-gated.{% endcomment %}
                 <li class="topbar-nav-item has-submenu">
                     <button class="topbar-nav-link" type="button" aria-expanded="false" aria-haspopup="true">
-                        Admin
+                        SmallStack
                         <svg class="topbar-nav-chevron" viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
                             <path d="M7 10l5 5 5-5z"/>
                         </svg>
                     </button>
                     <ul class="topbar-submenu">
+                        <li style="padding: 4px 14px 6px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--body-quiet-color); border-bottom: 1px solid var(--card-border); margin-bottom: 4px;">SmallStack admin console</li>
                         {% for item in group.items %}
                         <li><a href="{{ item.url }}" class="topbar-submenu-link{% if item.active %} active{% endif %}">{{ item.label }}</a></li>
                         {% endfor %}
-                        <li><a href="{% url 'admin:index' %}" class="topbar-submenu-link">Admin Panel</a></li>
+                        <li><a href="{% url 'admin:index' %}" class="topbar-submenu-link">Django Admin</a></li>
                     </ul>
                 </li>
                 {% endif %}
@@ -143,7 +146,7 @@
             </button>
             <div class="apps-dropdown" id="apps-dropdown">
                 <div class="apps-dropdown-header">
-                    <span>My Apps</span>
+                    <span>SmallStack Console</span>
                     {% if user.is_superuser %}
                     <a href="{% url 'admin:index' %}" class="apps-dropdown-settings" title="Django Admin">
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">

@@ -16,6 +16,9 @@ eQSL.
   and the two production gotchas (ASGI for the live tape, persistent volumes).
 - **[Morse Code Reference](/help/morse-reference/)** — every letter, number,
   punctuation mark, and prosign the station speaks.
+- **[How CW Station Works](/cw/architecture/)** — the signal-flow blueprint:
+  how audio comes in, gets decoded, and goes back out, which libraries do what,
+  and a follow-the-signal troubleshooting map.
 
 ## What's in the box
 
