@@ -133,6 +133,37 @@ class TestSetupEndpoints:
         assert payload["custom_images"]["3085"].endswith("cw/rigs/3085.png")
         assert "notes" not in payload["custom_images"]
 
+    def test_daemon_start_requires_model(self, client_logged):
+        response = client_logged.post(
+            reverse("cw-rig-daemon"), json.dumps({"action": "start"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    @needs_hamlib
+    def test_start_saves_config_and_arms_rig(self, client_logged, monkeypatch):
+        # steer the endpoint's daemon to the test port so it can't collide
+        original = rigdaemon.start
+        monkeypatch.setattr(
+            rigdaemon, "start",
+            lambda model, serial_port=None, baud=None: original(
+                model, serial_port=serial_port, baud=baud, tcp_port=TEST_TCP_PORT
+            ),
+        )
+        response = client_logged.post(
+            reverse("cw-rig-daemon"),
+            json.dumps({"action": "start", "model": 1}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        payload = response.json().get("data") or response.json()
+        assert payload["daemon"]["reachable"] is True
+
+        config = CWRig.objects.get(user__username="op")
+        assert config.enabled is True
+        assert config.rig_model == 1
+        assert config.port == TEST_TCP_PORT  # rig panel now points at the daemon
+
 
 # a 1×1 PNG — a real, Pillow-openable image
 _PNG_1x1 = bytes.fromhex(
@@ -181,6 +212,7 @@ class TestRigPhotos:
 
     def test_delete_reverts_to_illustration(self, client_logged, settings, tmp_path):
         import json
+
         from apps.cw.models import CWRigPhoto
         settings.MEDIA_ROOT = str(tmp_path)
         client_logged.post(reverse("cw-rig-photo"), {"model": "2011", "image": self._png()})
@@ -209,33 +241,45 @@ class TestRigPhotos:
         images = (data.get("data") or data)["custom_images"]
         assert "2011" not in images  # bob doesn't see alice's photo
 
-    def test_daemon_start_requires_model(self, client_logged):
-        response = client_logged.post(
-            reverse("cw-rig-daemon"), json.dumps({"action": "start"}),
-            content_type="application/json",
-        )
-        assert response.status_code == 400
 
-    @needs_hamlib
-    def test_start_saves_config_and_arms_rig(self, client_logged, monkeypatch):
-        # steer the endpoint's daemon to the test port so it can't collide
-        original = rigdaemon.start
-        monkeypatch.setattr(
-            rigdaemon, "start",
-            lambda model, serial_port=None, baud=None: original(
-                model, serial_port=serial_port, baud=baud, tcp_port=TEST_TCP_PORT
-            ),
-        )
-        response = client_logged.post(
-            reverse("cw-rig-daemon"),
-            json.dumps({"action": "start", "model": 1}),
-            content_type="application/json",
-        )
-        assert response.status_code == 200
-        payload = response.json().get("data") or response.json()
-        assert payload["daemon"]["reachable"] is True
+@pytest.mark.django_db
+class TestDemoPhotosCommand:
+    """`cw_demo_photos` seeds a dev operator idempotently."""
 
-        config = CWRig.objects.get(user__username="op")
-        assert config.enabled is True
-        assert config.rig_model == 1
-        assert config.port == TEST_TCP_PORT  # rig panel now points at the daemon
+    _CATALOG = [
+        {"id": 2002, "mfg": "Kenwood", "model": "TS-440S"},
+        {"id": 3073, "mfg": "Icom", "model": "IC-7300"},
+        {"id": 3085, "mfg": "Icom", "model": "IC-705"},
+        {"id": 2042, "mfg": "Kenwood", "model": "TH-D74"},
+        {"id": 3072, "mfg": "Icom", "model": "IC-2730"},
+    ]
+
+    def _run(self, monkeypatch, tmp_path, settings, **kwargs):
+        from django.core.management import call_command
+
+        from apps.cw import rigdaemon
+        settings.DEBUG = True  # pytest-django forces DEBUG off; the command guards on it
+        settings.MEDIA_ROOT = str(tmp_path)
+        monkeypatch.setattr(rigdaemon, "list_models", lambda *a, **k: self._CATALOG)
+        call_command("cw_demo_photos", **kwargs)
+
+    def test_seeds_and_is_idempotent(self, monkeypatch, tmp_path, settings):
+        from apps.cw.models import CWRigPhoto
+        User.objects.create_superuser(username="admin", password="pw")
+        self._run(monkeypatch, tmp_path, settings)
+        assert CWRigPhoto.objects.filter(user__username="admin").count() == 5
+        # second run writes nothing new
+        self._run(monkeypatch, tmp_path, settings)
+        assert CWRigPhoto.objects.filter(user__username="admin").count() == 5
+
+    def test_missing_user_is_a_noop(self, monkeypatch, tmp_path, settings):
+        from apps.cw.models import CWRigPhoto
+        self._run(monkeypatch, tmp_path, settings, user="ghost")
+        assert CWRigPhoto.objects.count() == 0
+
+    def test_refuses_without_debug(self, settings):
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        settings.DEBUG = False
+        with pytest.raises(CommandError, match="DEBUG=False"):
+            call_command("cw_demo_photos")

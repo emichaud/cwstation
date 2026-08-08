@@ -131,6 +131,7 @@ setup:
 	uv sync --all-extras
 	uv run python manage.py migrate
 	uv run python manage.py create_dev_superuser
+	uv run python manage.py cw_demo_photos
 	uv run python manage.py check
 	@echo ""
 	@echo "Setup complete! Run 'make run' to start the development server."
