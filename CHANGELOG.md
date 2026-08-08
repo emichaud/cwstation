@@ -9,7 +9,57 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.13.12] - 2026-08-08
+
+Postgres out-of-the-box hardening for search, upstreamed from a downstream
+post-mortem (search worked in dev SQLite, then broke and crawled on prod
+Postgres). SQLite masks each of these, so the fix is making the Postgres path
+good by default. All backward-compatible; verified on SQLite and a real
+Postgres 16.
+
+### Added
+- **`reindex_instances(model, objects=None)`** (`apps.search`) — reindex rows
+  written by `bulk_create` / `bulk_update` / `QuerySet.update()`, which fire no
+  signals and were otherwise left **silently un-indexed** (the most common
+  importer/data-migration footgun).
+- **Search diagnostics** — `manage.py search_diagnose [query]` and a staff page
+  at `/smallstack/search/diagnostics/` share one core: per-table health (est.
+  rows, GIN present, un-indexed backlog), app-level timing, and a live
+  `EXPLAIN` verdict (Seq Scan vs GIN Bitmap Index Scan, size-aware so it doesn't
+  cry wolf on small tables). Answers "is search fast, and if not, where's the
+  time" when you can't reach `psql`.
+- **`analyze_search_index` management command** — refreshes Postgres planner
+  stats for every searchable table (cheap, fast, safe on every deploy; wired
+  into the container entrypoint). No-op on SQLite.
+- **Help full-text search on Postgres** — both the article index (omnibar /
+  `search_help`) and the passage-level RAG index behind the `search_help_docs`
+  MCP tool now build a `tsvector`+GIN index on Postgres instead of falling back
+  to a Python scan (which returned **empty** for the RAG tool on prod).
+- **`digits_search()`** (`apps.search`) — recipe/helper for indexing opaque
+  identifiers (phone numbers, SKUs) that the `english` FTS tokenizer won't
+  match on partial/formatted input.
+
+### Changed
+- **Postgres `rebuild_search_index` is now set-based** — one
+  `UPDATE … setweight(to_tsvector(…)) || …` for views whose `search_fields` are
+  all local columns (seconds instead of O(rows) per-row UPDATEs); per-row
+  fallback retained for property/`__`-related fields. Runs `ANALYZE` afterward.
+- **GIN indexes are created `CONCURRENTLY`** on Postgres (autocommit-guarded) so
+  provisioning never locks a live table; provisioning failures are surfaced
+  rather than only logged.
+- **Search-hub row counts use the planner's `reltuples` estimate** on Postgres
+  instead of `COUNT(*)` per model (instant catalog lookup vs full scan).
+
 ### Fixed
+- **Help docs were re-parsed from disk on every request.** `build_search_index()`
+  is now memoized (`@lru_cache`); on Postgres, where help search fell back to a
+  scan, this took the hot path from ~4.5 s to ~15 ms (~300×).
+- **Search results are clickable without `get_absolute_url`.** Hits fall back to
+  the registering CRUDView's `{url_base}-detail` route.
+- **Changing `search_fields` no longer breaks SQLite search.** FTS5 bakes one
+  column per field at create time; the table is now detected as drifted and
+  recreated (previously `rebuild_search_index` failed with "table … has no
+  column named …").
 - **`api_view` no longer force-parses multipart/form bodies as JSON.** File
   uploads to custom API endpoints returned 400 "Invalid JSON" because the
   decorator read `request.body` and demanded JSON for every write method.
@@ -389,7 +439,8 @@ Condensed highlights of the v0.11 series (see git history for per-patch detail):
 See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full record of the
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
-[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.13.8...HEAD
+[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.13.12...HEAD
+[0.13.12]: https://github.com/emichaud/django-smallstack/compare/v0.13.11...v0.13.12
 [0.13.8]: https://github.com/emichaud/django-smallstack/compare/v0.13.7...v0.13.8
 [0.13.7]: https://github.com/emichaud/django-smallstack/compare/v0.13.6...v0.13.7
 [0.13.6]: https://github.com/emichaud/django-smallstack/compare/v0.13.5...v0.13.6
