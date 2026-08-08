@@ -4,7 +4,7 @@ version = "0.13.13"
 description = "A minimal Django stack for building and deploying admin-style apps"
 requires-python = ">=3.12"
 dependencies = [
-    "django>=6.0",
+    "django>=6.1",
     "python-decouple>=3.8",
     "pillow>=10.0",
     "gunicorn>=21.0",
