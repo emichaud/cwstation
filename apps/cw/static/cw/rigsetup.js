@@ -29,20 +29,47 @@ function initCWRigSetup(opts) {
 
   // ── rig-type thumbnails ────────────────────────────────────────────────
   // Original illustrations by rig archetype (not manufacturer photos — those
-  // are copyrighted). Heuristics from the Hamlib model name give each row a
-  // recognizable icon: base station, compact/QRP, mobile, handheld, or SDR.
+  // are copyrighted). Tuned against the real Hamlib catalog: base station,
+  // compact/QRP, mobile, handheld, communications receiver, or software/SDR.
+  // Rules are ordered most-specific first; the default is a base transceiver.
   function rigArchetype(mfg, model, id) {
     const s = (mfg + " " + model).toLowerCase();
-    if (id === 1 || /dummy|network|flrig|rigctl|gnuradio|\bsdr\b|flex|powersdr|hpsdr|hamlib/.test(s))
+    const M = mfg.toLowerCase();
+
+    // 1 · software / SDR / PC-controlled (no physical front panel)
+    if (id === 1 || M === "flexradio" || M === "tapr" ||
+        /hamlib|flrig|trxmanager|gnu ?radio|net ?rigctl|dummy/.test(s) ||
+        /power ?sdr|hpsdr|perseus|winradio|softrock|\bsdr\b/.test(s) ||
+        /ic-?pcr|\brx-3\d\d\b|505dsp|kachina/.test(s))
       return "software";
-    if (/handheld|\bht\b|\bvx-|\bft-?[1-6]\b|\bid-?(31|51|52|5100)|\bth-|\bd7[0-9]|\bdj-|kg-?uv|handie/.test(s))
+
+    // 2 · handheld (HTs + handheld receivers / scanners)
+    if (M === "uniden" || /\bth-|\bdj-|handheld|handie|\bvx-/.test(s) ||
+        /id-?(31|51|52)\b|ic-?92|ic-?2gx|ic-?r(6|10|20|30)\b|ic-?rx7/.test(s))
       return "handheld";
-    if (/kx[0-9]|kx-|xiegu|x6100|x5105|g90|g106|\bqrp\b|mtr|mountain|penntek|tr-?35|\bk1\b|\bk2\b/.test(s))
-      return "compact";
-    if (/mobile|ic-?2\d\d\d|ic-?27|ic-?29|ft-?8[59]7|ftm-|\btm-|ic-?706|ic-?7000|ic-?2730|ft-?891| id-?4100/.test(s))
+
+    // 3 · communications receiver (RX-only desktop)
+    if (M === "aor" || M === "jrc" || M === "drake" || M === "racal" ||
+        M === "skanti" || M === "rohde&schwarz" || M === "barrett" ||
+        M === "codan" || M === "optoelectronics" ||
+        /ic-?r(71|72|75|7000|7100|8500|8600|9000|9500)\b/.test(s) ||
+        /\bfrg-|\bvr-?5000|\br-?5000\b|\bnrd-/.test(s))
+      return "receiver";
+
+    // 4 · mobile (dual-band mobiles + mobile HF)
+    if (/\btm-|ftm-|ic-?2730|id-?(4100|5100)/.test(s) ||
+        /ic-?706|ic-?7000\b|ft-?857|ft-?897|ft-?100\b/.test(s))
       return "mobile";
+
+    // 5 · compact / QRP / portable
+    if (M === "qrplabs" ||
+        /kx[0-9]|xiegu|x108|x5105|x6100|x6200|g90|g106|ic-?703|ic-?705|ft-?81[78]|\bqrp\b|qcx|\bmtr\b|argonaut|tt-?516/.test(s))
+      return "compact";
+
+    // 6 · base HF/VHF transceiver (default)
     return "base";
   }
+  if (typeof window !== "undefined") window.cwRigArchetype = rigArchetype; // test seam
 
   const THUMBS = {
     base:
@@ -71,6 +98,16 @@ function initCWRigSetup(opts) {
       '<circle cx="22" cy="21" r="1.4" fill="#3a4150"/><circle cx="25" cy="21" r="1.4" fill="#3a4150"/>' +
       '<circle cx="28" cy="21" r="1.4" fill="#3a4150"/><circle cx="23.5" cy="25" r="1.4" fill="#3a4150"/>' +
       '<circle cx="26.5" cy="25" r="1.4" fill="#3a4150"/>',
+    receiver:
+      '<rect x="1" y="6" width="46" height="21" rx="3" fill="#232a34" stroke="#3a4150"/>' +
+      '<rect x="4" y="10" width="16" height="13" rx="2" fill="#0b0e13"/>' +
+      '<rect x="6" y="13" width="11" height="3" rx="1" fill="#e0b84c"/>' +
+      '<circle cx="24" cy="13" r="1" fill="#3a4150"/><circle cx="28" cy="13" r="1" fill="#3a4150"/>' +
+      '<circle cx="32" cy="13" r="1" fill="#3a4150"/><circle cx="24" cy="17" r="1" fill="#3a4150"/>' +
+      '<circle cx="28" cy="17" r="1" fill="#3a4150"/><circle cx="32" cy="17" r="1" fill="#3a4150"/>' +
+      '<circle cx="24" cy="21" r="1" fill="#3a4150"/><circle cx="28" cy="21" r="1" fill="#3a4150"/>' +
+      '<circle cx="32" cy="21" r="1" fill="#3a4150"/>' +
+      '<circle cx="41" cy="16.5" r="5" fill="#161b22" stroke="#3a4150"/>',
     software:
       '<rect x="3" y="4" width="42" height="22" rx="3" fill="#232a34" stroke="#3a4150"/>' +
       '<rect x="6" y="7" width="36" height="16" rx="2" fill="#0b0e13"/>' +
@@ -89,21 +126,129 @@ function initCWRigSetup(opts) {
       (THUMBS[kind] || THUMBS.base) + "</svg></span>";
   }
 
-  // ── the rig illustration ──────────────────────────────────────────────
+  // ── the rig illustration (big, per selected model) ─────────────────────
   function fmtFreq(hz) {
     if (!hz) return "—.———";
     return (hz / 1e6).toFixed(4);
   }
+  // Large hero illustrations, one per archetype. Each has an .rig-freq text,
+  // an optional .rig-mode, and a .rig-led power light that JS updates. The
+  // frame uses the --rig-* CSS variables; screen/LED glow in the palette.
+  function bigRig(kind) {
+    const S = 'fill="var(--rig-body)" stroke="var(--card-border)" stroke-width="2"';
+    const LCD = 'fill="var(--rig-lcd)" stroke="var(--card-border)"';
+    const led = (cx, cy) => '<circle class="rig-led" cx="' + cx + '" cy="' + cy + '" r="7" fill="var(--rig-led-off)"/>';
+    const freq = (x, y, sz) => '<text class="rig-freq" x="' + x + '" y="' + y + '" text-anchor="middle"' +
+      (sz ? ' style="font-size:' + sz + 'px"' : "") + ">—.———</text>";
+    const knob = (cx, cy, r) =>
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + (r + 8) + '" fill="var(--rig-knob-ring)"/>' +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="var(--rig-knob)" stroke="var(--card-border)" stroke-width="2"/>' +
+      '<circle cx="' + cx + '" cy="' + (cy - r + 6) + '" r="6" fill="var(--primary)"/>';
+    const smeter = (x, y) => {
+      let g = "";
+      const h = [16, 20, 24, 18, 14, 12], dim = [0, 0, 0, 1, 1, 1];
+      for (let i = 0; i < 6; i++)
+        g += '<rect x="' + (x + i * 11) + '" y="' + (y + (24 - h[i])) + '" width="8" height="' + h[i] +
+          '" rx="1" fill="var(--rig-smeter' + (dim[i] ? "-dim" : "") + ')"/>';
+      return g;
+    };
+    const svg = (inner) => '<svg viewBox="0 0 400 210" class="cw-rig-svg" role="img" aria-label="Radio">' + inner + "</svg>";
+
+    if (kind === "software") {
+      return svg(
+        '<rect x="70" y="14" width="260" height="150" rx="12" ' + S + "/>" +
+        '<rect x="84" y="28" width="232" height="112" rx="6" ' + LCD + "/>" +
+        '<polyline points="94,96 118,96 130,66 146,126 162,80 178,110 196,96 306,96" fill="none" ' +
+        'stroke="var(--primary)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>' +
+        freq(200, 52, 22) +
+        '<rect x="150" y="164" width="100" height="10" rx="2" fill="var(--rig-top)"/>' +
+        '<rect x="120" y="174" width="160" height="12" rx="3" ' + S + "/>" + led(300, 34));
+    }
+    if (kind === "handheld") {
+      return svg(
+        '<rect x="150" y="14" width="100" height="182" rx="16" ' + S + "/>" +
+        '<rect x="236" y="-2" width="10" height="24" rx="4" fill="var(--rig-top)"/>' +   // antenna
+        '<rect x="164" y="34" width="72" height="52" rx="6" ' + LCD + "/>" +
+        freq(200, 66, 22) +
+        smeter(172, 96).replace(/width="8"/g, 'width="6"') +
+        // keypad
+        (function () {
+          let k = ""; for (let r = 0; r < 4; r++) for (let c = 0; c < 3; c++)
+            k += '<rect x="' + (166 + c * 24) + '" y="' + (120 + r * 18) + '" width="18" height="13" rx="3" fill="var(--rig-btn)"/>';
+          return k;
+        })() + led(232, 26));
+    }
+    if (kind === "receiver") {
+      let grille = "";
+      for (let r = 0; r < 4; r++) for (let c = 0; c < 5; c++)
+        grille += '<circle cx="' + (250 + c * 15) + '" cy="' + (74 + r * 15) + '" r="2.6" fill="var(--rig-knob-ring)"/>';
+      return svg(
+        '<rect x="6" y="20" width="388" height="170" rx="14" ' + S + "/>" +
+        '<rect x="6" y="20" width="388" height="18" rx="14" fill="var(--rig-top)"/>' +
+        '<rect x="26" y="58" width="180" height="94" rx="8" ' + LCD + "/>" +
+        freq(116, 104) + smeter(150, 118) +
+        grille + knob(340, 105, 34) + led(372, 40));
+    }
+    if (kind === "compact") {
+      return svg(
+        '<rect x="52" y="46" width="296" height="120" rx="12" ' + S + "/>" +
+        '<rect x="70" y="66" width="150" height="80" rx="6" ' + LCD + "/>" +
+        freq(145, 108) + smeter(110, 122) +
+        knob(292, 106, 32) +
+        '<rect x="70" y="150" width="26" height="10" rx="2" fill="var(--rig-btn)"/>' +
+        '<rect x="102" y="150" width="26" height="10" rx="2" fill="var(--rig-btn)"/>' +
+        led(330, 60));
+    }
+    if (kind === "mobile") {
+      return svg(
+        '<rect x="20" y="66" width="300" height="86" rx="12" ' + S + "/>" +
+        '<rect x="20" y="66" width="300" height="14" rx="12" fill="var(--rig-top)"/>' +
+        '<rect x="38" y="92" width="150" height="48" rx="5" ' + LCD + "/>" +
+        freq(113, 124) + knob(272, 109, 26) +
+        // mic on a cord
+        '<path d="M320 150 q40 20 56 -6" fill="none" stroke="var(--card-border)" stroke-width="2"/>' +
+        '<rect x="368" y="120" width="22" height="40" rx="6" ' + S + "/>" +
+        '<circle cx="379" cy="134" r="5" fill="var(--rig-knob-ring)"/>' + led(300, 73));
+    }
+    // base transceiver (default)
+    return svg(
+      '<rect x="6" y="8" width="388" height="194" rx="16" ' + S + "/>" +
+      '<rect x="6" y="8" width="388" height="20" rx="16" fill="var(--rig-top)"/>' +
+      '<rect x="24" y="44" width="210" height="112" rx="8" ' + LCD + "/>" +
+      freq(129, 98) +
+      '<text class="rig-mode cw-rig-lcd-lab" x="40" y="140">———</text>' +
+      smeter(150, 120) + knob(318, 112, 46) +
+      '<rect x="24" y="168" width="34" height="18" rx="4" fill="var(--rig-btn)"/>' +
+      '<rect x="66" y="168" width="34" height="18" rx="4" fill="var(--rig-btn)"/>' +
+      '<rect x="108" y="168" width="34" height="18" rx="4" fill="var(--rig-btn)"/>' + led(372, 30));
+  }
+
+  let currentArt = "";
   function renderRig(daemon) {
-    const isSw = sel.dummy;
-    el("rig-hw").style.display = isSw ? "none" : "";
-    el("rig-sw").style.display = isSw ? "" : "none";
     const connected = daemon && daemon.running && daemon.reachable;
-    const freq = connected ? fmtFreq(daemon.freq_hz) : "—.———";
-    el("rig-hw-freq").textContent = freq;
-    el("rig-sw-freq").textContent = freq;
-    el("rig-hw-mode").textContent = connected ? daemon.mode : "———";
-    el("rig-led").setAttribute("fill", connected ? "var(--rig-led-on)" : "var(--rig-led-off)");
+    const kind = sel.dummy ? "software"
+      : sel.model ? rigArchetype(
+          (models.find((x) => x.id === sel.model) || {}).mfg || "",
+          (models.find((x) => x.id === sel.model) || {}).model || "", sel.model)
+      : "base";
+
+    // custom photo (operator-supplied) wins over the illustration
+    const photo = sel.model && !sel.dummy && customImages[sel.model];
+    const photoEl = el("rs-rig-photo"), artEl = el("rs-rig-art");
+    if (photo) {
+      photoEl.src = photo;
+      photoEl.style.display = "";
+      artEl.style.display = "none";
+    } else {
+      photoEl.style.display = "none";
+      artEl.style.display = "";
+      if (currentArt !== kind) { artEl.innerHTML = bigRig(kind); currentArt = kind; }
+      const freq = connected ? fmtFreq(daemon.freq_hz) : "—.———";
+      const q = (c) => artEl.querySelector("." + c);
+      if (q("rig-freq")) q("rig-freq").textContent = freq;
+      if (q("rig-mode")) q("rig-mode").textContent = connected ? daemon.mode : "———";
+      if (q("rig-led")) q("rig-led").setAttribute("fill", connected ? "var(--rig-led-on)" : "var(--rig-led-off)");
+    }
     el("rs-rig").classList.toggle("live", !!connected);
 
     let plate = "No radio selected";

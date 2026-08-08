@@ -43,58 +43,10 @@ sudo apt install hamlib-utils   (on Linux)</code></pre>
             <div class="cw-step-head"><span class="cw-step-num">1</span><h3>Choose your radio</h3></div>
 
             <div class="cw-setup-choose">
-                {# the rig illustration #}
+                {# the rig illustration — filled by rigsetup.js per selected model #}
                 <figure class="cw-rig" id="rs-rig">
-                    <svg viewBox="0 0 400 210" class="cw-rig-svg" role="img" aria-label="Radio">
-                        {# ── hardware transceiver ── #}
-                        <g id="rig-hw">
-                            <rect x="6" y="8" width="388" height="194" rx="16"
-                                  fill="var(--rig-body)" stroke="var(--card-border)" stroke-width="2"/>
-                            <rect x="6" y="8" width="388" height="20" rx="16" fill="var(--rig-top)"/>
-                            {# LCD #}
-                            <rect x="24" y="44" width="210" height="112" rx="8" fill="var(--rig-lcd)"/>
-                            <rect x="24" y="44" width="210" height="112" rx="8" fill="none"
-                                  stroke="var(--card-border)"/>
-                            <text id="rig-hw-freq" x="129" y="98" text-anchor="middle"
-                                  class="cw-rig-freq">—.———</text>
-                            <text id="rig-hw-mode" x="40" y="140" class="cw-rig-lcd-lab">———</text>
-                            {# S-meter #}
-                            <g id="rig-hw-smeter">
-                                <rect x="150" y="128" width="8" height="16" rx="1" fill="var(--rig-smeter)"/>
-                                <rect x="161" y="124" width="8" height="20" rx="1" fill="var(--rig-smeter)"/>
-                                <rect x="172" y="120" width="8" height="24" rx="1" fill="var(--rig-smeter)"/>
-                                <rect x="183" y="126" width="8" height="18" rx="1" fill="var(--rig-smeter-dim)"/>
-                                <rect x="194" y="130" width="8" height="14" rx="1" fill="var(--rig-smeter-dim)"/>
-                                <rect x="205" y="132" width="8" height="12" rx="1" fill="var(--rig-smeter-dim)"/>
-                            </g>
-                            {# tuning knob #}
-                            <circle cx="318" cy="112" r="54" fill="var(--rig-knob-ring)"/>
-                            <circle cx="318" cy="112" r="46" fill="var(--rig-knob)"
-                                    stroke="var(--card-border)" stroke-width="2"/>
-                            <circle cx="318" cy="86" r="6" fill="var(--primary)"/>
-                            {# function buttons #}
-                            <rect x="24" y="168" width="34" height="18" rx="4" fill="var(--rig-btn)"/>
-                            <rect x="66" y="168" width="34" height="18" rx="4" fill="var(--rig-btn)"/>
-                            <rect x="108" y="168" width="34" height="18" rx="4" fill="var(--rig-btn)"/>
-                            {# power LED #}
-                            <circle id="rig-led" cx="372" cy="30" r="7" fill="var(--rig-led-off)"/>
-                        </g>
-
-                        {# ── software test rig ── #}
-                        <g id="rig-sw" style="display: none;">
-                            <rect x="70" y="14" width="260" height="150" rx="12"
-                                  fill="var(--rig-body)" stroke="var(--card-border)" stroke-width="2"/>
-                            <rect x="84" y="28" width="232" height="112" rx="6" fill="var(--rig-lcd)"/>
-                            <polyline points="94,96 118,96 130,66 146,126 162,80 178,110 196,96 306,96"
-                                      fill="none" stroke="var(--primary)" stroke-width="3"
-                                      stroke-linejoin="round" stroke-linecap="round"/>
-                            <text id="rig-sw-freq" x="200" y="52" text-anchor="middle"
-                                  class="cw-rig-freq" style="font-size: 20px;">—.———</text>
-                            <rect x="150" y="164" width="100" height="10" rx="2" fill="var(--rig-top)"/>
-                            <rect x="120" y="174" width="160" height="12" rx="3" fill="var(--rig-body)"
-                                  stroke="var(--card-border)"/>
-                        </g>
-                    </svg>
+                    <img id="rs-rig-photo" class="cw-rig-photo" alt="" style="display: none;">
+                    <div id="rs-rig-art" class="cw-rig-art"></div>
                     <figcaption id="rs-rig-plate">No radio selected</figcaption>
                 </figure>
 

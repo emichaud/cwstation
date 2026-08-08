@@ -889,14 +889,24 @@ body.cw-setup {
 @media (max-width: 820px) { .cw-setup-choose { grid-template-columns: 1fr; } }
 .cw-rig { margin: 0; position: sticky; top: 80px; }
 .cw-rig-svg { width: 100%; height: auto; display: block; filter: drop-shadow(0 8px 20px rgba(0,0,0,0.4)); }
-.cw-rig-freq {
+.cw-rig-art { min-height: 180px; }
+.cw-rig-photo {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: 14px;
+    border: 1px solid var(--card-border);
+    background: var(--rig-body);
+    filter: drop-shadow(0 8px 20px rgba(0,0,0,0.4));
+}
+.cw-rig-freq, .cw-rig-svg .rig-freq {
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     font-size: 34px;
     font-weight: 700;
     letter-spacing: 2px;
     fill: var(--primary);
 }
-.cw-rig.live .cw-rig-freq { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--primary) 70%, transparent)); }
+.cw-rig.live .rig-freq { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--primary) 70%, transparent)); }
 .cw-rig-lcd-lab {
     font-family: ui-monospace, Menlo, Consolas, monospace;
     font-size: 15px;
@@ -904,8 +914,8 @@ body.cw-setup {
     letter-spacing: 2px;
     fill: var(--primary);
 }
-#rig-led { transition: fill 0.3s; }
-.cw-rig.live #rig-led { filter: drop-shadow(0 0 5px var(--success-fg)); }
+.cw-rig-svg .rig-led { transition: fill 0.3s; }
+.cw-rig.live .rig-led { filter: drop-shadow(0 0 5px var(--success-fg)); }
 .cw-rig figcaption {
     margin-top: 12px;
     text-align: center;
