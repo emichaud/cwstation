@@ -925,6 +925,18 @@ body.cw-setup {
     letter-spacing: 0.06em;
     color: var(--body-fg);
 }
+.cw-mycall { margin: 4px 0 16px; }
+.cw-mycall label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
+.cw-mycall-hint { font-weight: 400; color: var(--body-quiet-color); }
+.cw-mycall-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cw-mycall-row input {
+    width: 160px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 700;
+}
+.cw-mycall-status { font-size: 0.85rem; color: var(--success-fg); }
+
 .cw-rig-photo-tools { margin-top: 12px; text-align: center; }
 .cw-photo-btn {
     display: inline-flex;

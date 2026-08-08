@@ -67,20 +67,20 @@ The send macros (`CQ`, `73`, RST reply, …) contain placeholders like
 `{mycall}`, `{call}`, and `{rst}`. **You don't edit each macro** — placeholders
 expand when you insert a macro:
 
-- **`{mycall}`** fills automatically from **your login username** (upper-cased).
-  So if you log in as `N1KRX`, every macro keys `N1KRX` with no editing. The
-  ADIF export's `STATION_CALLSIGN` uses the same source.
+- **`{mycall}`** fills from **your station callsign**. Set it once on the
+  **Send** page ("Your callsign" → Save); it also becomes the ADIF export's
+  `STATION_CALLSIGN`. If you leave it blank, it falls back to your **login
+  username** (upper-cased) — so logging in as `N1KRX` works with no setup.
 - **`{call}`** fills from the **current contact** — the station you're working,
   picked up from the decoded copy / QSO context.
 - **`{rst}`** defaults to `599`.
 - **Any other placeholder** you invent (e.g. `{qth}`) stays put and the cursor
   lands on it so you can type the value once, in place.
 
-> **Deploy tip:** because `{mycall}` is the login username, the cleanest setup
-> is to **make each operator's username their callsign**. Create accounts at
-> `/smallstack/manage/users/` (or the Django admin) named for the call. If you'd
-> rather decouple them (a dedicated "Station Callsign" profile field), that's a
-> small addition — ask and it can be wired in.
+> **Deploy tip:** each operator sets their own callsign on the Send page, so a
+> shared install just works — no need to name accounts after callsigns. The
+> value is stored per operator (on their `CWRig` record) and applies everywhere
+> `{mycall}` and ADIF export appear.
 
 ---
 

@@ -87,6 +87,11 @@ class CWRig(models.Model):
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="cw_rig"
     )
+    callsign = models.CharField(
+        max_length=20, blank=True,
+        help_text="Your station callsign. Fills {mycall} in send macros and the "
+                  "ADIF STATION_CALLSIGN. Blank = fall back to your username.",
+    )
     enabled = models.BooleanField(default=False)
     host = models.CharField(max_length=200, default="127.0.0.1")
     port = models.PositiveIntegerField(default=4532)

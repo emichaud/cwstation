@@ -228,9 +228,10 @@ def log_adif(request: HttpRequest) -> Any:
     from django.http import HttpResponse
 
     from . import logbook
+    from .services import station_callsign
 
     adif = logbook.adif_export(
-        _filtered_qsos(request), station_call=request.user.username.upper()
+        _filtered_qsos(request), station_call=station_callsign(request.user)
     )
     response = HttpResponse(adif, content_type="text/plain; charset=utf-8")
     response["Content-Disposition"] = 'attachment; filename="cw-station-log.adi"'
@@ -313,7 +314,9 @@ def log_eqsl_upload(request: HttpRequest) -> dict[str, Any] | Any:
     if not qsos:
         return {"uploaded": 0, "message": "Nothing new to send."}
 
-    adif = logbook.adif_export(qsos, station_call=request.user.username.upper())
+    from .services import station_callsign
+
+    adif = logbook.adif_export(qsos, station_call=station_callsign(request.user))
     try:
         result = upload_adif(profile.username, profile.get_password(), adif)
     except EQSLError as e:
@@ -340,6 +343,27 @@ def eqsl_config(request: HttpRequest) -> dict[str, Any] | Any:
         profile.save()
     return {"configured": bool(profile.username and profile.password),
             "username": profile.username}
+
+
+@api_view(methods=["GET", "POST"], require_auth=True)
+def station_config(request: HttpRequest) -> dict[str, Any] | Any:
+    """The operator's station callsign. GET returns {callsign, resolved};
+    POST {callsign} saves it (blank clears it, falling back to the username).
+    `resolved` is what actually fills {mycall} / ADIF STATION_CALLSIGN."""
+    from .services import station_callsign
+
+    rig, _ = CWRig.objects.get_or_create(user=request.user)
+    if request.method == "POST":
+        data = request.json
+        if not isinstance(data, dict):
+            return api_error("Expected a JSON object", 400)
+        if "callsign" in data:
+            call = str(data["callsign"]).strip().upper()
+            if len(call) > 20:
+                return api_error("Callsign too long (20 chars max)", 400)
+            rig.callsign = call
+            rig.save(update_fields=["callsign", "updated_at"])
+    return {"callsign": rig.callsign, "resolved": station_callsign(request.user)}
 
 
 @api_view(methods=["GET", "POST"], require_auth=True)

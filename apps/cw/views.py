@@ -294,7 +294,17 @@ class MonitorView(LoginRequiredMixin, TemplateView):
         return context
 
 
-class LiveView(LoginRequiredMixin, TemplateView):
+class _StationCallMixin:
+    """Adds `station_call` (the resolved operator callsign) to the context, so
+    the page can seed {mycall} in the send macros without re-deriving it."""
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["station_call"] = services.station_callsign(self.request.user)
+        return context
+
+
+class LiveView(_StationCallMixin, LoginRequiredMixin, TemplateView):
     """The live tape — renders decode batches pushed over the WebSocket."""
 
     template_name = "cw/live.html"
@@ -313,7 +323,7 @@ class CallbookView(LoginRequiredMixin, TemplateView):
     template_name = "cw/callbook.html"
 
 
-class SimulatorView(LoginRequiredMixin, TemplateView):
+class SimulatorView(_StationCallMixin, LoginRequiredMixin, TemplateView):
     """The band simulator — the live tape plus level/AFC knobs that steer a
     running `cw_simulate` process."""
 
@@ -370,7 +380,7 @@ class DecodeView(LoginRequiredMixin, TemplateView):
         return self.render_to_response(self.get_context_data(recording_form=form))
 
 
-class SendView(LoginRequiredMixin, TemplateView):
+class SendView(_StationCallMixin, LoginRequiredMixin, TemplateView):
     """Compose a message and key it into clean, click-free CW audio.
 
     `?to=CALL` prefills a reply to a station the live monitor identified —

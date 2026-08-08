@@ -82,7 +82,7 @@ uv run python manage.py cw_monitor_live --stream {{ request.user.username }} --s
             logUrl: "{% url 'cw-log-quick' %}",
             rig: { txUrl: "{% url 'cw-rig-tx' %}" },
             rigState: function () { return rigState || {}; },
-            context: { mycall: "{{ request.user.username|upper|escapejs }}", rst: "599" },
+            context: { mycall: "{{ station_call|escapejs }}", rst: "599" },
         });
 
         const pill = document.getElementById("cw-live-pill");

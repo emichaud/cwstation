@@ -17,6 +17,19 @@ from .engine.wav import wav_bytes_from_float32
 from .models import CWSession
 
 
+def station_callsign(user: AbstractBaseUser) -> str:
+    """The operator's station callsign, upper-cased: their configured CWRig
+    callsign if set, otherwise their username. Feeds {mycall} in send macros
+    and the ADIF STATION_CALLSIGN so both agree."""
+    from .models import CWRig
+
+    call = ""
+    rig = CWRig.objects.filter(user=user).only("callsign").first()
+    if rig and rig.callsign:
+        call = rig.callsign
+    return (call or getattr(user, "username", "") or "").upper()
+
+
 def decode_practice(
     user: AbstractBaseUser,
     text: str,

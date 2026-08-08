@@ -31,7 +31,8 @@ eQSL.
 
 ## A note on your callsign
 
-The send macros fill `{mycall}` from **your login username** — no per-macro
-editing. Log in as your callsign (e.g. `N1KRX`) and it just works. See the
+The send macros fill `{mycall}` from **your station callsign** — set it once on
+the Send page and it applies to every macro and ADIF export, no per-macro
+editing. Leave it blank and it falls back to your login username. See the
 [Install guide](/help/cw-install/#3-your-callsign-and-the-send-macros) for the
-details and the recommended account setup.
+details.
