@@ -20,9 +20,15 @@ function initCWMacros(opts) {
   const popEl = opts.popoverEl;
   const bankEl = opts.bankEl; // management rows (optional)
   const url = opts.url;
-  const context = opts.context || {}; // {mycall, call, rst}
+  const varsUrl = opts.varsUrl; // custom-tag endpoint (optional)
+  const varsEl = opts.varsEl; // custom-tag management rows (optional)
+  const context = opts.context || {}; // {mycall, call, rst} + custom tags
+
+  // Names the station fills — a custom tag can never shadow these.
+  const RESERVED = new Set(["mycall", "call", "rst"]);
 
   let macros = [];
+  let vars = [];
   let palette = { open: false, filter: "", index: 0, tokenStart: -1 };
 
   // ── expansion ─────────────────────────────────────────────────────────
@@ -31,7 +37,7 @@ function initCWMacros(opts) {
     // unresolved placeholder, if any
     let out = "";
     let sel = null;
-    const re = /\{([a-z0-9_]+)\}/gi;
+    const re = /\{([a-z0-9_-]+)\}/gi;
     let last = 0;
     let m;
     while ((m = re.exec(text)) !== null) {
@@ -174,14 +180,15 @@ function initCWMacros(opts) {
   }
 
   // ── memory bank (inline management) ───────────────────────────────────
-  function post(body) {
-    return fetch(url, {
+  function postTo(u, body) {
+    return fetch(u, {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }).then((r) => r.json().then((j) => ({ ok: r.ok, data: j.data || j })));
   }
+  function post(body) { return postTo(url, body); }
 
   function renderBank() {
     if (!bankEl) return;
@@ -252,6 +259,83 @@ function initCWMacros(opts) {
       });
   }
 
+  // ── custom tags (user-defined {name} → value) ─────────────────────────
+  function applyVars() {
+    // reset context to just its reserved keys, then layer tags underneath by
+    // rebuilding: reserved values are re-applied last so a tag can't shadow them
+    vars.forEach((v) => { if (!RESERVED.has(v.name)) context[v.name] = v.value; });
+  }
+
+  function renderVarBank() {
+    if (!varsEl) return;
+    varsEl.innerHTML = "";
+    vars.forEach((v) => varsEl.appendChild(varRow(v)));
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "cw-bank-add";
+    add.textContent = "+ new tag";
+    add.addEventListener("click", () => { add.replaceWith(varRow(null)); });
+    varsEl.appendChild(add);
+  }
+
+  function varRow(v) {
+    const row = document.createElement("div");
+    row.className = "cw-bank-row";
+    const name = document.createElement("input");
+    name.className = "cw-bank-name cw-mono";
+    name.value = v ? "{" + v.name + "}" : "{";
+    name.spellcheck = false;
+    name.setAttribute("aria-label", "Tag name");
+    const value = document.createElement("input");
+    value.className = "cw-bank-text cw-mono";
+    value.value = v ? v.value : "";
+    value.placeholder = "VALUE — e.g. KW4420";
+    value.spellcheck = false;
+    value.setAttribute("aria-label", "Tag value");
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "cw-bank-del";
+    del.textContent = "✕";
+    del.title = v ? "Delete {" + v.name + "}" : "Discard";
+    const err = document.createElement("span");
+    err.className = "cw-bank-err";
+
+    function save() {
+      const cleanName = name.value.replace(/[{}]/g, "").trim();
+      if (!cleanName || !value.value.trim()) return;
+      const body = { name: cleanName, value: value.value };
+      if (v) body.id = v.id;
+      postTo(varsUrl, body).then(({ ok, data }) => {
+        if (!ok) { err.textContent = data.error || data.detail || "couldn't save"; return; }
+        err.textContent = "";
+        refreshVars();
+      });
+    }
+    name.addEventListener("change", save);
+    value.addEventListener("change", save);
+    [name, value].forEach((inp) =>
+      inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); inp.blur(); } })
+    );
+    del.addEventListener("click", () => {
+      if (v) postTo(varsUrl, { id: v.id, delete: true }).then(refreshVars);
+      else row.remove();
+    });
+    row.append(name, value, del, err);
+    return row;
+  }
+
+  function refreshVars() {
+    if (!varsUrl) return Promise.resolve();
+    return fetch(varsUrl, { credentials: "same-origin" })
+      .then((r) => r.json())
+      .then((j) => {
+        vars = (j.data || j).vars || [];
+        applyVars();
+        renderVarBank();
+      });
+  }
+
   refresh();
-  return { refresh, insert, expand };
+  refreshVars();
+  return { refresh, refreshVars, insert, expand };
 }

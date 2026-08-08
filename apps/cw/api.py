@@ -90,6 +90,57 @@ def macros(request: HttpRequest) -> dict[str, Any] | Any:
     return _macro_dict(macro)
 
 
+def _var_dict(v: Any) -> dict[str, Any]:
+    return {"id": v.pk, "name": v.name, "value": v.value, "order": v.order}
+
+
+@api_view(methods=["GET", "POST"], require_auth=True)
+def station_vars(request: HttpRequest) -> dict[str, Any] | Any:
+    """The operator's custom tags — named values that expand as {name}.
+
+    GET  → list
+    POST → create {name, value} | update {id, name?, value?} | delete {id, delete: true}
+    """
+    from .models import RESERVED_VARIABLE_NAMES, CWVariable
+
+    if request.method == "GET":
+        return {"vars": [_var_dict(v) for v in request.user.cw_variables.all()]}
+
+    data = request.json
+    if not isinstance(data, dict):
+        return api_error("Expected a JSON object", 400)
+
+    if data.get("id") is not None:
+        var = CWVariable.objects.filter(user=request.user, pk=data["id"]).first()
+        if var is None:
+            return api_error("No such tag", 404)
+        if data.get("delete"):
+            var.delete()
+            return {"deleted": True}
+    else:
+        var = CWVariable(user=request.user, order=request.user.cw_variables.count())
+
+    if "name" in data:
+        name = str(data["name"]).strip().lstrip("{").rstrip("}").lower()
+        if not MACRO_NAME_RE.fullmatch(name):
+            return api_error("Tag must be 1-24 chars: letters, digits, dashes", 400)
+        if name in RESERVED_VARIABLE_NAMES:
+            return api_error(f"{{{name}}} is filled by the station — pick another name", 400)
+        clash = CWVariable.objects.filter(user=request.user, name=name).exclude(pk=var.pk)
+        if clash.exists():
+            return api_error(f"{{{name}}} already exists", 409)
+        var.name = name
+    if "value" in data:
+        value = str(data["value"]).strip()
+        if not value or len(value) > 200:
+            return api_error("Value must be 1-200 characters", 400)
+        var.value = value
+    if not var.name or not var.value:
+        return api_error("Both a tag name and a value are required", 400)
+    var.save()
+    return _var_dict(var)
+
+
 _RIG_CONFIG_FIELDS = ("enabled", "host", "port", "use_ptt", "audio_output", "ptt_lead_ms")
 VALID_MODES = {"CW", "CWR", "USB", "LSB", "AM", "FM", "RTTY", "PKTUSB", "PKTLSB"}
 

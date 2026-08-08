@@ -310,7 +310,7 @@ class LiveView(_StationCallMixin, LoginRequiredMixin, TemplateView):
     template_name = "cw/live.html"
 
 
-class RigSetupView(LoginRequiredMixin, TemplateView):
+class RigSetupView(_StationCallMixin, LoginRequiredMixin, TemplateView):
     """The rig launcher — pick the serial port and rig model (the 'select the
     right modem' step), start/supervise rigctld, verify the link."""
 

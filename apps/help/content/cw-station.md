@@ -47,15 +47,59 @@ accuracy score.
 ## Message keys (macros)
 
 The Send composer has a keyer memory bank — the CW equivalent of contest-logger
-F-keys. Type `/` in the message box and a command palette opens: filter, arrow keys,
-Enter to insert. Or click a keycap chip below the composer. Placeholders expand at
-insert time — `{mycall}` fills with your call, `{call}` with the station you're
-replying to, `{rst}` defaults to 599, and anything the app doesn't know is left
-*selected* in the composer so you type straight over it.
+F-keys. A **message key** is a whole message template with a `/name`. Type `/` in
+the message box and a command palette opens: filter, arrow keys, Enter to insert.
+Or click a keycap chip below the composer.
 
 You start with the standard set (`/cq`, `/qrz`, `/rst`, `/73`, `/agn`, `/qth`); edit
 them or add your own in the **Message keys** card next to the composer — changes save
-on blur, and your bank is yours alone.
+on blur, and your bank is yours alone. Example:
+
+```
+/cq   →   CQ CQ CQ DE {mycall} {mycall} K
+```
+
+### Placeholders — the `{tags}`
+
+Anything in `{curly braces}` is a placeholder that fills in automatically. There are
+two kinds:
+
+**Built-in, filled by the station** — you never define these:
+
+| Tag | Fills with |
+|-----|-----------|
+| `{mycall}` | your station callsign (set it below; falls back to your username) |
+| `{call}` | the station you're replying to (from a "Heard on the band" chip or `?to=` link) |
+| `{rst}` | the signal report — defaults to `599` |
+
+**Your own custom tags** — reusable values you define once (see below). Anything the
+app still doesn't recognise is left *selected* in the composer so you type straight
+over it.
+
+### Custom tags — define `{yourtag}` once, reuse everywhere
+
+A custom tag is a single named value — where a message key is a whole message, a tag
+is one word you drop into many messages. Open the **Custom tags** card under the
+composer and add a row:
+
+```
+{rig}   =   KW4420
+{ant}   =   DIPOLE
+{qth}   =   BOSTON MA
+```
+
+Now write the tag in any message — in a message key like `/qth → QTH IS {qth} {qth} BK`,
+or straight into the composer — and it expands to your value. Expansion happens **both**
+when you insert a message key **and** when you press **Key it**, so a tag typed by hand
+into the composed message still resolves before it's sent. Tags are lowercase letters,
+digits, and dashes; you can't reuse the reserved names `mycall`, `call`, or `rst`.
+
+### Your callsign
+
+`{mycall}` and the ADIF `STATION_CALLSIGN` both come from your **station callsign**.
+Set it once — the "Your callsign" box sits on both the **Send** page (next to the
+message keys) and the **Rig Setup** page. Leave it blank and it falls back to your
+login username. It's stored per operator, so a shared install just works.
 
 The same message keys live on the **Live** and **Simulator** pages as a send sheet:
 a docked bar at the bottom of the tape slides up like a phone keyboard when you need

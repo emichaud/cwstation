@@ -215,6 +215,41 @@ class CWMacro(models.Model):
         )
 
 
+class CWVariable(models.Model):
+    """A named value the operator can drop into any message as `{name}`.
+
+    Where a macro is a whole message template, a variable is a single reusable
+    value — your rig, antenna, name, QTH, power. Define `rig = KW4420` once and
+    `{rig}` expands to `KW4420` everywhere: when a macro is inserted and when the
+    composed message is sent. The reserved names {mycall}, {call}, {rst} are
+    filled by the station and can't be shadowed here.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="cw_variables"
+    )
+    name = models.SlugField(
+        max_length=24, help_text="The {tag} — lowercase, no spaces (e.g. rig, ant, qth)"
+    )
+    value = models.CharField(max_length=200, help_text="What {tag} expands to")
+    order = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["order", "name"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "name"], name="unique_variable_per_user")
+        ]
+        verbose_name = "CW Variable"
+
+    def __str__(self) -> str:
+        return f"{{{self.name}}} = {self.value}"
+
+
+# Reserved placeholder names the station fills — operators can't redefine them.
+RESERVED_VARIABLE_NAMES = frozenset({"mycall", "call", "rst"})
+
+
 class QSO(models.Model):
     """One logged contact.
 

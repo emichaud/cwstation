@@ -21,6 +21,7 @@ from .api import (
     rig_tx,
     sim_control,
     station_config,
+    station_vars,
 )
 from .views import (
     CallbookView,
@@ -43,6 +44,7 @@ urlpatterns = [
     path("cw/sim/control/", sim_control, name="cw-sim-control"),
     path("cw/macros/", macros, name="cw-macros"),
     path("cw/station/", station_config, name="cw-station-config"),
+    path("cw/tags/", station_vars, name="cw-station-vars"),
     path("cw/abbrev/", abbrev, name="cw-abbrev"),
     path("cw/log/quick/", log_quick, name="cw-log-quick"),
     path("cw/log/adif/", log_adif, name="cw-log-adif"),

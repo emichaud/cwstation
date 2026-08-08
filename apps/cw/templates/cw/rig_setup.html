@@ -28,6 +28,20 @@
            No radio handy? Use the practice radio to try it all with no hardware.</p>
     </header>
 
+    {# your station callsign — same editor as the Send page #}
+    <div class="cw-setup-card cw-mycall" id="cw-mycall" style="margin-bottom: 18px;">
+        <label for="cw-mycall-input">Your callsign
+            <span class="cw-mycall-hint">— fills <span class="cw-ph">{mycall}</span> in send macros and ADIF exports</span>
+        </label>
+        <div class="cw-mycall-row">
+            <input type="text" id="cw-mycall-input" class="cw-setup-input cw-mono"
+                   value="{{ station_call|escapejs }}" maxlength="20" autocomplete="off"
+                   spellcheck="false" placeholder="{{ request.user.username|upper }}">
+            <button type="button" class="cw-btn-lg" id="cw-mycall-save">Save</button>
+            <span class="cw-mycall-status" id="cw-mycall-status" aria-live="polite"></span>
+        </div>
+    </div>
+
     {# ── Hamlib missing banner ── #}
     <div class="cw-setup-card cw-setup-warn" id="rs-nohamlib" style="display: none;">
         <h3>The radio-control software isn't installed yet</h3>
@@ -162,11 +176,18 @@ sudo apt install hamlib-utils   (on Linux)</code></pre>
 </div>
 
 <script src="{% static 'cw/rigsetup.js' %}"></script>
+<script src="{% static 'cw/callsign.js' %}"></script>
 <script>
     initCWRigSetup({
         dataUrl: "{% url 'cw-rig-setup-data' %}",
         daemonUrl: "{% url 'cw-rig-daemon' %}",
         photoUrl: "{% url 'cw-rig-photo' %}",
+    });
+    initCallsignEditor({
+        inputId: "cw-mycall-input",
+        saveId: "cw-mycall-save",
+        statusId: "cw-mycall-status",
+        url: "{% url 'cw-station-config' %}",
     });
 </script>
 {% endblock %}

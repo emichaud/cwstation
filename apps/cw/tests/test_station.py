@@ -89,3 +89,62 @@ class TestStationCallsignInAdif:
         body = client.get(reverse("cw-log-adif")).content.decode()
         assert "N1KRX" in body            # the configured call, not "PLAIN"
         assert "station_callsign" in body.lower()
+
+
+class TestStationVars:
+    """Custom tags — user-defined {name} → value."""
+
+    @pytest.fixture
+    def client_logged(self, client):
+        user = User.objects.create_user(username="op", password="pw")
+        client.force_login(user)
+        return client, user
+
+    def _post(self, client, payload):
+        return client.post(
+            reverse("cw-station-vars"), json.dumps(payload),
+            content_type="application/json",
+        )
+
+    def test_create_lists_and_normalizes(self, client_logged):
+        client, user = client_logged
+        # braces stripped, name lower-cased
+        resp = self._post(client, {"name": "{Rig}", "value": "KW4420"})
+        assert resp.status_code == 200
+        payload = resp.json().get("data") or resp.json()
+        assert payload["name"] == "rig"
+        assert payload["value"] == "KW4420"
+
+        listing = client.get(reverse("cw-station-vars")).json()
+        rows = (listing.get("data") or listing)["vars"]
+        assert [r["name"] for r in rows] == ["rig"]
+
+    def test_reserved_names_rejected(self, client_logged):
+        client, _ = client_logged
+        for reserved in ("mycall", "call", "rst"):
+            resp = self._post(client, {"name": reserved, "value": "x"})
+            assert resp.status_code == 400
+
+    def test_duplicate_rejected(self, client_logged):
+        client, _ = client_logged
+        self._post(client, {"name": "ant", "value": "dipole"})
+        resp = self._post(client, {"name": "ant", "value": "beam"})
+        assert resp.status_code == 409
+
+    def test_update_and_delete(self, client_logged):
+        from apps.cw.models import CWVariable
+        client, user = client_logged
+        body = self._post(client, {"name": "pwr", "value": "5W"}).json()
+        created = body.get("data") or body
+        vid = created["id"]
+        self._post(client, {"id": vid, "value": "100W"})
+        assert CWVariable.objects.get(pk=vid).value == "100W"
+        self._post(client, {"id": vid, "delete": True})
+        assert not CWVariable.objects.filter(pk=vid).exists()
+
+    def test_value_required(self, client_logged):
+        client, _ = client_logged
+        assert self._post(client, {"name": "rig", "value": ""}).status_code == 400
+
+    def test_requires_auth(self, client):
+        assert client.get(reverse("cw-station-vars")).status_code == 401
