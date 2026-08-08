@@ -14,6 +14,58 @@
     'use strict';
 
     // ============================================
+    // Accessibility primitive: focus trap
+    // ============================================
+    // window.SmallStack.trapFocus(container) confines Tab/Shift+Tab focus to
+    // `container`, moves focus to its first focusable child, and returns a
+    // release() that removes the trap and restores focus to wherever it was.
+    // Use it for any modal/dialog/popover. See docs/skills/accessibility.md.
+    window.SmallStack = window.SmallStack || {};
+
+    var FOCUSABLE_SELECTOR = [
+        'a[href]', 'button:not([disabled])', 'textarea:not([disabled])',
+        'input:not([disabled])', 'select:not([disabled])',
+        '[tabindex]:not([tabindex="-1"])'
+    ].join(', ');
+
+    window.SmallStack.trapFocus = function (container) {
+        if (!container) return function () {};
+        var previouslyFocused = document.activeElement;
+
+        function focusables() {
+            return Array.prototype.slice
+                .call(container.querySelectorAll(FOCUSABLE_SELECTOR))
+                .filter(function (el) { return el.offsetParent !== null; });
+        }
+
+        function onKeydown(e) {
+            if (e.key !== 'Tab') return;
+            var items = focusables();
+            if (!items.length) return;
+            var first = items[0];
+            var last = items[items.length - 1];
+            if (e.shiftKey && document.activeElement === first) {
+                e.preventDefault();
+                last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
+            }
+        }
+
+        container.addEventListener('keydown', onKeydown);
+        var items = focusables();
+        if (items.length) items[0].focus();
+
+        return function release() {
+            container.removeEventListener('keydown', onKeydown);
+            if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+                previouslyFocused.focus();
+            }
+        };
+    };
+
+    // ============================================
     // Theme Toggle (Dark/Light Mode)
     // ============================================
 
@@ -463,17 +515,23 @@
     // cards built with {% stat_card %} call openStatModal() on click and let
     // htmx swap the body. Exposed on window so inline onclick handlers reach it.
 
+    var _statModalRelease = null;
+
     function openStatModal(title) {
         var titleEl = document.getElementById('stat-modal-title');
         var modal = document.getElementById('stat-modal');
         if (!modal) return;
         if (titleEl) titleEl.textContent = title;
         modal.classList.add('open');
+        _statModalRelease = window.SmallStack.trapFocus(
+            modal.querySelector('.stat-modal-panel') || modal
+        );
     }
 
     function closeStatModal() {
         var modal = document.getElementById('stat-modal');
         if (modal) modal.classList.remove('open');
+        if (_statModalRelease) { _statModalRelease(); _statModalRelease = null; }
     }
 
     window.openStatModal = openStatModal;

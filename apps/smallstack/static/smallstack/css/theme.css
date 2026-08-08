@@ -3672,3 +3672,72 @@ a.dashboard-widget.widget-status-down        { border-left-color: var(--error-fg
    clickable hover) are defined once in components.css — see "Stat Cards"
    there. The duplicate block that lived here was removed during the
    admin-apps consistency pass (2026-06-25). */
+
+/* ==========================================================================
+   Accessibility primitives  (docs/skills/accessibility.md)
+
+   Reusable building blocks — prefer these over hand-rolling. `.sr-only` gives
+   an icon-only control a screen-reader name; `.skip-link` is the keyboard
+   bypass; the `:focus-visible` rules guarantee a keyboard focus ring on every
+   interactive element (the base input rules deliberately suppress the mouse
+   outline, so keyboard focus is re-added here). Do NOT reintroduce a bare
+   `outline: none` on `:focus` without a `:focus-visible` replacement.
+   ========================================================================== */
+
+/* Visually hidden, still announced by screen readers. */
+.sr-only {
+    position: absolute !important;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Skip-to-content: first focusable element on every page, off-screen until
+   focused. Targets <main id="main-content"> in base.html. */
+.skip-link {
+    position: absolute;
+    left: 8px;
+    top: -60px;
+    z-index: 2000;
+    padding: 10px 16px;
+    background: var(--card-bg);
+    color: var(--body-fg);
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    text-decoration: none;
+    transition: top var(--transition-fast);
+}
+.skip-link:focus {
+    top: 8px;
+}
+
+/* Keyboard focus ring for every interactive element. :focus-visible fires only
+   for keyboard/AT focus, so mouse clicks stay ring-free. */
+:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* Form fields suppress the native outline for aesthetics (see the :focus rules
+   above), so re-add a keyboard ring via box-shadow. The transparent outline
+   keeps a ring visible in Windows High Contrast / forced-colors mode, where
+   box-shadow is dropped. Later source order beats the equal-specificity
+   `outline: none` :focus rules. */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.form-group input:focus-visible,
+.form-group textarea:focus-visible,
+.form-group select:focus-visible,
+.vLargeTextField:focus-visible,
+.vTextField:focus-visible {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+    border-color: var(--input-focus-border);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 30%, transparent);
+}

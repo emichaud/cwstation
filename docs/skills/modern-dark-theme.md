@@ -3,6 +3,8 @@
 **Read this first** before building any new page, component, card, table, or admin surface in SmallStack. The patterns here produce pages that work correctly across every palette + theme combination on the first try. Following them avoids the most common AI-built-page failure mode: pages that look fine on the default palette but turn brown / olive / muddy on others.
 
 > **Other skill files**: `admin-page-styling.md` has many useful patterns (forms, modals, badges, etc.). When it conflicts with this file, **this file wins** — it reflects the post-v0.9 modern-dark refactor with the cool-biased near-black surfaces and vibrant Tailwind -500 accents.
+>
+> **Companion read**: `accessibility.md` — palette-correctness and accessibility are complementary. This file keeps your page on-palette; that one keeps it keyboard- and screen-reader-usable (focus rings, labelled controls, `trapFocus` for modals). Read both before building UI.
 
 ## The architecture in one paragraph
 

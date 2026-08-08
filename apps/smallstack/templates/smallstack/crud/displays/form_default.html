@@ -5,7 +5,7 @@
         <div class="crud-field-label">
             {% if field.field.widget.input_type != "checkbox" %}
             <label for="{{ field.id_for_label }}">
-                {{ field.label }}{% if field.field.required %}<span class="required">*</span>{% endif %}
+                {{ field.label }}{% if field.field.required %}<span class="required" aria-hidden="true">*</span>{% endif %}
             </label>
             {% else %}
             <span>{{ field.label }}</span>
@@ -28,7 +28,7 @@
             <p class="crud-help">{{ field.help_text }}</p>
             {% endif %}
             {% if field.errors %}
-            <p class="crud-error">{{ field.errors.0 }}</p>
+            <p class="crud-error" role="alert">{{ field.errors.0 }}</p>
             {% endif %}
         </div>
     </div>

@@ -17,6 +17,7 @@ When an AI agent is asked to modify or extend this project, these files help it:
 |------|-------------|
 | [cli-tools.md](cli-tools.md) | **Start here for "is there a tool for X?"** — task → tool / failure → tool / tool → docs lookup tables |
 | [modern-dark-theme.md](modern-dark-theme.md) | **Read before building any page** — canonical patterns, anti-patterns, variable list for the v0.9.x modern-dark theme |
+| [accessibility.md](accessibility.md) | **Read before building any page/form/modal** — a11y primitives (`.sr-only`, `.skip-link`, `:focus-visible`, `trapFocus`), the rules, and the pre-"done" checklist (WCAG 2.1 AA) |
 | [modify-palettes.md](modify-palettes.md) | **Change accent colors** — add a brand palette or tune one. The 4 wiring points (yaml/CSS/model+migration/`VALID_PALETTES`), color-science gotchas, verification |
 | [search.md](search.md) | Add keyword search + MCP tool to a CRUDView (`enable_search = True`) — FTS5/PG-FTS backend dispatch, RAG via Claude Desktop |
 | [datasets.md](datasets.md) | **Build a dashboard/report/chart UI** — the `@dataset` primitive: a named queryset surfaced as typed rows/columns (`schema()` → dimension/measure + filter widgets), `rows()`/`series()`, opt-in REST + MCP. Read before building anything that inspects a dataset to render pickers/charts |
