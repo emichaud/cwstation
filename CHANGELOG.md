@@ -9,6 +9,41 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.13.13] - 2026-08-08
+
+Two new surfaces — first-party RSS/Atom feeds and an accessibility foundation —
+both built as reusable, documented primitives with the "fix once in the
+framework, every project benefits" model.
+
+### Added
+- **RSS/Atom feeds (`apps.feeds`)** — a symmetric publish + consume surface,
+  mirroring the webhooks philosophy. **Publish**: ``enable_rss = True`` on a
+  CRUDView exposes it at ``/feed/<slug>.rss`` (+ ``.atom``), deriving items from
+  the existing ``search_display``/``search_subtitle``/timestamp/detail-route
+  declarations; curated feeds subclass ``Feed`` + ``register_feed``. Access is
+  gated by ``SearchAccess`` (anonymous/authenticated/staff; token via Bearer or
+  ``?token=``). The ``rss_item_extra(obj)`` seam attaches enclosures/iTunes tags
+  so media/podcast feeds are a downstream add-on, not core. **Consume**:
+  ``register_feed_source(name, url, model=, map=, dedupe=)`` + a dependency-free
+  RSS 2.0/Atom parser + a collector that runs as ``manage.py collect_feeds`` and
+  a ``@scheduled`` poll job (idempotent, deduped), landing in a bundled
+  ``CollectedItem`` model or your own. The public status page publishes an
+  incidents-plus-maintenance feed at ``/feed/status.rss`` as the reference.
+  Skill: ``docs/skills/rss.md``.
+- **Accessibility primitives** — reusable building blocks: ``.sr-only``,
+  ``.skip-link``, a global ``:focus-visible`` ring, and
+  ``window.SmallStack.trapFocus(el)`` (used by the stat modal + omnibar). Skill:
+  ``docs/skills/accessibility.md`` (primitives, rules, pre-"done" checklist),
+  wired into the read-first guides so agents build accessibly by default.
+
+### Fixed
+- **Accessibility (WCAG 2.1 AA) gaps across the theme** — keyboard focus rings
+  on form inputs (previously ``outline: none`` with no ``:focus-visible``
+  replacement, a 2.4.7 blocker); a skip-to-content link; form errors announced
+  via ``role="alert"``; ``<th scope>`` + ``aria-sort`` on CRUD tables; modal
+  ``role="dialog"``/``aria-modal``/labelled close + focus trap; and
+  ``aria-hidden`` on the decorative SVGs in the shared topbar/sidebar/user-menu.
+
 ## [0.13.12] - 2026-08-08
 
 Postgres out-of-the-box hardening for search, upstreamed from a downstream
@@ -439,7 +474,8 @@ Condensed highlights of the v0.11 series (see git history for per-patch detail):
 See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full record of the
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
-[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.13.12...HEAD
+[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.13.13...HEAD
+[0.13.13]: https://github.com/emichaud/django-smallstack/compare/v0.13.12...v0.13.13
 [0.13.12]: https://github.com/emichaud/django-smallstack/compare/v0.13.11...v0.13.12
 [0.13.8]: https://github.com/emichaud/django-smallstack/compare/v0.13.7...v0.13.8
 [0.13.7]: https://github.com/emichaud/django-smallstack/compare/v0.13.6...v0.13.7
