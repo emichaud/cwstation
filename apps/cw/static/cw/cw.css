@@ -1037,6 +1037,32 @@ body.cw-console .crud-table td:first-child {
     padding-right: 28px;
 }
 
+/* ── Logbook: QSO card specifics (built on the session-card frame) ── */
+.cw-qso-card .cw-sc-rail { background: var(--primary); }
+.cw-qso-call { font-size: 1.3rem; font-weight: 700; color: var(--body-fg); letter-spacing: 0.03em; }
+.cw-badge-mode {
+    background: var(--accent-band-bg); color: var(--primary);
+    border: 1px solid color-mix(in srgb, var(--primary) 40%, var(--card-border));
+}
+.cw-qso-station { color: var(--body-quiet-color); font-size: 0.9rem; }
+.cw-qso-qsl {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+    color: var(--success-fg); border: 1px solid color-mix(in srgb, var(--success-fg) 40%, var(--card-border));
+    border-radius: 6px; padding: 1px 7px;
+}
+.cw-qso-actions { position: absolute; top: 12px; right: 12px; display: flex; align-items: center; gap: 6px; }
+.cw-qso-act {
+    display: inline-grid; place-items: center; min-height: 30px; padding: 0 10px;
+    font-size: 0.78rem; font-weight: 700; text-decoration: none; white-space: nowrap;
+    color: var(--body-quiet-color); background: var(--card-bg);
+    border: 1px solid var(--card-border); border-radius: 8px; cursor: pointer;
+    opacity: 0; transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+}
+.cw-session-card:hover .cw-qso-act { opacity: 1; }
+.cw-qso-act:hover { color: var(--primary); border-color: var(--primary); }
+.cw-qso-act-del:hover { color: var(--error-fg); border-color: color-mix(in srgb, var(--error-fg) 45%, var(--card-border)); }
+@media (hover: none) { .cw-qso-act { opacity: 1; } }
+
 /* ── Sessions: roomy card list (replaces the dense CRUD table) ── */
 body.cw-console .card-grid { grid-template-columns: 1fr; gap: 12px; }
 .cw-session-card {

@@ -209,6 +209,39 @@ def _render_qso_session(value: object, obj: QSO) -> SafeString:
     )
 
 
+class QSOCardDisplay(CardDisplay):
+    """Roomy log cards — the callsign is the hero, with band/mode, RST, the UTC
+    timestamp, and who/where. Clicking edits; QRZ, the session tape, and delete
+    sit in the corner. Mirrors the Sessions card list."""
+
+    name = "cards"
+    supports_bulk = False
+    item_template = "cw/qso_card.html"
+
+    def build_card(self, obj: QSO, cfg: Any, request: HttpRequest) -> dict[str, Any]:
+        import datetime as _dt
+
+        from django.urls import reverse
+
+        utc = obj.when.astimezone(_dt.timezone.utc)
+        station = " · ".join(p for p in (obj.name, obj.qth, obj.country) if p)
+        return {
+            "call": obj.call,
+            "qrz_url": obj.qrz_url,
+            "band": obj.band,
+            "mode": obj.mode,
+            "rst": f"{obj.rst_sent or '—'}/{obj.rst_rcvd or '—'}",
+            "freq": f"{obj.freq_mhz:.3f}" if obj.freq_mhz else "",
+            "when_date": f"{utc:%d %b %Y}",
+            "when_time": f"{utc:%H:%M}",
+            "station": station,
+            "session_url": (reverse("cw/sessions-detail", args=[obj.session_id]) if obj.session_id else ""),
+            "edit_url": reverse("cw/log-update", args=[obj.pk]),
+            "delete_url": reverse("cw/log-delete", args=[obj.pk]),
+            "confirmed": bool(obj.eqsl_sent_at or obj.qrz_sent_at),
+        }
+
+
 class LogbookCRUDView(CRUDView):
     model = QSO
     fields = [
@@ -216,10 +249,13 @@ class LogbookCRUDView(CRUDView):
         "name", "qth", "gridsquare", "country", "comment",
     ]
     url_base = "cw/log"
-    paginate_by = 15
+    paginate_by = 5
     mixins = [LoginRequiredMixin]
     form_class = QSOForm
     actions = [Action.LIST, Action.CREATE, Action.UPDATE, Action.DELETE]
+
+    # Roomy log cards by default; the classic table is one toggle away.
+    displays = [QSOCardDisplay(), TableDisplay()]
 
     list_fields = ["call", "when", "freq_mhz", "mode", "rst", "station", "session"]
     link_field = "call"

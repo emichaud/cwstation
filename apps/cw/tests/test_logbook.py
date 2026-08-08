@@ -291,8 +291,12 @@ class TestLogbookPage:
         QSO.objects.create(user=user, call="K1ABC", band="40m", mode="PSK31")
         content = client_logged.get(reverse("cw/log-list")).content.decode()
         assert "↓ ADIF" in content
-        assert "?band=20m" in content and "?mode=PSK31" in content
-        assert "qrz↗" in content
+        # band/mode quick-filter toggles (radios), not the old anchor chips
+        assert 'name="band"' in content and 'value="20m"' in content
+        assert 'name="mode"' in content and 'value="PSK31"' in content
+        # log cards render the callsigns, each linking to its QRZ page
+        assert "W1AW" in content and "K1ABC" in content
+        assert "qrz.com" in content.lower()
 
     def test_filter_chips_are_deduplicated(self, client_logged, user):
         # Meta.ordering rides into DISTINCT unless cleared — regression guard

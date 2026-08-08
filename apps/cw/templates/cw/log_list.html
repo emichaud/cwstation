@@ -19,8 +19,8 @@
         <span class="cw-led"><b>{{ log_stats.calls }}</b><span>calls</span></span>
     </div>
     <div style="display: flex; gap: 0.5rem; align-items: center;">
-        <a href="{% url 'cw-log-adif' %}?q={{ request.GET.q|default:'' }}&band={{ active_band }}&mode={{ active_mode }}"
-           class="btn-tint" title="Download this view as ADIF (UTC times)">↓ ADIF</a>
+        <a href="{% url 'cw-log-adif' %}" class="btn-tint" title="Download this view as ADIF (UTC times)"
+           onclick="this.href='{% url 'cw-log-adif' %}'+location.search">↓ ADIF</a>
         <button type="button" class="btn-tint" id="log-import-btn" title="Import an ADIF log">↑ Import</button>
         <input type="file" id="log-import-file" accept=".adi,.adif,.txt" style="display: none;">
         <button type="button" class="btn-tint" id="log-eqsl-btn" style="display: none;"
@@ -31,24 +31,54 @@
 {% endblock %}
 
 {% block content %}
-{% if log_bands or log_modes %}
-<div class="cw-prosigns" style="margin-bottom: 12px;" aria-label="Filters">
-    <a href="?" class="cw-prosign{% if not active_band and not active_mode %} picked{% endif %}"
-       style="text-decoration: none;">all</a>
-    {% for b in log_bands %}
-    <a href="?band={{ b }}" class="cw-prosign{% if active_band == b %} picked{% endif %}"
-       style="text-decoration: none;">{{ b }}</a>
-    {% endfor %}
-    {% for m in log_modes %}
-    <a href="?mode={{ m }}" class="cw-prosign{% if active_mode == m %} picked{% endif %}"
-       style="text-decoration: none;">{{ m }}</a>
-    {% endfor %}
-</div>
-{% endif %}
-
 <div class="card" id="crud-content">
     <div class="card-body">
-        {% include "smallstack/crud/includes/list_toolbar.html" %}
+        {% comment %}Prominent search + band/mode toggles + view switch — one htmx
+        form. hx-get targets the clean list path so params replace, not stack.{% endcomment %}
+        <form id="sessions-toolbar" class="cw-sess-toolbar"
+              hx-get="{% url 'cw/log-list' %}" hx-target="#crud-list-content" hx-swap="innerHTML swap:150ms"
+              hx-push-url="true"
+              hx-trigger="change, keyup delay:300ms from:input[name='q'], search from:input[name='q']">
+
+            <div class="cw-sess-searchrow">
+                <div class="cw-sess-search">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                    <input type="search" name="q" value="{{ request.GET.q|default:'' }}"
+                           placeholder="Search calls, names, QTH, notes…" autocomplete="off" spellcheck="false">
+                </div>
+                <div class="cw-toggle cw-view-toggle" role="group" aria-label="View as">
+                    <label class="cw-chip"><input type="radio" name="display" value="cards" {% if request.GET.display != 'table' %}checked{% endif %}><span>▦ Cards</span></label>
+                    <label class="cw-chip"><input type="radio" name="display" value="table" {% if request.GET.display == 'table' %}checked{% endif %}><span>▤ Table</span></label>
+                </div>
+            </div>
+
+            {% if log_bands or log_modes %}
+            <div class="cw-sess-filterrow">
+                {% if log_bands %}
+                <div class="cw-toggle" role="group" aria-label="Filter by band">
+                    <label class="cw-chip"><input type="radio" name="band" value="" {% if not active_band %}checked{% endif %}><span>All bands</span></label>
+                    {% for b in log_bands %}
+                    <label class="cw-chip"><input type="radio" name="band" value="{{ b }}" {% if active_band == b %}checked{% endif %}><span>{{ b }}</span></label>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if log_modes %}
+                <span class="cw-sess-sep" aria-hidden="true"></span>
+                <div class="cw-toggle" role="group" aria-label="Filter by mode">
+                    <label class="cw-chip"><input type="radio" name="mode" value="" {% if not active_mode %}checked{% endif %}><span>All modes</span></label>
+                    {% for m in log_modes %}
+                    <label class="cw-chip"><input type="radio" name="mode" value="{{ m }}" {% if active_mode == m %}checked{% endif %}><span>{{ m }}</span></label>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                <span id="list-toolbar-count" class="list-toolbar-count cw-sess-count">
+                    <span class="list-toolbar-count-value">{{ toolbar_total_count|default:0 }}</span>
+                    <span class="list-toolbar-count-label">Record{{ toolbar_total_count|pluralize }}</span>
+                </span>
+            </div>
+            {% endif %}
+        </form>
+
         <div id="crud-list-content">
             {% include "smallstack/crud/object_list_content.html" %}
         </div>
