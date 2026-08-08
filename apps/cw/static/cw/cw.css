@@ -1022,6 +1022,21 @@ body.cw-setup {
     .cw-sess-count { margin-left: 0; }
 }
 
+/* ── Sessions table view: content-sized columns (no starved copy column) ── */
+/* The theme defaults to table-layout:fixed; auto lets each column take its
+   natural width so the copy shows in full (capped by the transform) instead of
+   being ellipsised into oblivion. */
+body.cw-console .crud-table { table-layout: auto; }
+body.cw-console .crud-table td, body.cw-console .crud-table th { white-space: nowrap; }
+/* the copy column takes its natural width up to a cap; only genuinely long
+   overs ellipsise (full text stays on hover via the cell title). */
+body.cw-console .crud-table td:first-child {
+    max-width: 400px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-right: 28px;
+}
+
 /* ── Sessions: roomy card list (replaces the dense CRUD table) ── */
 body.cw-console .card-grid { grid-template-columns: 1fr; gap: 12px; }
 .cw-session-card {

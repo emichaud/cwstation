@@ -42,6 +42,25 @@ def _render_wpm(value: float, obj: CWSession) -> str:
     return f"{value:.0f}" if value else "—"
 
 
+def _render_session_text(value: object, obj: CWSession) -> str:
+    """Table copy on one line. Newlines collapse to spaces; the column caps the
+    visible width in CSS (ellipsis only when the copy is genuinely long), and
+    the cell's title tooltip carries the full text. Capped to keep the DOM lean
+    for the huge live-monitor sessions."""
+    from django.utils.text import Truncator
+
+    return Truncator(" ".join((obj.text or "").split())).chars(140)
+
+
+def _render_created(value: object, obj: CWSession) -> str:
+    """Clean local timestamp for the table (no microseconds, no tz popup)."""
+    from django.utils import timezone
+
+    dt = timezone.localtime(obj.created_at)
+    hour = dt.strftime("%I").lstrip("0") or "12"
+    return f"{dt:%b} {dt.day}, {dt:%Y} · {hour}:{dt:%M} {dt:%p}"
+
+
 class SessionCardDisplay(CardDisplay):
     """Roomy, readable session cards — the copy is the hero, with a TX/RX badge
     and clean metadata (source, speed, calls, full timestamp). Replaces the dense
@@ -70,7 +89,7 @@ class CWSessionCRUDView(CRUDView):
     model = CWSession
     fields = ["text"]
     url_base = "cw/sessions"
-    paginate_by = 6
+    paginate_by = 5
     mixins = [LoginRequiredMixin]
     actions = [Action.LIST, Action.DETAIL, Action.DELETE]
 
@@ -81,11 +100,14 @@ class CWSessionCRUDView(CRUDView):
 
     list_fields = ["text", "direction", "source", "wpm", "callsigns", "created_at"]
     link_field = "text"
+    # No fixed widths — the sessions table uses content-based (auto) layout (see
+    # cw.css) so the copy column takes its natural width and the rest sit snug.
     field_transforms = {
-        "text": "preview",
+        "text": _render_session_text,
         "direction": _render_direction,
         "callsigns": _render_callsigns,
         "wpm": _render_wpm,
+        "created_at": _render_created,
     }
 
     enable_search = True
