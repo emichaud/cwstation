@@ -76,6 +76,7 @@ uv run python manage.py cw_simulate --stream {{ request.user.username }} --serve
         const sheet = initCWSendSheet({
             sendUrl: "{% url 'cw-send' %}",
             macrosUrl: "{% url 'cw-macros' %}",
+            varsUrl: "{% url 'cw-station-vars' %}",
             logUrl: "{% url 'cw-log-quick' %}",
             context: { mycall: "{{ station_call|escapejs }}", rst: "599" },
         });
@@ -106,6 +107,7 @@ uv run python manage.py cw_simulate --stream {{ request.user.username }} --serve
                 url: proto + "://" + location.host + "/ws/cw/live/",
                 sendUrl: "{% url 'cw-send' %}",
                 callsEl: document.getElementById("cw-heard"),
+                replyUrl: "{% url 'cw-decode' %}",
                 callsEmptyEl: document.getElementById("cw-heard-empty"),
                 onReply: function (call) { sheet.open(call); },
                 onStatus: function (state, feed) {

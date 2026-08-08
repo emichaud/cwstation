@@ -79,6 +79,7 @@ uv run python manage.py cw_monitor_live --stream {{ request.user.username }} --s
         const sheet = initCWSendSheet({
             sendUrl: "{% url 'cw-send' %}",
             macrosUrl: "{% url 'cw-macros' %}",
+            varsUrl: "{% url 'cw-station-vars' %}",
             logUrl: "{% url 'cw-log-quick' %}",
             rig: { txUrl: "{% url 'cw-rig-tx' %}" },
             rigState: function () { return rigState || {}; },
@@ -111,6 +112,7 @@ uv run python manage.py cw_monitor_live --stream {{ request.user.username }} --s
                 url: proto + "://" + location.host + "/ws/cw/live/",
                 sendUrl: "{% url 'cw-send' %}",
                 callsEl: document.getElementById("cw-heard"),
+                replyUrl: "{% url 'cw-decode' %}",
                 callsEmptyEl: document.getElementById("cw-heard-empty"),
                 onReply: function (call) { sheet.open(call); },
                 onStatus: function (state, feed) {

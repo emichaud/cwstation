@@ -398,9 +398,11 @@ def eqsl_config(request: HttpRequest) -> dict[str, Any] | Any:
 
 @api_view(methods=["GET", "POST"], require_auth=True)
 def station_config(request: HttpRequest) -> dict[str, Any] | Any:
-    """The operator's station callsign. GET returns {callsign, resolved};
-    POST {callsign} saves it (blank clears it, falling back to the username).
-    `resolved` is what actually fills {mycall} / ADIF STATION_CALLSIGN."""
+    """The operator's station settings: callsign + default keying (WPM/sidetone).
+
+    GET  → {callsign, resolved, wpm, tone_hz}
+    POST → any of {callsign, wpm, tone_hz}; callsign blank clears it (falls back
+           to the username). `resolved` is what fills {mycall} / ADIF."""
     from .services import station_callsign
 
     rig, _ = CWRig.objects.get_or_create(user=request.user)
@@ -408,13 +410,39 @@ def station_config(request: HttpRequest) -> dict[str, Any] | Any:
         data = request.json
         if not isinstance(data, dict):
             return api_error("Expected a JSON object", 400)
+        changed = []
         if "callsign" in data:
             call = str(data["callsign"]).strip().upper()
             if len(call) > 20:
                 return api_error("Callsign too long (20 chars max)", 400)
             rig.callsign = call
-            rig.save(update_fields=["callsign", "updated_at"])
-    return {"callsign": rig.callsign, "resolved": station_callsign(request.user)}
+            changed.append("callsign")
+        if "wpm" in data:
+            try:
+                wpm = int(data["wpm"])
+            except (TypeError, ValueError):
+                return api_error("wpm must be a number", 400)
+            if not 5 <= wpm <= 60:
+                return api_error("wpm must be 5–60", 400)
+            rig.send_wpm = wpm
+            changed.append("send_wpm")
+        if "tone_hz" in data:
+            try:
+                tone = int(data["tone_hz"])
+            except (TypeError, ValueError):
+                return api_error("tone_hz must be a number", 400)
+            if not 300 <= tone <= 1200:
+                return api_error("tone_hz must be 300–1200", 400)
+            rig.send_tone_hz = tone
+            changed.append("send_tone_hz")
+        if changed:
+            rig.save(update_fields=[*changed, "updated_at"])
+    return {
+        "callsign": rig.callsign,
+        "resolved": station_callsign(request.user),
+        "wpm": rig.send_wpm,
+        "tone_hz": rig.send_tone_hz,
+    }
 
 
 @api_view(methods=["GET", "POST"], require_auth=True)

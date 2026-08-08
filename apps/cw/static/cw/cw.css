@@ -925,6 +925,49 @@ body.cw-setup {
     letter-spacing: 0.06em;
     color: var(--body-fg);
 }
+/* ── Send setup: default keying knobs ── */
+.cw-defaults {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin: 6px 0 4px;
+}
+@media (max-width: 640px) { .cw-defaults { grid-template-columns: 1fr; } }
+.cw-default-knob label {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+.cw-slider-val-lg { font-size: 1.3rem; font-weight: 700; color: var(--primary); }
+.cw-defaults-actions { display: flex; align-items: center; gap: 14px; margin-top: 20px; }
+
+/* larger bank rows on the setup page (old-eyes) */
+.cw-bank-lg .cw-bank-row input { font-size: 1rem; min-height: 42px; }
+.cw-bank-lg .cw-bank-add { font-size: 1rem; padding: 12px; }
+
+/* tag insert chips (a muted variant of the /macro keycaps) */
+.cw-tagcaps:not(.has-tags) { display: none; }
+.cw-keycap-tag {
+    border-style: dashed;
+    color: var(--body-quiet-color);
+}
+.cw-keycap-tag:hover { color: var(--body-fg); border-color: var(--primary); }
+.cw-prosigns-compact { margin-top: 6px; }
+
+/* ── Decode page layout ── */
+.cw-decode-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    gap: 24px;
+    align-items: start;
+}
+@media (max-width: 900px) { .cw-decode-grid { grid-template-columns: 1fr; } }
+.cw-keyer-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+.cw-keyer-actions .cw-btn-lg { min-height: 44px; }
+
 .cw-mycall { margin: 4px 0 16px; }
 .cw-mycall label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
 .cw-mycall-hint { font-weight: 400; color: var(--body-quiet-color); }

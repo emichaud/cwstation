@@ -295,12 +295,16 @@ class MonitorView(LoginRequiredMixin, TemplateView):
 
 
 class _StationCallMixin:
-    """Adds `station_call` (the resolved operator callsign) to the context, so
-    the page can seed {mycall} in the send macros without re-deriving it."""
+    """Adds the operator's station defaults to the context — the resolved
+    callsign plus the default keying WPM/sidetone — so any page can seed a
+    keyer (send popup, decode keyer, /send setup) without re-deriving them."""
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
-        context["station_call"] = services.station_callsign(self.request.user)
+        defaults = services.station_defaults(self.request.user)
+        context["station_call"] = defaults["call"]
+        context["send_wpm"] = defaults["wpm"]
+        context["send_tone_hz"] = defaults["tone_hz"]
         return context
 
 
@@ -330,15 +334,25 @@ class SimulatorView(_StationCallMixin, LoginRequiredMixin, TemplateView):
     template_name = "cw/sim.html"
 
 
-class DecodeView(LoginRequiredMixin, TemplateView):
-    """Decode CW — practice (synthesized) or off the air (WAV upload)."""
+class DecodeView(_StationCallMixin, LoginRequiredMixin, TemplateView):
+    """Decode CW off the air (WAV upload), and key a message into a
+    downloadable WAV (the keyer, sharing the send defaults + insert engine)."""
 
     template_name = "cw/decode.html"
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        from .engine.bridge import CALLSIGN_RE
+
         context = super().get_context_data(**kwargs)
         context.setdefault("practice_form", PracticeDecodeForm())
         context.setdefault("recording_form", RecordingDecodeForm())
+        # ?to=CALL — the "reply to a heard station" path lands on the keyer with
+        # a standard reply pre-filled (the live pages reply in-place instead).
+        to_call = (self.request.GET.get("to") or "").strip().upper()
+        if CALLSIGN_RE.fullmatch(to_call):
+            my_call = context.get("station_call") or self.request.user.username.upper()
+            context["reply_to"] = to_call
+            context["keyer_prefill"] = f"{to_call} DE {my_call} {my_call} K"
         return context
 
     def post(self, request: HttpRequest, **kwargs: Any) -> HttpResponse:
@@ -388,19 +402,9 @@ class SendView(_StationCallMixin, LoginRequiredMixin, TemplateView):
 
     template_name = "cw/send.html"
 
-    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
-        from .engine.bridge import CALLSIGN_RE
-
-        context = super().get_context_data(**kwargs)
-        if "form" not in context:
-            initial: dict[str, Any] = {}
-            to_call = (self.request.GET.get("to") or "").strip().upper()
-            if CALLSIGN_RE.fullmatch(to_call):
-                my_call = self.request.user.username.upper()
-                initial["text"] = f"{to_call} DE {my_call} {my_call} K"
-                context["reply_to"] = to_call
-            context["form"] = SendForm(initial=initial)
-        return context
+    # GET renders the setup page (defaults + callsign + macros + tags) from the
+    # _StationCallMixin context; no compose form. POST is the JSON compose
+    # endpoint used by the send popup, the decode keyer, and the setup preview.
 
     def post(self, request: HttpRequest, **kwargs: Any) -> HttpResponse:
         from django.http import JsonResponse
@@ -437,5 +441,7 @@ def session_audio(request: HttpRequest, pk: int) -> HttpResponse:
         return HttpResponse("Audio for uploaded recordings is not stored.", status=404)
     blob = services.session_wav_bytes(session)
     response = HttpResponse(blob, content_type="audio/wav")
-    response["Content-Disposition"] = f'inline; filename="cw-session-{pk}.wav"'
+    # ?dl=1 → download instead of inline playback (the decode keyer's "save WAV")
+    disposition = "attachment" if request.GET.get("dl") else "inline"
+    response["Content-Disposition"] = f'{disposition}; filename="cw-{pk}.wav"'
     return response

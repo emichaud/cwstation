@@ -92,6 +92,9 @@ class CWRig(models.Model):
         help_text="Your station callsign. Fills {mycall} in send macros and the "
                   "ADIF STATION_CALLSIGN. Blank = fall back to your username.",
     )
+    # Default keying settings — the send popup and the decode keyer start here.
+    send_wpm = models.PositiveSmallIntegerField(default=20)
+    send_tone_hz = models.PositiveSmallIntegerField(default=600)
     enabled = models.BooleanField(default=False)
     host = models.CharField(max_length=200, default="127.0.0.1")
     port = models.PositiveIntegerField(default=4532)

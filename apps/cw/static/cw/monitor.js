@@ -485,7 +485,9 @@ function initCWMonitor(opts) {
       heardCalls.add(call);
       const chip = document.createElement("a");
       chip.className = "cw-heard-chip";
-      chip.href = live.sendUrl + "?to=" + encodeURIComponent(call);
+      // fallback navigation target when the sheet isn't in play (onReply below
+      // opens it in place on the live/sim pages); the keyer composes the reply.
+      chip.href = (live.replyUrl || live.sendUrl) + "?to=" + encodeURIComponent(call);
       chip.innerHTML = "";
       chip.appendChild(document.createTextNode(call));
       const tag = document.createElement("span");

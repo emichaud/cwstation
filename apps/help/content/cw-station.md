@@ -97,25 +97,38 @@ digits, and dashes; you can't reuse the reserved names `mycall`, `call`, or `rst
 ### Your callsign
 
 `{mycall}` and the ADIF `STATION_CALLSIGN` both come from your **station callsign**.
-Set it once — the "Your callsign" box sits on both the **Send** page (next to the
-message keys) and the **Rig Setup** page. Leave it blank and it falls back to your
-login username. It's stored per operator, so a shared install just works.
+Set it once — the "Your callsign" box sits on both the **Send Setup** page and the
+**Rig Setup** page. Leave it blank and it falls back to your login username. It's
+stored per operator, so a shared install just works.
 
-The same message keys live on the **Live** and **Simulator** pages as a send sheet:
-a docked bar at the bottom of the tape slides up like a phone keyboard when you need
-to key something. Click a "Heard on the band" reply chip and the sheet opens
-pre-addressed to that station; hit **Key it** and the message is keyed and played
-back inline without ever leaving the tape.
+## Where you set up vs. where you send
+
+Sending is split into a setup page and two places you actually key — because you
+usually only key when you're *listening* (to reply) or when you want a *WAV file*:
+
+- **Send Setup** (`/send`) is settings, not a keyer. Set your default speed and
+  sidetone (with a "Hear my defaults" preview), your callsign, your message keys, and
+  your custom tags. Everything else starts from what you set here.
+- The **send sheet** on **Live** and **Simulator** is the primary keyer — it goes out
+  to the radio. A docked bar at the bottom of the tape slides up like a phone keyboard;
+  it starts at your default speed/sidetone, has your message keys, tag chips, and
+  prosign buttons, and an "on air" toggle when a rig is connected. Click a "Heard on
+  the band" reply chip and it opens pre-addressed to that station.
+- The **keyer on the Decode page** is the same composer, tuned for making a **WAV
+  file** — type a message (message keys, tag chips, and prosigns all work), pick a
+  speed, and **Make WAV** to play it and download it. **Decode it →** synthesizes and
+  copies it back so you can check it.
 
 ## Sending
 
-**Send** turns text into properly timed CW audio: PARIS timing (dit = 1200 ms ÷ WPM)
+Keying turns text into properly timed CW audio: PARIS timing (dit = 1200 ms ÷ WPM)
 with raised-cosine keying edges, so there are no key clicks. Prosigns are first-class —
-use the palette buttons or type `<AR>`, `<SK>`, `<BT>`, `<KN>`, `<AS>` inline and they
+use the buttons or type `<AR>`, `<SK>`, `<BT>`, `<KN>`, `<AS>` inline and they
 key as single run-together symbols.
 
-Play the audio in the browser or download the WAV. To put it on the air, feed it to
-your rig's audio input like any digital mode:
+Play the audio in the browser or download the WAV (the Decode keyer). To put it on the
+air, use the send sheet's **on air** toggle, or feed a WAV to your rig's audio input
+like any digital mode:
 
 - Use your data/soundcard interface and drive levels you already trust for FT8/PSK —
   keep ALC near zero.

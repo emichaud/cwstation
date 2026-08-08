@@ -22,6 +22,7 @@ function initCWMacros(opts) {
   const url = opts.url;
   const varsUrl = opts.varsUrl; // custom-tag endpoint (optional)
   const varsEl = opts.varsEl; // custom-tag management rows (optional)
+  const varChipsEl = opts.varChipsEl; // clickable tag chips that insert values (optional)
   const context = opts.context || {}; // {mycall, call, rst} + custom tags
 
   // Names the station fills — a custom tag can never shadow these.
@@ -74,6 +75,21 @@ function initCWMacros(opts) {
       ta.setSelectionRange(pos, pos);
     }
     closePalette();
+    ta.focus();
+  }
+
+  // insert raw text at the caret (used by prosign + tag chips)
+  function insertText(text) {
+    const from = ta.selectionStart;
+    const to = ta.selectionEnd;
+    const before = ta.value.slice(0, from);
+    const after = ta.value.slice(to);
+    const lead = before && !/\s$/.test(before) ? " " : "";
+    const tail = /^\s/.test(after) || after === "" ? " " : "";
+    const chunk = lead + text + tail;
+    ta.value = before + chunk + after;
+    const pos = before.length + chunk.length;
+    ta.setSelectionRange(pos, pos);
     ta.focus();
   }
 
@@ -143,30 +159,35 @@ function initCWMacros(opts) {
     renderPalette();
   }
 
-  ta.addEventListener("input", syncPaletteFromCaret);
-  ta.addEventListener("click", () => { if (palette.open) syncPaletteFromCaret(); });
-  ta.addEventListener("blur", () => setTimeout(closePalette, 150));
-  ta.addEventListener("keydown", (e) => {
-    if (!palette.open) return;
-    const rows = matches();
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      palette.index = (palette.index + 1) % rows.length;
-      renderPalette();
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      palette.index = (palette.index - 1 + rows.length) % rows.length;
-      renderPalette();
-    } else if (e.key === "Enter" || e.key === "Tab") {
-      if (rows.length) { e.preventDefault(); insert(rows[palette.index]); }
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      closePalette();
-    }
-  });
+  // The composer is optional — the /send setup page manages the banks with no
+  // textarea. Only wire caret/palette behaviour when there's a composer.
+  if (ta) {
+    ta.addEventListener("input", syncPaletteFromCaret);
+    ta.addEventListener("click", () => { if (palette.open) syncPaletteFromCaret(); });
+    ta.addEventListener("blur", () => setTimeout(closePalette, 150));
+    ta.addEventListener("keydown", (e) => {
+      if (!palette.open) return;
+      const rows = matches();
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        palette.index = (palette.index + 1) % rows.length;
+        renderPalette();
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        palette.index = (palette.index - 1 + rows.length) % rows.length;
+        renderPalette();
+      } else if (e.key === "Enter" || e.key === "Tab") {
+        if (rows.length) { e.preventDefault(); insert(rows[palette.index]); }
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        closePalette();
+      }
+    });
+  }
 
   // ── keycap chips ──────────────────────────────────────────────────────
   function renderChips() {
+    if (!chipsEl) return;
     chipsEl.innerHTML = "";
     macros.forEach((m) => {
       const chip = document.createElement("button");
@@ -324,6 +345,22 @@ function initCWMacros(opts) {
     return row;
   }
 
+  // clickable tag chips — insert the tag's value at the caret
+  function renderVarChips() {
+    if (!varChipsEl) return;
+    varChipsEl.innerHTML = "";
+    vars.forEach((v) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "cw-keycap cw-keycap-tag";
+      chip.title = v.value;
+      chip.textContent = "{" + v.name + "}";
+      chip.addEventListener("click", () => insertText(v.value));
+      varChipsEl.appendChild(chip);
+    });
+    varChipsEl.classList.toggle("has-tags", vars.length > 0);
+  }
+
   function refreshVars() {
     if (!varsUrl) return Promise.resolve();
     return fetch(varsUrl, { credentials: "same-origin" })
@@ -332,10 +369,11 @@ function initCWMacros(opts) {
         vars = (j.data || j).vars || [];
         applyVars();
         renderVarBank();
+        renderVarChips();
       });
   }
 
   refresh();
   refreshVars();
-  return { refresh, refreshVars, insert, expand };
+  return { refresh, refreshVars, insert, insertText, expand };
 }

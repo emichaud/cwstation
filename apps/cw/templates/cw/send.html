@@ -1,9 +1,9 @@
 {% extends "smallstack/base.html" %}
 {% load static theme_tags %}
 
-{% block title %}Send CW{% endblock %}
+{% block title %}Send Setup{% endblock %}
 {% block breadcrumbs %}{% endblock %}
-{% block body_class %}cw-console{% endblock %}
+{% block body_class %}cw-console cw-setup{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'cw/cw.css' %}">
@@ -12,154 +12,140 @@
 {% block page_header %}
 <div class="page-header-bleed">
     <div class="page-header-content">
-        <h1>Send</h1>
-        <p class="page-subtitle">Compose a message and key it into clean, click-free CW audio — type <code>/</code> for your message keys.</p>
-        <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
-            <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
-            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
-            <a href="{% url 'cw-monitor' %}" style="color: var(--body-quiet-color); text-decoration: none;">CW Monitor</a>
-            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
-            <span style="color: var(--body-fg);">Send</span>
-        </nav>
+        <h1>Send Setup</h1>
+        <p class="page-subtitle">Set your keying defaults, callsign, message keys, and tags. These power the
+            <b>Send</b> button on the Live tape and the keyer on the Decode page.</p>
     </div>
 </div>
 {% endblock %}
 
 {% block content %}
-<div class="cw-form-grid">
-<div class="card">
-    <div class="card-header"><h2>Message{% if reply_to %} <span class="cw-badge cw-badge-call" style="vertical-align: middle;">replying to {{ reply_to }}</span>{% endif %}</h2></div>
-    <div class="card-body">
-        <form method="post">
-            {% csrf_token %}
-            <div class="cw-field">
-                <label for="{{ form.text.id_for_label }}">Text to key</label>
-                <div class="cw-palette-anchor">
-                    {{ form.text }}
-                    <div class="cw-palette" id="cw-palette" role="listbox" aria-label="Message keys"></div>
-                </div>
-                {% if form.text.errors %}<div class="cw-errors">{{ form.text.errors|join:" " }}</div>{% endif %}
-                <div class="cw-keycaps" id="cw-keycaps" aria-label="Message keys"></div>
-                <div class="cw-prosigns" aria-label="Insert prosign">
-                    <button type="button" class="cw-prosign" data-ps="<AR>" title="End of message">&lt;AR&gt;</button>
-                    <button type="button" class="cw-prosign" data-ps="<SK>" title="End of contact">&lt;SK&gt;</button>
-                    <button type="button" class="cw-prosign" data-ps="<BT>" title="Pause / new paragraph">&lt;BT&gt;</button>
-                    <button type="button" class="cw-prosign" data-ps="<KN>" title="Named station only">&lt;KN&gt;</button>
-                    <button type="button" class="cw-prosign" data-ps="<AS>" title="Wait / stand by">&lt;AS&gt;</button>
-                </div>
-            </div>
-            <div class="cw-field">
-                <label>Speed <span class="cw-slider-val" id="tx-wpm-val">20 wpm</span></label>
-                <div class="cw-slider-row">
-                    <input type="range" name="wpm" min="5" max="60" step="1" value="20"
-                           oninput="document.getElementById('tx-wpm-val').textContent = this.value + ' wpm'">
-                </div>
-            </div>
-            <div class="cw-field">
-                <label>Sidetone <span class="cw-slider-val" id="tx-tone-val">600 Hz</span></label>
-                <div class="cw-slider-row">
-                    <input type="range" name="tone_hz" min="300" max="1200" step="10" value="600"
-                           oninput="document.getElementById('tx-tone-val').textContent = this.value + ' Hz'">
-                </div>
-            </div>
-            <button type="submit" class="btn-primary">Key it</button>
-        </form>
-        <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0;">
-            Timing is standard PARIS (dit = 1200 ms ÷ WPM) with raised-cosine keying — no clicks.
-            The generated WAV can drive a rig's audio input or serve as practice material.
-        </p>
-    </div>
-</div>
+<div class="cw-setup-wrap">
+    <header class="cw-setup-head">
+        <h2>This is where you set sending up</h2>
+        <p>You don't key messages from here — you send on the <b>Live tape</b> (out to the radio)
+           or make a WAV on the <b>Decode</b> page. Both start from the defaults and keys you set below.</p>
+    </header>
 
-<div class="card">
-    <div class="card-header"><h2>Message keys</h2></div>
-    <div class="card-body">
-        <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
-            Your keyer memories — like a contest keyer's F-keys. Type <code>/cq</code> in the
-            composer (or click a keycap) and the message drops in with its
-            <span class="cw-ph">{tags}</span> expanded. Edit here; saves on blur.
-        </p>
-        <div class="cw-mycall" id="cw-mycall">
-            <label for="cw-mycall-input">Your callsign
-                <span class="cw-mycall-hint">— fills <span class="cw-ph">{mycall}</span> and ADIF exports</span>
-            </label>
-            <div class="cw-mycall-row">
-                <input type="text" id="cw-mycall-input" class="cw-setup-input cw-mono"
-                       value="{{ station_call|escapejs }}" maxlength="20" autocomplete="off"
-                       spellcheck="false" placeholder="{{ request.user.username|upper }}">
-                <button type="button" class="btn-tint" id="cw-mycall-save">Save</button>
-                <span class="cw-mycall-status" id="cw-mycall-status" aria-live="polite"></span>
+    {# ── Sending defaults ── #}
+    <section class="cw-setup-card">
+        <div class="cw-step-head"><span class="cw-step-num">⚙</span><h3>Default speed &amp; sidetone</h3></div>
+        <p class="cw-setup-note">Where your keyer starts every time. You can still nudge either one per message.</p>
+
+        <div class="cw-defaults">
+            <div class="cw-default-knob">
+                <label>Speed <span class="cw-slider-val cw-slider-val-lg" id="def-wpm-val">{{ send_wpm|default:20 }} wpm</span></label>
+                <div class="cw-slider-row">
+                    <input type="range" id="def-wpm" min="5" max="60" step="1" value="{{ send_wpm|default:20 }}">
+                </div>
+            </div>
+            <div class="cw-default-knob">
+                <label>Sidetone <span class="cw-slider-val cw-slider-val-lg" id="def-tone-val">{{ send_tone_hz|default:600 }} Hz</span></label>
+                <div class="cw-slider-row">
+                    <input type="range" id="def-tone" min="300" max="1200" step="10" value="{{ send_tone_hz|default:600 }}">
+                </div>
             </div>
         </div>
-        <div class="cw-bank" id="cw-bank"></div>
-    </div>
-</div>
+        <div class="cw-defaults-actions">
+            <button type="button" class="cw-btn-lg" id="def-preview">▶ Hear my defaults</button>
+            <span class="cw-mycall-status" id="def-status" aria-live="polite"></span>
+            <audio id="def-audio" style="display: none;"></audio>
+        </div>
+    </section>
 
-<div class="card">
-    <div class="card-header"><h2>Custom tags</h2></div>
-    <div class="card-body">
-        <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
-            Reusable values you can drop into any message. Define a tag once — say
-            <span class="cw-ph cw-mono">rig</span> = <span class="cw-mono">KW4420</span> — then
-            write <span class="cw-ph">{rig}</span> in a message key or straight in the composer,
-            and it expands to <span class="cw-mono">KW4420</span> when you insert a key and again
-            when you press <b>Key it</b>. Great for your rig, antenna, name, QTH, or power.
-        </p>
-        <p style="color: var(--body-quiet-color); font-size: 0.8rem; margin-top: 0;">
-            <span class="cw-ph">{mycall}</span>, <span class="cw-ph">{call}</span>, and
-            <span class="cw-ph">{rst}</span> are filled by the station, so you can't reuse those names.
-        </p>
-        <div class="cw-bank" id="cw-vars"></div>
-    </div>
-</div>
+    {# ── Callsign ── #}
+    <section class="cw-setup-card cw-mycall" id="cw-mycall">
+        <div class="cw-step-head"><span class="cw-step-num">📻</span><h3>Your callsign</h3></div>
+        <p class="cw-setup-note">Fills <span class="cw-ph">{mycall}</span> in every message and the ADIF
+            <code>STATION_CALLSIGN</code>. Leave blank to use your username.</p>
+        <div class="cw-mycall-row">
+            <input type="text" id="cw-mycall-input" class="cw-setup-input cw-mono"
+                   value="{{ station_call|escapejs }}" maxlength="20" autocomplete="off"
+                   spellcheck="false" placeholder="{{ request.user.username|upper }}">
+            <button type="button" class="cw-btn-lg" id="cw-mycall-save">Save</button>
+            <span class="cw-mycall-status" id="cw-mycall-status" aria-live="polite"></span>
+        </div>
+    </section>
+
+    {# ── Message keys ── #}
+    <section class="cw-setup-card">
+        <div class="cw-step-head"><span class="cw-step-num">⌨</span><h3>Message keys</h3></div>
+        <p class="cw-setup-note">Your keyer memories — like a contest keyer's F-keys. Type <code>/cq</code> in a
+            composer (or tap a keycap) and the message drops in with its <span class="cw-ph">{tags}</span>
+            filled. Built-ins: <span class="cw-ph">{mycall}</span> <span class="cw-ph">{call}</span>
+            <span class="cw-ph">{rst}</span>. Edit here; saves on blur.</p>
+        <div class="cw-bank cw-bank-lg" id="cw-bank"></div>
+    </section>
+
+    {# ── Custom tags ── #}
+    <section class="cw-setup-card">
+        <div class="cw-step-head"><span class="cw-step-num">🏷</span><h3>Custom tags</h3></div>
+        <p class="cw-setup-note">Reusable values you drop into any message. Define
+            <span class="cw-ph cw-mono">rig</span> = <span class="cw-mono">KW4420</span> once, then
+            <span class="cw-ph">{rig}</span> expands everywhere. Names are lowercase; you can't reuse
+            <span class="cw-ph">mycall</span>, <span class="cw-ph">call</span>, or <span class="cw-ph">rst</span>.</p>
+        <div class="cw-bank cw-bank-lg" id="cw-vars"></div>
+    </section>
 </div>
 
 <script src="{% static 'cw/macros.js' %}"></script>
 <script src="{% static 'cw/callsign.js' %}"></script>
 <script>
-    document.querySelectorAll(".cw-prosign").forEach(function (btn) {
-        btn.addEventListener("click", function () {
-            const ta = document.getElementById("{{ form.text.id_for_label }}");
-            const ps = btn.dataset.ps;
-            const start = ta.selectionStart || ta.value.length;
-            const sep = ta.value && !ta.value.slice(0, start).endsWith(" ") ? " " : "";
-            ta.setRangeText(sep + ps + " ", start, ta.selectionEnd || start, "end");
-            ta.focus();
-        });
-    });
-
-    // held by reference so saving a new callsign updates {mycall} live
-    var macroContext = {
-        mycall: "{{ station_call|escapejs }}",
-        {% if reply_to %}call: "{{ reply_to|escapejs }}",{% endif %}
-        rst: "599",
-    };
-    var composer = document.getElementById("{{ form.text.id_for_label }}");
-    var cwMacros = initCWMacros({
-        textarea: composer,
-        chipsEl: document.getElementById("cw-keycaps"),
-        popoverEl: document.getElementById("cw-palette"),
+    // banks only — no composer on the setup page (initCWMacros tolerates no textarea)
+    initCWMacros({
         bankEl: document.getElementById("cw-bank"),
         url: "{% url 'cw-macros' %}",
         varsUrl: "{% url 'cw-station-vars' %}",
         varsEl: document.getElementById("cw-vars"),
-        context: macroContext,
     });
 
-    // Expand every known {tag} in the composed message on send — so tags typed
-    // straight into the box (not just inserted via a key) still resolve.
-    composer.form.addEventListener("submit", function () {
-        composer.value = cwMacros.expand(composer.value).value;
-    });
-
-    // callsign editor — updates {mycall} in the live macro context on save
     initCallsignEditor({
         inputId: "cw-mycall-input",
         saveId: "cw-mycall-save",
         statusId: "cw-mycall-status",
         url: "{% url 'cw-station-config' %}",
-        onSaved: function (resolved) { macroContext.mycall = resolved; },
     });
+
+    // default speed/sidetone — save to the station on change
+    (function () {
+        var stationUrl = "{% url 'cw-station-config' %}";
+        var wpm = document.getElementById("def-wpm");
+        var tone = document.getElementById("def-tone");
+        var wpmVal = document.getElementById("def-wpm-val");
+        var toneVal = document.getElementById("def-tone-val");
+        var status = document.getElementById("def-status");
+        function flash(msg) { status.textContent = msg; setTimeout(function () { status.textContent = ""; }, 1500); }
+        function saveDefaults() {
+            fetch(stationUrl, {
+                method: "POST", credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ wpm: parseInt(wpm.value, 10), tone_hz: parseInt(tone.value, 10) }),
+            }).then(function (r) { if (r.ok) flash("Saved ✓"); });
+        }
+        wpm.addEventListener("input", function () { wpmVal.textContent = wpm.value + " wpm"; });
+        tone.addEventListener("input", function () { toneVal.textContent = tone.value + " Hz"; });
+        wpm.addEventListener("change", saveDefaults);
+        tone.addEventListener("change", saveDefaults);
+
+        // preview: key a sample at the current defaults and play it
+        var audio = document.getElementById("def-audio");
+        document.getElementById("def-preview").addEventListener("click", function () {
+            var fd = new FormData();
+            fd.append("text", "PARIS PARIS PARIS");
+            fd.append("wpm", wpm.value);
+            fd.append("tone_hz", tone.value);
+            fd.append("csrfmiddlewaretoken", "{{ csrf_token }}");
+            flash("keying…");
+            fetch("{% url 'cw-send' %}", { method: "POST", credentials: "same-origin",
+                headers: { Accept: "application/json" }, body: fd })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (!d.audio_url) { flash("preview failed"); return; }
+                    audio.src = d.audio_url; audio.play().catch(function () {});
+                    flash("");
+                }).catch(function () { flash("preview failed"); });
+        });
+    })();
 </script>
 <script src="{% static 'cw/range.js' %}"></script>
 {% endblock %}

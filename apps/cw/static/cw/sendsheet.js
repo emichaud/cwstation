@@ -21,7 +21,14 @@ function initCWSendSheet(opts) {
     chipsEl: document.getElementById("cw-sheet-keycaps"),
     popoverEl: document.getElementById("cw-sheet-palette"),
     url: opts.macrosUrl,
+    varsUrl: opts.varsUrl,
+    varChipsEl: document.getElementById("cw-sheet-vars"),
     context: context,
+  });
+
+  // prosign chips insert their token at the caret
+  sheet.querySelectorAll(".cw-prosign").forEach((btn) => {
+    btn.addEventListener("click", () => macroCtl.insertText(btn.dataset.ps));
   });
 
   // "on air" toggle — appears when a rig is connected (opts.rig.txUrl set

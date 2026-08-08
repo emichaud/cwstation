@@ -169,19 +169,20 @@ class TestApplyReceiverControls:
 
 @pytest.mark.django_db
 class TestResponder:
-    def test_send_prefills_reply_to_identified_caller(self, client):
+    def test_keyer_prefills_reply_to_identified_caller(self, client):
+        # replying lands on the decode keyer with a standard reply pre-filled
         user = User.objects.create_user(username="op9", password="pw")
         client.force_login(user)
-        response = client.get(reverse("cw-send") + "?to=w1aw")
+        response = client.get(reverse("cw-decode") + "?to=w1aw")
         content = response.content.decode()
         assert response.context["reply_to"] == "W1AW"
         assert "W1AW DE OP9 OP9 K" in content
-        assert "replying to W1AW" in content
+        assert "reply to W1AW" in content
 
     def test_invalid_callsign_is_ignored(self, client):
         user = User.objects.create_user(username="op10", password="pw")
         client.force_login(user)
-        response = client.get(reverse("cw-send") + "?to=<script>")
+        response = client.get(reverse("cw-decode") + "?to=<script>")
         assert "reply_to" not in response.context
         assert response.status_code == 200
 

@@ -79,6 +79,47 @@ class TestStationConfigEndpoint:
     def test_requires_auth(self, client):
         assert client.get(reverse("cw-station-config")).status_code == 401
 
+    def test_saves_and_returns_keying_defaults(self, client_logged):
+        client, user = client_logged
+        resp = client.post(
+            reverse("cw-station-config"), json.dumps({"wpm": 28, "tone_hz": 700}),
+            content_type="application/json",
+        )
+        payload = resp.json().get("data") or resp.json()
+        assert payload["wpm"] == 28
+        assert payload["tone_hz"] == 700
+        assert CWRig.objects.get(user=user).send_wpm == 28
+
+    def test_rejects_out_of_range_defaults(self, client_logged):
+        client, _ = client_logged
+        for bad in ({"wpm": 999}, {"tone_hz": 50}):
+            resp = client.post(
+                reverse("cw-station-config"), json.dumps(bad),
+                content_type="application/json",
+            )
+            assert resp.status_code == 400
+
+
+class TestKeyerWav:
+    """The decode keyer composes a session and can download it as a WAV."""
+
+    def test_compose_then_download_wav(self, client):
+        user = User.objects.create_user(username="op", password="pw")
+        client.force_login(user)
+        # compose (the keyer's "Make WAV" hits cw-send)
+        resp = client.post(
+            reverse("cw-send"), {"text": "CQ TEST DE OP", "wpm": 22, "tone_hz": 650},
+            HTTP_ACCEPT="application/json",
+        )
+        assert resp.status_code == 200
+        audio_url = resp.json()["audio_url"]
+        # inline by default, attachment with ?dl=1
+        inline = client.get(audio_url)
+        assert inline["Content-Disposition"].startswith("inline")
+        download = client.get(audio_url + "?dl=1")
+        assert download["Content-Disposition"].startswith("attachment")
+        assert download["Content-Type"] == "audio/wav"
+
 
 class TestStationCallsignInAdif:
     def test_adif_export_uses_configured_callsign(self, client):

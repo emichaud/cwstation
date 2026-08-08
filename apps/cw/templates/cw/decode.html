@@ -1,7 +1,7 @@
 {% extends "smallstack/base.html" %}
 {% load static theme_tags %}
 
-{% block title %}Decode CW{% endblock %}
+{% block title %}Decode &amp; Make CW{% endblock %}
 {% block breadcrumbs %}{% endblock %}
 {% block body_class %}cw-console{% endblock %}
 
@@ -12,29 +12,22 @@
 {% block page_header %}
 <div class="page-header-bleed">
     <div class="page-header-content">
-        <h1>Decode</h1>
-        <p class="page-subtitle">Copy CW off the air from a recording, or synthesize a practice signal — no radio required.</p>
-        <nav style="margin-top: 0.5rem; font-size: 0.8rem;">
-            <a href="{% url 'website:home' %}" style="color: var(--body-quiet-color); text-decoration: none;">Home</a>
-            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
-            <a href="{% url 'cw-monitor' %}" style="color: var(--body-quiet-color); text-decoration: none;">CW Monitor</a>
-            <span style="color: var(--body-quiet-color); margin: 0 0.3rem;">/</span>
-            <span style="color: var(--body-fg);">Decode</span>
-        </nav>
+        <h1>Decode &amp; Make</h1>
+        <p class="page-subtitle">Copy CW from a recording, or key a message into a downloadable WAV — no radio required.</p>
     </div>
 </div>
 {% endblock %}
 
 {% block content %}
-<div class="cw-form-grid">
-    {# ── Off the air ── #}
-    <div class="card">
-        <div class="card-header"><h2>Off the air</h2></div>
+<div class="cw-decode-grid">
+
+    {# ── Copy a recording ── #}
+    <section class="card cw-decode-copy">
+        <div class="card-header"><h2>Copy a recording</h2></div>
         <div class="card-body">
-            <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
-                Upload a recording from your receiver or SDR software — WAV, MP3, FLAC, or OGG
-                (W1AW code-practice MP3s work as-is). The decoder finds the CW note
-                automatically and adapts to the sender's speed on its own.
+            <p style="color: var(--body-quiet-color); font-size: 0.9rem; margin-top: 0;">
+                Upload from your receiver or SDR software — WAV, MP3, FLAC, or OGG (W1AW practice MP3s
+                work as-is). The decoder finds the CW note and adapts to the sender's speed on its own.
             </p>
             <form method="post" enctype="multipart/form-data">
                 {% csrf_token %}
@@ -62,47 +55,136 @@
                 <button type="submit" class="btn-primary">Decode recording</button>
             </form>
         </div>
-    </div>
+    </section>
 
-    {# ── Practice ── #}
-    <div class="card">
-        <div class="card-header"><h2>Practice</h2></div>
+    {# ── Keyer — make a WAV ── #}
+    <section class="card cw-decode-keyer">
+        <div class="card-header"><h2>Keyer — make a WAV{% if reply_to %} <span class="cw-badge cw-badge-call" style="vertical-align: middle;">reply to {{ reply_to }}</span>{% endif %}</h2></div>
         <div class="card-body">
-            <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
-                Synthesize clean, PARIS-timed CW from text and decode it back — great for code
-                practice and for seeing how the decoder behaves as you add noise.
+            <p style="color: var(--body-quiet-color); font-size: 0.9rem; margin-top: 0;">
+                Type a message (or use your message keys and tags), pick a speed, and save it as a WAV —
+                for practice, a code test, or feeding another program. Same keyer as the Live send sheet.
             </p>
-            <form method="post">
-                {% csrf_token %}
-                <input type="hidden" name="mode" value="practice">
-                <div class="cw-field">
-                    <label for="{{ practice_form.text.id_for_label }}">Message</label>
-                    {{ practice_form.text }}
-                    {% if practice_form.text.errors %}<div class="cw-errors">{{ practice_form.text.errors|join:" " }}</div>{% endif %}
+
+            <div class="cw-field">
+                <label for="cw-dec-text">Message to key</label>
+                <div class="cw-palette-anchor">
+                    <textarea id="cw-dec-text" name="text" rows="3" class="cw-mono"
+                              placeholder="TYPE — OR / FOR MESSAGE KEYS" spellcheck="false">{{ keyer_prefill|default:"" }}</textarea>
+                    <div class="cw-palette" id="cw-dec-palette" role="listbox" aria-label="Message keys"></div>
                 </div>
-                <div class="cw-field">
-                    <label>Speed <span class="cw-slider-val" id="pr-wpm-val">20 wpm</span></label>
-                    <div class="cw-slider-row">
-                        <input type="range" name="wpm" min="5" max="60" step="1" value="20"
-                               oninput="document.getElementById('pr-wpm-val').textContent = this.value + ' wpm'">
-                    </div>
+                <div class="cw-keycaps" id="cw-dec-keycaps" aria-label="Message keys"></div>
+                <div class="cw-keycaps cw-tagcaps" id="cw-dec-vars"></div>
+                <div class="cw-prosigns" aria-label="Insert prosign">
+                    <button type="button" class="cw-prosign" data-ps="<AR>" title="End of message">&lt;AR&gt;</button>
+                    <button type="button" class="cw-prosign" data-ps="<SK>" title="End of contact">&lt;SK&gt;</button>
+                    <button type="button" class="cw-prosign" data-ps="<BT>" title="Pause / new paragraph">&lt;BT&gt;</button>
+                    <button type="button" class="cw-prosign" data-ps="<KN>" title="Named station only">&lt;KN&gt;</button>
+                    <button type="button" class="cw-prosign" data-ps="<AS>" title="Wait / stand by">&lt;AS&gt;</button>
                 </div>
-                <div class="cw-field">
-                    <label>Tone <span class="cw-slider-val" id="pr-tone-val">600 Hz</span></label>
-                    <div class="cw-slider-row">
-                        <input type="range" name="tone_hz" min="300" max="1200" step="10" value="600"
-                               oninput="document.getElementById('pr-tone-val').textContent = this.value + ' Hz'">
-                    </div>
+            </div>
+
+            <div class="cw-field">
+                <label>Speed <span class="cw-slider-val" id="dec-wpm-val">{{ send_wpm|default:20 }} wpm</span></label>
+                <div class="cw-slider-row">
+                    <input type="range" id="dec-wpm" min="5" max="60" step="1" value="{{ send_wpm|default:20 }}"
+                           oninput="document.getElementById('dec-wpm-val').textContent = this.value + ' wpm'">
                 </div>
-                <div class="cw-field">
-                    <label for="{{ practice_form.snr_db.id_for_label }}">Add noise (SNR dB — blank for clean)</label>
-                    {{ practice_form.snr_db }}
-                    {% if practice_form.snr_db.errors %}<div class="cw-errors">{{ practice_form.snr_db.errors|join:" " }}</div>{% endif %}
+            </div>
+            <div class="cw-field">
+                <label>Sidetone <span class="cw-slider-val" id="dec-tone-val">{{ send_tone_hz|default:600 }} Hz</span></label>
+                <div class="cw-slider-row">
+                    <input type="range" id="dec-tone" min="300" max="1200" step="10" value="{{ send_tone_hz|default:600 }}"
+                           oninput="document.getElementById('dec-tone-val').textContent = this.value + ' Hz'">
                 </div>
-                <button type="submit" class="btn-primary">Synthesize &amp; decode</button>
-            </form>
+            </div>
+
+            <div class="cw-keyer-actions">
+                <button type="button" class="btn-primary" id="dec-make">Make WAV</button>
+                <button type="button" class="btn-tint" id="dec-decode" title="Synthesize and copy it back">Decode it →</button>
+            </div>
+            <div class="cw-sheet-result" id="dec-result"></div>
         </div>
-    </div>
+    </section>
 </div>
+
+<script src="{% static 'cw/macros.js' %}"></script>
+<script>
+    (function () {
+        var text = document.getElementById("cw-dec-text");
+        var wpm = document.getElementById("dec-wpm");
+        var tone = document.getElementById("dec-tone");
+        var result = document.getElementById("dec-result");
+
+        var macroContext = { mycall: "{{ station_call|escapejs }}", rst: "599"{% if reply_to %}, call: "{{ reply_to|escapejs }}"{% endif %} };
+        var m = initCWMacros({
+            textarea: text,
+            chipsEl: document.getElementById("cw-dec-keycaps"),
+            popoverEl: document.getElementById("cw-dec-palette"),
+            url: "{% url 'cw-macros' %}",
+            varsUrl: "{% url 'cw-station-vars' %}",
+            varChipsEl: document.getElementById("cw-dec-vars"),
+            context: macroContext,
+        });
+        document.querySelectorAll(".cw-prosign").forEach(function (btn) {
+            btn.addEventListener("click", function () { m.insertText(btn.dataset.ps); });
+        });
+
+        function expandedText() { return m.expand(text.value).value.trim(); }
+
+        // Make WAV — compose, then show a player + a download link
+        document.getElementById("dec-make").addEventListener("click", function () {
+            var msg = expandedText();
+            if (!msg) { text.focus(); return; }
+            var btn = document.getElementById("dec-make");
+            btn.disabled = true; btn.textContent = "keying…";
+            var fd = new FormData();
+            fd.append("text", msg); fd.append("wpm", wpm.value); fd.append("tone_hz", tone.value);
+            fd.append("csrfmiddlewaretoken", "{{ csrf_token }}");
+            fetch("{% url 'cw-send' %}", { method: "POST", credentials: "same-origin",
+                headers: { Accept: "application/json" }, body: fd })
+                .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, data: j }; }); })
+                .then(function (res) {
+                    btn.disabled = false; btn.textContent = "Make WAV";
+                    if (!res.ok) {
+                        result.innerHTML = '<span class="cw-errors">' +
+                            Object.values(res.data.errors || { e: ["couldn't key that"] }).join(" ") + "</span>";
+                        return;
+                    }
+                    var d = res.data;
+                    result.innerHTML = "";
+                    var row = document.createElement("div");
+                    row.className = "cw-sheet-sent";
+                    var audio = document.createElement("audio");
+                    audio.controls = true; audio.src = d.audio_url;
+                    var dl = document.createElement("a");
+                    dl.href = d.audio_url + "?dl=1"; dl.className = "cw-btn-lg"; dl.textContent = "⬇ Download WAV";
+                    dl.setAttribute("download", "");
+                    var link = document.createElement("a");
+                    link.href = d.detail_url; link.textContent = "session #" + d.id + " ↦";
+                    link.style.marginLeft = "10px";
+                    row.append(audio, dl, link);
+                    result.appendChild(row);
+                    audio.play().catch(function () {});
+                })
+                .catch(function () { btn.disabled = false; btn.textContent = "Make WAV"; });
+        });
+
+        // Decode it — synthesize AND copy it back (navigates to the session)
+        document.getElementById("dec-decode").addEventListener("click", function () {
+            var msg = expandedText();
+            if (!msg) { text.focus(); return; }
+            var form = document.createElement("form");
+            form.method = "post"; form.style.display = "none";
+            function add(name, value) {
+                var i = document.createElement("input"); i.name = name; i.value = value; form.appendChild(i);
+            }
+            add("mode", "practice"); add("text", msg); add("wpm", wpm.value); add("tone_hz", tone.value);
+            add("csrfmiddlewaretoken", "{{ csrf_token }}");
+            document.body.appendChild(form);
+            form.submit();
+        });
+    })();
+</script>
 <script src="{% static 'cw/range.js' %}"></script>
 {% endblock %}

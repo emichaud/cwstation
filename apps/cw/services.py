@@ -30,6 +30,20 @@ def station_callsign(user: AbstractBaseUser) -> str:
     return (call or getattr(user, "username", "") or "").upper()
 
 
+def station_defaults(user: AbstractBaseUser) -> dict:
+    """Everything a page needs to seed a keyer: the resolved callsign and the
+    operator's default WPM + sidetone. The send popup and the decode keyer both
+    start from these (and let the operator override per message)."""
+    from .models import CWRig
+
+    rig = CWRig.objects.filter(user=user).only("callsign", "send_wpm", "send_tone_hz").first()
+    return {
+        "call": station_callsign(user),
+        "wpm": rig.send_wpm if rig else 20,
+        "tone_hz": rig.send_tone_hz if rig else 600,
+    }
+
+
 def decode_practice(
     user: AbstractBaseUser,
     text: str,

@@ -109,14 +109,27 @@ class TestCreateUpdateDelete:
         assert CWMacro.objects.filter(pk=theirs.pk).exists()
 
 
-class TestSendPageWiring:
-    def test_send_page_has_palette_and_bank(self, client_logged):
+class TestSendSetupPage:
+    """/send is now the setup page: macro bank + tag bank + callsign, no composer."""
+
+    def test_setup_page_has_banks_and_callsign(self, client_logged):
         content = client_logged.get(reverse("cw-send")).content.decode()
-        assert 'id="cw-palette"' in content
-        assert 'id="cw-keycaps"' in content
-        assert 'id="cw-bank"' in content
+        assert 'id="cw-bank"' in content        # message-key editor
+        assert 'id="cw-vars"' in content        # custom-tag editor
+        assert 'id="cw-mycall-input"' in content  # callsign editor
+        assert 'id="def-wpm"' in content        # default speed
+        # it is a setup page — no live composer
+        assert 'id="cw-keycaps"' not in content
+
+    def test_decode_keyer_wiring(self, client_logged):
+        """The full keyer (composer + inserts + defaults) lives on /decode."""
+        content = client_logged.get(reverse("cw-decode")).content.decode()
+        assert 'id="cw-dec-text"' in content     # composer
+        assert 'id="cw-dec-keycaps"' in content  # macro chips
+        assert 'id="cw-dec-vars"' in content     # tag chips
         assert 'mycall: "OP"' in content
 
-    def test_reply_context_feeds_macro_placeholders(self, client_logged):
-        content = client_logged.get(reverse("cw-send") + "?to=W1AW").content.decode()
+    def test_reply_context_feeds_the_keyer(self, client_logged):
+        content = client_logged.get(reverse("cw-decode") + "?to=W1AW").content.decode()
         assert 'call: "W1AW"' in content
+        assert "W1AW DE OP OP K" in content       # standard reply prefilled

@@ -27,20 +27,27 @@ Requires cw.css + macros.js + sendsheet.js. Wire with initCWSendSheet().
             <div class="cw-palette cw-palette-up" id="cw-sheet-palette" role="listbox" aria-label="Message keys"></div>
         </div>
         <div class="cw-keycaps" id="cw-sheet-keycaps"></div>
+        <div class="cw-keycaps cw-tagcaps" id="cw-sheet-vars"></div>
+        <div class="cw-prosigns cw-prosigns-compact" aria-label="Insert prosign">
+            <button type="button" class="cw-prosign" data-ps="<AR>" title="End of message">&lt;AR&gt;</button>
+            <button type="button" class="cw-prosign" data-ps="<SK>" title="End of contact">&lt;SK&gt;</button>
+            <button type="button" class="cw-prosign" data-ps="<BT>" title="Pause / new paragraph">&lt;BT&gt;</button>
+            <button type="button" class="cw-prosign" data-ps="<KN>" title="Named station only">&lt;KN&gt;</button>
+        </div>
         <div class="cw-sheet-row">
             <label class="cw-sheet-knob" id="cw-sheet-rig-wrap" style="display: none;" title="Key PTT and play the audio into the rig">
                 <input type="checkbox" id="cw-sheet-rig" style="accent-color: var(--error-fg);">
                 <span style="color: var(--error-fg); font-weight: 700;">on air</span>
             </label>
             <label class="cw-sheet-knob">wpm
-                <input type="range" name="wpm" min="5" max="60" step="1" value="20"
+                <input type="range" name="wpm" min="5" max="60" step="1" value="{{ send_wpm|default:20 }}"
                        oninput="this.parentNode.querySelector('b').textContent = this.value">
-                <b class="cw-mono">20</b>
+                <b class="cw-mono">{{ send_wpm|default:20 }}</b>
             </label>
             <label class="cw-sheet-knob">tone
-                <input type="range" name="tone_hz" min="300" max="1200" step="10" value="600"
+                <input type="range" name="tone_hz" min="300" max="1200" step="10" value="{{ send_tone_hz|default:600 }}"
                        oninput="this.parentNode.querySelector('b').textContent = this.value">
-                <b class="cw-mono">600</b>
+                <b class="cw-mono">{{ send_tone_hz|default:600 }}</b>
             </label>
             <button type="submit" class="btn-primary" id="cw-sheet-send">Key it</button>
         </div>
