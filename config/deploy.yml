@@ -41,7 +41,11 @@ ssh:
 deploy_timeout: 90
 
 # Persistent volumes for data and media
-# IMPORTANT: Update paths to match your app name
+# IMPORTANT: Update paths to match your app name.
+# /app/data holds the SQLite DB, the SECRET_KEY, AND the CW credentials key
+# (CW_CREDENTIALS_KEY_FILE defaults there) — losing it makes stored QRZ/eQSL
+# passwords undecryptable, so back this volume up. /app/media holds the
+# operator-uploaded rig photos.
 volumes:
   - /root/myapp_data/media:/app/media
   - /root/myapp_data/db:/app/data

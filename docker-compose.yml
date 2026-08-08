@@ -3,10 +3,19 @@ services:
     build: .
     ports:
       - "8010:8000"
+    # CW Station's live tape is a WebSocket (Django Channels) — serve the ASGI
+    # app with daphne, NOT the image's default. (The Dockerfile CMD is already
+    # daphne; this override keeps it explicit and pinned.)
+    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
     environment:
       - DJANGO_SETTINGS_MODULE=config.settings.production
       - ALLOWED_HOSTS=localhost,127.0.0.1
-      - DATABASE_PATH=/data/db.sqlite3
+      # All stateful files live on the /app/data volume so they survive rebuilds:
+      # the SQLite DB, the auto-generated SECRET_KEY, and — critically — the
+      # Fernet key that decrypts QRZ/eQSL passwords. Lose that key and stored
+      # credentials become undecryptable.
+      - DATABASE_PATH=/app/data/db.sqlite3
+      - CW_CREDENTIALS_KEY_FILE=/app/data/.cw_credentials_key
       - MEDIA_ROOT=/app/media
       # Optional: Auto-create superuser (set in .env file)
       - DJANGO_SUPERUSER_USERNAME=${DJANGO_SUPERUSER_USERNAME:-}
@@ -14,7 +23,7 @@ services:
       - DJANGO_SUPERUSER_EMAIL=${DJANGO_SUPERUSER_EMAIL:-}
       - BACKUP_CRON_ENABLED=true
     volumes:
-      - db_data:/data
+      - db_data:/app/data
       - media_data:/app/media
     env_file:
       - .env
@@ -38,9 +47,10 @@ services:
   #   environment:
   #     - DJANGO_SETTINGS_MODULE=config.settings.production
   #     - ALLOWED_HOSTS=localhost,127.0.0.1
-  #     - DATABASE_PATH=/data/db.sqlite3
+  #     - DATABASE_PATH=/app/data/db.sqlite3
+  #     - CW_CREDENTIALS_KEY_FILE=/app/data/.cw_credentials_key
   #   volumes:
-  #     - db_data:/data
+  #     - db_data:/app/data
   #   env_file:
   #     - .env
   #   depends_on:

@@ -30,6 +30,14 @@ DATABASES = {
     }
 }
 
+# CW credentials encryption key. It encrypts operators' QRZ/eQSL passwords at
+# rest, so it MUST persist across rebuilds — default it onto the /app/data
+# volume (alongside db.sqlite3). Generating a new key can't read data encrypted
+# with the old one, so back this file up with the database. (fieldcrypto.py)
+CW_CREDENTIALS_KEY_FILE = config(
+    "CW_CREDENTIALS_KEY_FILE", default="/app/data/.cw_credentials_key"
+)
+
 # PostgreSQL configuration (when you outgrow SQLite)
 # Set DATABASE_URL environment variable to enable PostgreSQL
 # Example: DATABASE_URL=postgres://user:pass@host:5432/dbname

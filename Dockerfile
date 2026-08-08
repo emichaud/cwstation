@@ -53,7 +53,16 @@ USER app
 HEALTHCHECK --interval=10s --timeout=10s --start-period=60s --retries=5 \
     CMD curl --fail http://localhost:8000/health/ || exit 1
 
+# Install Hamlib (rigctld) only if this image runs on the shack computer with a
+# radio attached. Decode / practice / logbook deployments don't need it, so it's
+# left out of the base image to stay slim. To enable, uncomment:
+# RUN apt-get update && apt-get install -y --no-install-recommends libhamlib-utils \
+#     && rm -rf /var/lib/apt/lists/*
+
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
-# Default command
-CMD ["gunicorn", "-c", "/app/gunicorn.conf", "config.wsgi:application"]
+# Default command — CW Station's live tape streams over a WebSocket (Django
+# Channels), so it MUST be served by an ASGI server. daphne (bundled) serves
+# both the HTTP surface and the WebSocket. Do NOT switch this back to
+# `gunicorn config.wsgi` — that drops the live tape (page loads, never updates).
+CMD ["daphne", "-b", "0.0.0.0", "-p", "8000", "config.asgi:application"]
