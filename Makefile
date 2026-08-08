@@ -102,6 +102,7 @@ screenshot-auth:
 
 lint:
 	uv run ruff check .
+	uv run python scripts/check_django_comments.py
 
 lint-fix:
 	uv run ruff check --fix .
