@@ -115,6 +115,48 @@ class CWRig(models.Model):
         return f"rigctld {self.host}:{self.port} for {self.user}"
 
 
+def _rig_photo_path(instance: CWRigPhoto, filename: str) -> str:
+    """Per-operator media path: cw/rig_photos/user_<id>/<model>.<ext>."""
+    import os
+
+    ext = os.path.splitext(filename)[1].lower() or ".png"
+    return f"cw/rig_photos/user_{instance.user_id}/{instance.rig_model}{ext}"
+
+
+class CWRigPhoto(models.Model):
+    """An operator's own photo of their radio, shown on the Rig Setup page in
+    place of the built-in illustration.
+
+    This is *user-supplied* content, stored per operator under MEDIA_ROOT — the
+    product itself ships no manufacturer photos (copyright). Each operator drops
+    in a picture from their own library; the effect is a rig that looks like the
+    real thing, with the copyright resting entirely with the person who uploaded
+    it. One photo per (operator, Hamlib model)."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="cw_rig_photos"
+    )
+    rig_model = models.PositiveIntegerField(help_text="Hamlib rig model number (rigctl -l)")
+    image = models.ImageField(upload_to=_rig_photo_path)
+    uploaded_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "CW Rig Photo"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "rig_model"], name="uniq_rig_photo_per_user_model"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"photo of rig {self.rig_model} for {self.user}"
+
+    def delete(self, *args: Any, **kwargs: Any) -> Any:
+        # remove the underlying file, not just the row
+        self.image.delete(save=False)
+        return super().delete(*args, **kwargs)
+
+
 DEFAULT_MACROS: list[tuple[str, str]] = [
     ("cq", "CQ CQ CQ DE {mycall} {mycall} K"),
     ("qrz", "QRZ? DE {mycall} K"),

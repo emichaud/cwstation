@@ -48,6 +48,20 @@ sudo apt install hamlib-utils   (on Linux)</code></pre>
                     <img id="rs-rig-photo" class="cw-rig-photo" alt="" style="display: none;">
                     <div id="rs-rig-art" class="cw-rig-art"></div>
                     <figcaption id="rs-rig-plate">No radio selected</figcaption>
+
+                    {# use your own photo — per-operator, no manufacturer images shipped #}
+                    <div class="cw-rig-photo-tools" id="rs-photo-tools" style="display: none;">
+                        <input type="file" id="rs-photo-file" hidden
+                               accept="image/png,image/jpeg,image/webp,image/gif">
+                        <button type="button" class="cw-photo-btn" id="rs-photo-add">
+                            <span aria-hidden="true">📷</span> Use my own photo
+                        </button>
+                        <button type="button" class="cw-photo-btn cw-photo-remove"
+                                id="rs-photo-remove" style="display: none;">Remove photo</button>
+                        <p class="cw-photo-hint" id="rs-photo-hint">
+                            Show your actual radio — pick a picture from your own library.
+                        </p>
+                    </div>
                 </figure>
 
                 {# the selector #}
@@ -152,6 +166,7 @@ sudo apt install hamlib-utils   (on Linux)</code></pre>
     initCWRigSetup({
         dataUrl: "{% url 'cw-rig-setup-data' %}",
         daemonUrl: "{% url 'cw-rig-daemon' %}",
+        photoUrl: "{% url 'cw-rig-photo' %}",
     });
 </script>
 {% endblock %}

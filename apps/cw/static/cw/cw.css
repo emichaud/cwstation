@@ -925,6 +925,39 @@ body.cw-setup {
     letter-spacing: 0.06em;
     color: var(--body-fg);
 }
+.cw-rig-photo-tools { margin-top: 12px; text-align: center; }
+.cw-photo-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 8px 18px;
+    border-radius: 10px;
+    border: 1px solid var(--card-border);
+    background: var(--card-bg);
+    color: var(--body-fg);
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+.cw-photo-btn:hover { border-color: var(--primary); background: var(--accent-band-bg); }
+.cw-photo-remove {
+    margin-left: 8px;
+    color: var(--error-fg);
+    border-color: color-mix(in srgb, var(--error-fg) 45%, var(--card-border));
+}
+.cw-photo-remove:hover {
+    border-color: var(--error-fg);
+    background: color-mix(in srgb, var(--error-fg) 12%, transparent);
+}
+.cw-photo-hint {
+    margin: 8px auto 0;
+    max-width: 320px;
+    font-size: 0.9rem;
+    line-height: 1.35;
+    color: var(--body-quiet-color);
+}
 
 .cw-choose { display: flex; flex-direction: column; }
 .cw-practice-btn {

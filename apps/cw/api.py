@@ -458,7 +458,7 @@ def rig_setup_data(request: HttpRequest) -> dict[str, Any]:
         "serial_ports": rigdaemon.list_serial_ports(),
         "models": rigdaemon.list_models(),
         "daemon": rigdaemon.status(),
-        "custom_images": _custom_rig_images(),
+        "custom_images": _custom_rig_images(request.user),
         "saved": {
             "rig_model": config.rig_model,
             "serial_port": config.serial_port,
@@ -468,26 +468,86 @@ def rig_setup_data(request: HttpRequest) -> dict[str, Any]:
     }
 
 
-def _custom_rig_images() -> dict[str, str]:
-    """Operator-supplied rig photos keyed by Hamlib model number.
+def _custom_rig_images(user: Any) -> dict[str, str]:
+    """Rig photos keyed by Hamlib model number, shown instead of the built-in
+    illustration. We ship no manufacturer photos (copyright); these are two
+    seams for supplying your own, per-operator uploads winning over site-wide:
 
-    Drop a licensed image at `static/cw/rigs/<model>.png` (or webp/jpg) and
-    the Rig Setup rows use it instead of the built-in illustration. We ship
-    no manufacturer photos (copyright); this is the seam for your own."""
+    1. **Per-operator uploads** (this user's own library) — stored under
+       MEDIA_ROOT via the Rig Setup page. The copyright rests with the
+       operator who uploaded the picture, not the product.
+    2. **Site-wide override** — a licensed image dropped at
+       `static/cw/rigs/<model>.png` (or webp/jpg) applies to every operator.
+    """
     import os
 
     from django.conf import settings
     from django.templatetags.static import static as static_url
 
-    rigs_dir = os.path.join(settings.BASE_DIR, "static", "cw", "rigs")
+    from .models import CWRigPhoto
+
     out: dict[str, str] = {}
-    if not os.path.isdir(rigs_dir):
-        return out
-    for fname in os.listdir(rigs_dir):
-        stem, ext = os.path.splitext(fname)
-        if stem.isdigit() and ext.lower() in (".png", ".webp", ".jpg", ".jpeg"):
-            out[stem] = static_url(f"cw/rigs/{fname}")
+    # site-wide first, so a user's own upload overrides it
+    rigs_dir = os.path.join(settings.BASE_DIR, "static", "cw", "rigs")
+    if os.path.isdir(rigs_dir):
+        for fname in os.listdir(rigs_dir):
+            stem, ext = os.path.splitext(fname)
+            if stem.isdigit() and ext.lower() in (".png", ".webp", ".jpg", ".jpeg"):
+                out[stem] = static_url(f"cw/rigs/{fname}")
+    if getattr(user, "is_authenticated", False):
+        for photo in CWRigPhoto.objects.filter(user=user):
+            out[str(photo.rig_model)] = photo.image.url
     return out
+
+
+_RIG_PHOTO_EXTS = (".png", ".webp", ".jpg", ".jpeg", ".gif")
+
+
+@api_view(methods=["POST"], require_auth=True)
+def rig_photo(request: HttpRequest) -> dict[str, Any] | Any:
+    """Manage the operator's own photo for a rig model.
+
+    Upload/replace: multipart POST with `model` (int) + `image` (file).
+    Remove: POST {"action": "delete", "model": <int>} → reverts to illustration.
+    """
+    import os
+
+    from .models import CWRigPhoto
+
+    data = request.json if isinstance(request.json, dict) else {}
+
+    # delete path (JSON)
+    if data.get("action") == "delete":
+        model_id = data.get("model")
+        if not isinstance(model_id, int):
+            return api_error("Provide the rig 'model' number to remove", 400)
+        photo = CWRigPhoto.objects.filter(user=request.user, rig_model=model_id).first()
+        if photo:
+            photo.delete()
+        return {"model_id": str(model_id), "url": None}
+
+    # upload path (multipart)
+    upload = request.FILES.get("image")
+    raw_model = request.POST.get("model")
+    if upload is None or raw_model is None:
+        return api_error("Attach an image as 'image' and the rig 'model' number", 400)
+    if not raw_model.isdigit():
+        return api_error("'model' must be a Hamlib model number", 400)
+    model_id = int(raw_model)
+    ext = os.path.splitext(upload.name)[1].lower()
+    if ext not in _RIG_PHOTO_EXTS:
+        return api_error("Use a PNG, JPG, WEBP, or GIF image", 415)
+    if upload.size > 8 * 1024 * 1024:
+        return api_error("Image too large (8 MB max)", 413)
+
+    photo = CWRigPhoto.objects.filter(user=request.user, rig_model=model_id).first()
+    if photo is None:
+        photo = CWRigPhoto(user=request.user, rig_model=model_id)
+    else:
+        photo.image.delete(save=False)  # drop the old file before replacing
+    photo.image = upload
+    photo.save()
+    return {"model_id": str(model_id), "url": photo.image.url}
 
 
 @api_view(methods=["POST"], require_auth=True)

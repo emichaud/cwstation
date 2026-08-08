@@ -133,6 +133,82 @@ class TestSetupEndpoints:
         assert payload["custom_images"]["3085"].endswith("cw/rigs/3085.png")
         assert "notes" not in payload["custom_images"]
 
+
+# a 1×1 PNG — a real, Pillow-openable image
+_PNG_1x1 = bytes.fromhex(
+    "89504e470d0a1a0a0000000d494844520000000100000001080600000"
+    "01f15c4890000000d49444154789c6360000002000155a2f5 f60000000049454e44ae426082".replace(" ", "")
+)
+
+
+@pytest.mark.django_db
+class TestRigPhotos:
+    """Per-operator rig photos: upload, replace, remove, isolation."""
+
+    @pytest.fixture
+    def client_logged(self, client):
+        user = User.objects.create_user(username="op", password="pw")
+        client.force_login(user)
+        return client
+
+    def _png(self, name="rig.png"):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        return SimpleUploadedFile(name, _PNG_1x1, content_type="image/png")
+
+    def test_upload_shows_in_custom_images(self, client_logged, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        resp = client_logged.post(
+            reverse("cw-rig-photo"), {"model": "2011", "image": self._png()}
+        )
+        assert resp.status_code == 200
+        payload = resp.json().get("data") or resp.json()
+        assert payload["url"].endswith(".png")
+
+        data = client_logged.get(reverse("cw-rig-setup-data")).json()
+        images = (data.get("data") or data)["custom_images"]
+        assert "2011" in images
+
+    def test_replace_swaps_file(self, client_logged, settings, tmp_path):
+        from apps.cw.models import CWRigPhoto
+        settings.MEDIA_ROOT = str(tmp_path)
+        client_logged.post(reverse("cw-rig-photo"), {"model": "2011", "image": self._png("a.png")})
+        first = CWRigPhoto.objects.get(rig_model=2011).image.name
+        client_logged.post(reverse("cw-rig-photo"), {"model": "2011", "image": self._png("b.png")})
+        # still exactly one row for this (user, model)
+        assert CWRigPhoto.objects.filter(rig_model=2011).count() == 1
+        second = CWRigPhoto.objects.get(rig_model=2011).image.name
+        assert second and first  # both stored under the deterministic per-user path
+
+    def test_delete_reverts_to_illustration(self, client_logged, settings, tmp_path):
+        import json
+        from apps.cw.models import CWRigPhoto
+        settings.MEDIA_ROOT = str(tmp_path)
+        client_logged.post(reverse("cw-rig-photo"), {"model": "2011", "image": self._png()})
+        resp = client_logged.post(
+            reverse("cw-rig-photo"), json.dumps({"action": "delete", "model": 2011}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        assert not CWRigPhoto.objects.filter(rig_model=2011).exists()
+
+    def test_rejects_non_image(self, client_logged, settings, tmp_path):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        settings.MEDIA_ROOT = str(tmp_path)
+        bad = SimpleUploadedFile("notes.txt", b"nope", content_type="text/plain")
+        resp = client_logged.post(reverse("cw-rig-photo"), {"model": "2011", "image": bad})
+        assert resp.status_code == 415
+
+    def test_photos_are_per_operator(self, client, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        alice = User.objects.create_user(username="alice", password="pw")
+        bob = User.objects.create_user(username="bob", password="pw")
+        client.force_login(alice)
+        client.post(reverse("cw-rig-photo"), {"model": "2011", "image": self._png()})
+        client.force_login(bob)
+        data = client.get(reverse("cw-rig-setup-data")).json()
+        images = (data.get("data") or data)["custom_images"]
+        assert "2011" not in images  # bob doesn't see alice's photo
+
     def test_daemon_start_requires_model(self, client_logged):
         response = client_logged.post(
             reverse("cw-rig-daemon"), json.dumps({"action": "start"}),

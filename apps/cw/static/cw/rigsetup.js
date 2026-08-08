@@ -258,6 +258,23 @@ function initCWRigSetup(opts) {
       plate = m ? m.mfg + " " + m.model : "Model #" + sel.model;
     }
     el("rs-rig-plate").textContent = plate;
+
+    // "use my own photo" tools — only for a real, non-dummy model
+    const tools = el("rs-photo-tools");
+    if (tools) {
+      const own = sel.model && !sel.dummy;
+      tools.style.display = own ? "" : "none";
+      if (own) {
+        const has = !!customImages[sel.model];
+        el("rs-photo-remove").style.display = has ? "" : "none";
+        el("rs-photo-add").innerHTML = has
+          ? '<span aria-hidden="true">📷</span> Replace photo'
+          : '<span aria-hidden="true">📷</span> Use my own photo';
+        el("rs-photo-hint").textContent = has
+          ? "This is your photo. Replace it or remove it to go back to the illustration."
+          : "Show your actual radio — pick a picture from your own library.";
+      }
+    }
   }
 
   // ── selector ──────────────────────────────────────────────────────────
@@ -366,6 +383,41 @@ function initCWRigSetup(opts) {
   });
   el("rs-model-filter").addEventListener("input", () => { mfgFilter = ""; renderBrands(); renderModels(); });
   el("rs-rescan").addEventListener("click", refresh);
+
+  // ── "use my own photo" ────────────────────────────────────────────────
+  el("rs-photo-add").addEventListener("click", () => el("rs-photo-file").click());
+  el("rs-photo-file").addEventListener("change", (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ""; // allow re-picking the same file later
+    if (!file || !sel.model) return;
+    if (file.size > 8 * 1024 * 1024) { el("rs-photo-hint").textContent = "That image is over 8 MB — pick a smaller one."; return; }
+    el("rs-photo-hint").textContent = "Uploading…";
+    const fd = new FormData();
+    fd.append("model", sel.model);
+    fd.append("image", file);
+    fetch(opts.photoUrl, { method: "POST", credentials: "same-origin", body: fd })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, data: j.data || j })))
+      .then(({ ok, data }) => {
+        if (!ok) { el("rs-photo-hint").textContent = data.error || "Upload failed."; return; }
+        customImages[sel.model] = data.url + "?t=" + file.size; // bust cache on replace
+        currentArt = ""; // force hero refresh path
+        renderModels();
+        renderRig(lastDaemon);
+      })
+      .catch(() => { el("rs-photo-hint").textContent = "Upload failed."; });
+  });
+  el("rs-photo-remove").addEventListener("click", () => {
+    if (!sel.model || !customImages[sel.model]) return;
+    el("rs-photo-hint").textContent = "Removing…";
+    jfetch(opts.photoUrl, { action: "delete", model: sel.model }).then(({ ok }) => {
+      if (ok) {
+        delete customImages[sel.model];
+        currentArt = "";
+        renderModels();
+        renderRig(lastDaemon);
+      }
+    });
+  });
 
   // ── stoplights ────────────────────────────────────────────────────────
   function setLight(n, state, status) {
