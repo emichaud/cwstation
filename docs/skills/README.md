@@ -41,6 +41,7 @@ When an AI agent is asked to modify or extend this project, these files help it:
 | [background-tasks.md](background-tasks.md) | Django Tasks framework with django-tasks-db backend |
 | [scheduler.md](scheduler.md) | **Recurring jobs** — the `@scheduled` decorator, the scheduler UI, cron/interval/once cadences, the tick, overlap/catch-up policies |
 | [webhooks.md](webhooks.md) | **Webhooks** — a foundational integration surface: outbound event delivery (`enable_webhooks = True`) + inbound receivers (`@webhook_handler`), plus **four extension seams** (`@webhook_transform`/`@webhook_auth`/`@webhook_verifier`/`@webhook_challenge`) that make Zapier/n8n/Stripe/Slack/Event Grid plug-ins, first-class **SmallStack↔SmallStack** pairing (`sc webhook pair`, loop-safe), stable `event_id` dedupe, `Retry-After` + bulk dead-letter replay |
+| [rss.md](rss.md) | **RSS/Atom feeds** — symmetric publish + consume surface. Publish a model with `enable_rss = True` (or a curated `Feed`); the enclosure/podcast seam is `rss_item_extra`. Consume external feeds into a model with `register_feed_source` + the collector (`@scheduled` + `manage.py collect_feeds`). Status-page feed is the reference |
 | [activity-tracking.md](activity-tracking.md) | HTTP request logging middleware and configuration |
 | [logging-audit.md](logging-audit.md) | Logging configuration and audit trail |
 | [screenshot-workflow.md](screenshot-workflow.md) | Visual verification with shot-scraper and screenshot_auth |

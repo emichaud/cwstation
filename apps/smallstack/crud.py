@@ -1200,6 +1200,21 @@ class CRUDView:
     # Bulk operations
     bulk_actions = []  # Opt-in: [BulkAction.DELETE, BulkAction.UPDATE]
 
+    # RSS/Atom feeds (apps.feeds). Opt-in: publish this model as a feed at
+    # /feed/<slug>.rss (+ .atom). Item fields fall back to the search
+    # declarations, so a single flag usually suffices.
+    enable_rss = False
+    rss_slug = None            # feed slug; defaults to url_base (slashes → dashes)
+    rss_title_field = None     # <item> title; defaults to search_display, else str(obj)
+    rss_description_field = None  # <item> description; defaults to search_subtitle
+    rss_date_field = None      # <pubDate> source; defaults to a detected timestamp field
+    rss_author_field = None    # optional <author>, e.g. "owner__username"
+    rss_ordering = None        # defaults to ["-<date_field>"] (else ["-pk"])
+    rss_access = None          # SearchAccess level; defaults to search_access
+    rss_limit = 50             # max items in the feed
+    rss_feed_title = None      # channel <title>; defaults to the model's plural name
+    rss_feed_description = None  # channel <description>
+
     # API
     enable_api = False  # Opt-in: generate JSON API endpoints alongside HTML views
     api_extra_fields = []  # Extra read-only fields appended to API responses (e.g. ["created_at", "updated_at"])
@@ -1530,6 +1545,16 @@ class CRUDView:
     def can_delete(cls, obj, request) -> bool:
         """Return True if the user can delete this object. Override for row-level perms."""
         return True
+
+    def rss_item_extra(self, obj: Any) -> dict[str, Any]:
+        """Extra ``<item>`` fields for the RSS/Atom feed (when ``enable_rss``).
+
+        Returns a dict merged into Django ``feedgenerator.add_item`` kwargs, so
+        override it to attach an ``enclosure`` (podcasts/media), ``categories``,
+        or a computed ``author_name``. Default: nothing extra. This is the seam
+        that lets a downstream build media feeds without changing the core.
+        """
+        return {}
 
     @classmethod
     def row_actions(cls, obj, request, default_actions):
