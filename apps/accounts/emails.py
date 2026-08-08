@@ -59,7 +59,7 @@ def send_branded_email(*, subject, template, context, to, request=None) -> int:
         to=recipients,
     )
     msg.attach_alternative(html_body, "text/html")
-    return msg.send(fail_silently=False)
+    return msg.send()
 
 
 def unique_username_from_email(email: str) -> str:

@@ -9,6 +9,46 @@ listed, no downstream migration is required.
 
 ---
 
+## v0.13.14 — Django 6.1 + email `MAILERS` (breaking **only** if you set `EMAIL_BACKEND`)
+
+**Who is affected:** downstream projects that define **`EMAIL_BACKEND`** (or any `EMAIL_HOST` /
+`EMAIL_PORT` / `EMAIL_USE_TLS` / … *setting*) in their own `config/settings/*.py`. If you only set
+these via **environment variables**, you're fine — nothing to do.
+
+**Why:** SmallStack upgraded to **Django 6.1**, which consolidates email config into a single
+[`MAILERS`](https://docs.djangoproject.com/en/6.1/topics/email/) dict (like `DATABASES`/`CACHES`) and
+deprecates the flat `EMAIL_*` settings (removed in Django 7.0). The base settings now ship `MAILERS`.
+Django 6.1 **raises `ImproperlyConfigured` if both `MAILERS` and a deprecated `EMAIL_*` setting are
+defined** — so a downstream that still sets `EMAIL_BACKEND` in a settings module will fail to boot with:
+
+> `Deprecated email settings are not allowed when MAILERS is defined: EMAIL_BACKEND.`
+
+**Migration — replace the `EMAIL_*` settings with a `MAILERS` override:**
+
+```python
+# before (in your settings module)
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "smtp.example.com"
+EMAIL_USE_TLS = True
+
+# after
+MAILERS = {
+    "default": {
+        "BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+        "OPTIONS": {"host": "smtp.example.com", "use_tls": True},
+    },
+}
+```
+
+Or drop your override entirely and set the `EMAIL_*` **env vars** — SmallStack's
+`config/settings/_email.py:build_mailers()` reads them into `MAILERS` for you (dev defaults to the
+console backend, production to SMTP). `DEFAULT_FROM_EMAIL` / `SERVER_EMAIL` are unchanged (not
+deprecated). `send_mail()`, `EmailMultiAlternatives`, and `mail_admins()` work exactly as before.
+
+**Also removed upstream:** the deprecated `fail_silently=` argument on all framework mail calls (it's
+removed in Django 7.0). If your own code passes `fail_silently=True`, wrap the send in `try/except`
+instead; `fail_silently=False` is the default, so just drop it.
+
 ## v0.13.0 — Runbook app (additive, non-breaking)
 
 **Who is affected:** everyone upgrading from v0.12.x. No manual steps are required — this entry is

@@ -8,12 +8,16 @@ that the task (and inline fallback) call.
 
 from __future__ import annotations
 
+import logging
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.core.mail import send_mail
 from django.db.models import QuerySet
 
 from .models import Document, Subscription
+
+logger = logging.getLogger("smallstack.runbook")
 
 User = get_user_model()
 
@@ -51,11 +55,16 @@ def send_update_notifications(document_id: int, change_type: str) -> int:
         return 0
 
     where = doc.runbook.name if doc.runbook_id else "Runbook"
-    send_mail(
-        subject=f"[Runbook] {doc.title} was updated",
-        message=f'"{doc.title}" in {where} changed ({change_type}).',
-        from_email=None,
-        recipient_list=recipients,
-        fail_silently=True,
-    )
+    # Notifying subscribers must never break the document save that triggered
+    # it — swallow delivery errors (replaces the deprecated fail_silently=True).
+    try:
+        send_mail(
+            subject=f"[Runbook] {doc.title} was updated",
+            message=f'"{doc.title}" in {where} changed ({change_type}).',
+            from_email=None,
+            recipient_list=recipients,
+        )
+    except Exception:
+        logger.exception("Runbook subscriber notification failed for %s", doc.pk)
+        return 0
     return len(recipients)

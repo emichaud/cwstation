@@ -184,7 +184,13 @@ class BackupPageView(StaffRequiredMixin, TemplateView):
         # Admin notification info
         admins = getattr(settings, "ADMINS", [])
         context["admins"] = admins
-        email_backend = getattr(settings, "EMAIL_BACKEND", "")
+        # Read the default mailer's backend from MAILERS (Django 6.1), falling
+        # back to the deprecated EMAIL_BACKEND for downstream projects that
+        # haven't migrated yet.
+        mailers = getattr(settings, "MAILERS", {}) or {}
+        email_backend = mailers.get("default", {}).get("BACKEND", "") or getattr(
+            settings, "EMAIL_BACKEND", ""
+        )
         context["email_is_console"] = "console" in email_backend
 
         # Download feature flag

@@ -422,7 +422,7 @@ postgres = [
 [package.metadata]
 requires-dist = [
     { name = "croniter", specifier = ">=6.2.4" },
-    { name = "django", specifier = ">=6.0" },
+    { name = "django", specifier = ">=6.1" },
     { name = "django-axes", specifier = ">=7.0" },
     { name = "django-cors-headers", specifier = ">=4.9.0" },
     { name = "django-csp", specifier = ">=4.0" },

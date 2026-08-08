@@ -153,10 +153,10 @@ if not CORS_ALLOWED_ORIGINS:  # noqa: F405
 # Explorer — show all admin-registered models without requiring explorer_enabled
 EXPLORER_DISCOVER_ALL = True
 
-# Email backend for development (prints to console)
-# To test real email delivery locally, set EMAIL_BACKEND in your .env file:
-#   EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
-EMAIL_BACKEND = config("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
+# Email: dev prints to console. MAILERS is inherited from base (config/settings/
+# smallstack.py, console default). To test real delivery locally, set
+# EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend (+ EMAIL_HOST etc.)
+# in your .env — build_mailers() reads them into MAILERS automatically.
 
 # Background Tasks - uses DatabaseBackend from base settings by default
 # The worker auto-reloads in DEBUG mode: python manage.py db_worker
