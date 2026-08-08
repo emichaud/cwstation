@@ -32,7 +32,48 @@
 {% block content %}
 <div class="card" id="crud-content">
     <div class="card-body">
-        {% include "smallstack/crud/includes/list_toolbar.html" %}
+        {# Prominent search + quick-filter toggles + view switch — one htmx form. #}
+        {% comment %}hx-get points at the clean list path so the form params
+        replace the query string instead of accumulating each interaction.{% endcomment %}
+        <form id="sessions-toolbar" class="cw-sess-toolbar"
+              hx-get="{% url 'cw/sessions-list' %}" hx-target="#crud-list-content" hx-swap="innerHTML swap:150ms"
+              hx-push-url="true"
+              hx-trigger="change, keyup delay:300ms from:input[name='q'], search from:input[name='q']">
+
+            <div class="cw-sess-searchrow">
+                <div class="cw-sess-search">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                    <input type="search" name="q" value="{{ request.GET.q|default:'' }}"
+                           placeholder="Search your copy — text or ground truth…" autocomplete="off" spellcheck="false">
+                </div>
+                <div class="cw-toggle cw-view-toggle" role="group" aria-label="View as">
+                    <label class="cw-chip"><input type="radio" name="display" value="cards" {% if request.GET.display != 'table' %}checked{% endif %}><span>▦ Cards</span></label>
+                    <label class="cw-chip"><input type="radio" name="display" value="table" {% if request.GET.display == 'table' %}checked{% endif %}><span>▤ Table</span></label>
+                </div>
+            </div>
+
+            <div class="cw-sess-filterrow">
+                <div class="cw-toggle" role="group" aria-label="Filter by direction">
+                    <label class="cw-chip"><input type="radio" name="direction" value="" {% if not request.GET.direction %}checked{% endif %}><span>All</span></label>
+                    <label class="cw-chip cw-chip-rx"><input type="radio" name="direction" value="rx" {% if request.GET.direction == 'rx' %}checked{% endif %}><span>Received</span></label>
+                    <label class="cw-chip cw-chip-tx"><input type="radio" name="direction" value="tx" {% if request.GET.direction == 'tx' %}checked{% endif %}><span>Sent</span></label>
+                </div>
+                <span class="cw-sess-sep" aria-hidden="true"></span>
+                <div class="cw-toggle" role="group" aria-label="Filter by source">
+                    <label class="cw-chip"><input type="radio" name="source" value="" {% if not request.GET.source %}checked{% endif %}><span>Any source</span></label>
+                    <label class="cw-chip"><input type="radio" name="source" value="live" {% if request.GET.source == 'live' %}checked{% endif %}><span>Live</span></label>
+                    <label class="cw-chip"><input type="radio" name="source" value="synth" {% if request.GET.source == 'synth' %}checked{% endif %}><span>Practice</span></label>
+                    <label class="cw-chip"><input type="radio" name="source" value="wav" {% if request.GET.source == 'wav' %}checked{% endif %}><span>Recording</span></label>
+                    <label class="cw-chip"><input type="radio" name="source" value="text" {% if request.GET.source == 'text' %}checked{% endif %}><span>Composed</span></label>
+                </div>
+                {# mirrors the framework's out-of-band count refresh on htmx swaps #}
+                <span id="list-toolbar-count" class="list-toolbar-count cw-sess-count">
+                    <span class="list-toolbar-count-value">{{ toolbar_total_count|default:0 }}</span>
+                    <span class="list-toolbar-count-label">Record{{ toolbar_total_count|pluralize }}</span>
+                </span>
+            </div>
+        </form>
+
         <div id="crud-list-content">
             {% include "smallstack/crud/object_list_content.html" %}
         </div>

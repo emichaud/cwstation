@@ -974,6 +974,54 @@ body.cw-setup {
 .cw-keyer-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
 .cw-keyer-actions .cw-btn-lg { min-height: 44px; }
 
+/* ── Sessions: prominent toolbar (search + filter toggles + view switch) ── */
+.cw-sess-toolbar { display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px; }
+.cw-sess-searchrow { display: flex; gap: 12px; align-items: center; }
+.cw-sess-search {
+    flex: 1 1 auto; position: relative; display: flex; align-items: center;
+}
+.cw-sess-search svg {
+    position: absolute; left: 16px; color: var(--body-quiet-color); pointer-events: none;
+}
+.cw-sess-search input {
+    width: 100%; height: 52px; padding: 0 18px 0 46px;
+    border: 1px solid var(--card-border); border-radius: 12px;
+    background: var(--body-bg); color: var(--body-fg);
+    font-size: 1.05rem; transition: border-color 0.15s, box-shadow 0.15s;
+}
+.cw-sess-search input::placeholder { color: var(--body-quiet-color); }
+.cw-sess-search input:focus {
+    outline: none; border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--accent-band-bg);
+}
+
+.cw-sess-filterrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cw-sess-sep { width: 1px; align-self: stretch; background: var(--card-border); margin: 2px 4px; }
+.cw-sess-count { margin-left: auto; white-space: nowrap; }
+
+/* toggle chip groups — real radios, styled as segmented toggles */
+.cw-toggle { display: inline-flex; gap: 4px; padding: 3px; border-radius: 11px; background: var(--body-bg); border: 1px solid var(--card-border); }
+.cw-chip { position: relative; cursor: pointer; }
+.cw-chip input { position: absolute; opacity: 0; width: 0; height: 0; }
+.cw-chip span {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 7px 14px; border-radius: 8px;
+    font-size: 0.9rem; font-weight: 600; color: var(--body-quiet-color);
+    white-space: nowrap; transition: background 0.12s, color 0.12s; user-select: none;
+}
+.cw-chip:hover span { color: var(--body-fg); }
+.cw-chip input:checked + span { background: var(--primary); color: var(--button-fg); }
+.cw-chip input:focus-visible + span { outline: 2px solid var(--input-focus-border); outline-offset: 1px; }
+/* direction chips keep their semantic colour when active */
+.cw-chip-rx input:checked + span { background: var(--success-fg); }
+.cw-chip-tx input:checked + span { background: var(--warning-fg); }
+.cw-view-toggle { flex: 0 0 auto; }
+
+@media (max-width: 640px) {
+    .cw-sess-searchrow { flex-direction: column; align-items: stretch; }
+    .cw-sess-count { margin-left: 0; }
+}
+
 /* ── Sessions: roomy card list (replaces the dense CRUD table) ── */
 body.cw-console .card-grid { grid-template-columns: 1fr; gap: 12px; }
 .cw-session-card {

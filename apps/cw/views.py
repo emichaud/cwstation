@@ -15,7 +15,7 @@ from django.views.generic import TemplateView
 
 from apps.search.access import SearchAccess
 from apps.smallstack.crud import Action, CRUDView
-from apps.smallstack.displays import CardDisplay
+from apps.smallstack.displays import CardDisplay, TableDisplay
 
 from . import services
 from .forms import PracticeDecodeForm, QSOForm, RecordingDecodeForm, SendForm
@@ -70,12 +70,14 @@ class CWSessionCRUDView(CRUDView):
     model = CWSession
     fields = ["text"]
     url_base = "cw/sessions"
-    paginate_by = 10
+    paginate_by = 6
     mixins = [LoginRequiredMixin]
     actions = [Action.LIST, Action.DETAIL, Action.DELETE]
 
-    # A single roomy card display replaces the dense table.
-    displays = [SessionCardDisplay()]
+    # Roomy cards by default; the classic table is one toggle away.
+    displays = [SessionCardDisplay(), TableDisplay()]
+    # Quick-filter the list by how the pass was made.
+    filter_fields = ["direction", "source"]
 
     list_fields = ["text", "direction", "source", "wpm", "callsigns", "created_at"]
     link_field = "text"
