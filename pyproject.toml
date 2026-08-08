@@ -62,6 +62,11 @@ testpaths = ["apps"]
 addopts = "--ds=config.settings.test --cov=apps --cov-report=term-missing:skip-covered --cov-report=html"
 filterwarnings = [
     "ignore:SMALLSTACK_TOPBAR_NAV_ITEMS:DeprecationWarning",
+    # Media (.md) files served by whitenoise / read by Django's FileField during
+    # runbook tests are closed by GC, not explicitly — a harmless test-env
+    # artifact, not a production leak. Scoped to the unclosed-file message so a
+    # genuine future leak still surfaces.
+    "ignore:unclosed file:ResourceWarning",
 ]
 markers = [
     "starter_content: tests that assert upstream starter *copy/pages* (legal text, marketing/home, signup) a downstream replaces or disables — safe to skip downstream. Do NOT tag framework chrome (breadcrumbs, topbar nav) that downstream keeps.",
