@@ -1063,8 +1063,25 @@ body.cw-console .crud-table td:first-child {
 .cw-qso-act-del:hover { color: var(--error-fg); border-color: color-mix(in srgb, var(--error-fg) 45%, var(--card-border)); }
 @media (hover: none) { .cw-qso-act { opacity: 1; } }
 
-/* ── Sessions: roomy card list (replaces the dense CRUD table) ── */
+/* ── Sessions: roomy full-width card list (the copy needs the width) ── */
 body.cw-console .card-grid { grid-template-columns: 1fr; gap: 12px; }
+
+/* ── Logbook: an Apple-style collection — smaller cards flowing into columns ── */
+body.cw-logbook .card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
+    gap: 12px;
+    align-items: stretch;
+}
+.cw-logbook .cw-qso-card .cw-sc-body { padding: 14px 14px 12px; gap: 8px; }
+.cw-logbook .cw-qso-card .cw-sc-head { flex-wrap: wrap; gap: 8px 10px; }
+.cw-logbook .cw-qso-call { font-size: 1.25rem; }
+.cw-logbook .cw-qso-card .cw-sc-time { margin-left: auto; font-size: 0.76rem; }
+.cw-logbook .cw-qso-card .cw-sc-meta { flex-wrap: wrap; gap: 6px 8px; }
+.cw-logbook .cw-qso-station {
+    flex-basis: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cw-logbook .cw-qso-card .cw-sc-replay { display: none; }  /* whole card links to edit */
+.cw-logbook .cw-qso-actions { top: 10px; right: 10px; }
 .cw-session-card {
     position: relative;
     border: 1px solid var(--card-border);
@@ -1114,6 +1131,14 @@ body.cw-console .card-grid { grid-template-columns: 1fr; gap: 12px; }
 .cw-sc-del:hover { color: var(--error-fg); border-color: color-mix(in srgb, var(--error-fg) 45%, var(--card-border)); }
 @media (hover: none) { .cw-sc-del, .cw-sc-replay { opacity: 1; } }
 @media (max-width: 560px) { .cw-sc-time { margin-left: 0; width: 100%; } }
+
+/* ── Callbook (setup-style tool page) ── */
+.cw-cb-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.cw-cb-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 560px) { .cw-cb-grid2 { grid-template-columns: 1fr; } }
+.cw-cb-result { font-size: 0.9rem; margin-top: 12px; color: var(--body-quiet-color); min-height: 1.2em; }
+.cw-cb-list { margin: 0; padding-left: 20px; line-height: 1.9; color: var(--body-quiet-color); font-size: 0.95rem; }
+.cw-cb-list b { color: var(--body-fg); }
 
 .cw-mycall { margin: 4px 0 16px; }
 .cw-mycall label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }

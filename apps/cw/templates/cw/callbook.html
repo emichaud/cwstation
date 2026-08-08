@@ -3,7 +3,7 @@
 
 {% block title %}Callbook · QRZ.com{% endblock %}
 {% block breadcrumbs %}{% endblock %}
-{% block body_class %}cw-console{% endblock %}
+{% block body_class %}cw-console cw-setup{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'cw/cw.css' %}">
@@ -25,82 +25,74 @@
 {% endblock %}
 
 {% block content %}
-<div class="cw-form-grid">
+<div class="cw-setup-wrap">
+    <header class="cw-setup-head">
+        <h2>Your QRZ.com home</h2>
+        <p>Look up any station, keep your callbook login current, and sync your log with QRZ —
+           all in one place.</p>
+    </header>
+
     {# ── LOOKUP CONSOLE ── #}
-    <div class="card">
-        <div class="card-header"><h2>Lookup console</h2></div>
-        <div class="card-body">
-            <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
-                Review any station's QRZ record — and see your own history with them.
-            </p>
-            <div class="cw-qso-rstpair" style="gap: 8px;">
-                <input type="text" id="cb-call" class="cw-call-input cw-mono" placeholder="W1AW"
-                       autocomplete="off" spellcheck="false" style="max-width: 220px; font-size: 1.2rem;">
-                <button type="button" class="btn-primary" id="cb-lookup">Look up</button>
-            </div>
-            <div id="cb-result" style="margin-top: 12px;"></div>
+    <section class="cw-setup-card">
+        <div class="cw-step-head"><span class="cw-step-num">🔎</span><h3>Lookup console</h3></div>
+        <p class="cw-setup-note">Review any station's QRZ record — and see your own history with them.</p>
+        <div class="cw-cb-actions">
+            <input type="text" id="cb-call" class="cw-setup-input cw-mono" placeholder="W1AW"
+                   autocomplete="off" spellcheck="false"
+                   style="max-width: 260px; font-size: 1.35rem; text-transform: uppercase; letter-spacing: 1px;">
+            <button type="button" class="cw-btn-lg" id="cb-lookup">Look up</button>
         </div>
-    </div>
+        <div id="cb-result" style="margin-top: 16px;"></div>
+    </section>
 
     {# ── ACCOUNT ── #}
-    <div class="card">
-        <div class="card-header"><h2>Account — XML lookups</h2></div>
-        <div class="card-body">
-            <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
-                Your QRZ login powers callsign lookups (needs a QRZ XML subscription).
-                To <b>change the password later</b>, type the new one here and Save &amp; test —
-                it's write-only, encrypted at rest, and never shown again.
-            </p>
-            <div class="cw-bank-row" style="grid-template-columns: 1fr 1fr;">
-                <input type="text" id="cb-user" class="cw-bank-text cw-mono" placeholder="QRZ username" autocomplete="off">
-                <input type="password" id="cb-pass" class="cw-bank-text cw-mono" placeholder="password (unchanged if blank)" autocomplete="new-password">
-            </div>
-            <div class="cw-bank-row" style="grid-template-columns: 1fr auto auto; margin-top: 8px;">
-                <input type="text" id="cb-testcall" class="cw-bank-text cw-mono" placeholder="test with a call — default W1AW" autocomplete="off">
-                <button type="button" class="btn-tint" id="cb-save">Save &amp; test</button>
-                <button type="button" class="btn-tint" id="cb-unlink" style="color: var(--error-fg);">Unlink</button>
-            </div>
-            <div id="cb-acct-result" style="font-size: 0.8rem; margin-top: 8px; color: var(--body-quiet-color);"></div>
+    <section class="cw-setup-card">
+        <div class="cw-step-head"><span class="cw-step-num">🔑</span><h3>Account — XML lookups</h3></div>
+        <p class="cw-setup-note">Your QRZ login powers callsign lookups (needs a QRZ XML subscription).
+            To <b>change the password later</b>, type the new one here and Save &amp; test — it's
+            write-only, encrypted at rest, and never shown again.</p>
+        <div class="cw-cb-grid2">
+            <input type="text" id="cb-user" class="cw-setup-input cw-mono" placeholder="QRZ username" autocomplete="off">
+            <input type="password" id="cb-pass" class="cw-setup-input cw-mono" placeholder="password (unchanged if blank)" autocomplete="new-password">
         </div>
-    </div>
+        <div class="cw-cb-actions" style="margin-top: 12px;">
+            <input type="text" id="cb-testcall" class="cw-setup-input cw-mono" placeholder="test with a call — default W1AW" autocomplete="off" style="flex: 1;">
+            <button type="button" class="cw-btn-lg" id="cb-save">Save &amp; test</button>
+            <button type="button" class="cw-btn-lg cw-btn-danger" id="cb-unlink">Unlink</button>
+        </div>
+        <div id="cb-acct-result" class="cw-cb-result"></div>
+    </section>
 
     {# ── QRZ LOGBOOK SYNC ── #}
-    <div class="card">
-        <div class="card-header"><h2>QRZ logbook — import / export</h2></div>
-        <div class="card-body">
-            <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-top: 0;">
-                QRZ hosts its own logbook at logbook.qrz.com, with a separate <b>per-logbook API
-                key</b> (on QRZ: My Logbook → Settings → API) — not your account password.
-                With the key saved: <b>Import</b> pulls your entire QRZ log in here (duplicates
-                skipped, safe to repeat — the way to feel at home on day one), and
-                <b>Export</b> pushes contacts logged here up to QRZ, marking them so nothing
-                double-sends.
-            </p>
-            <div class="cw-bank-row" style="grid-template-columns: 1fr auto;">
-                <input type="password" id="cb-lbkey" class="cw-bank-text cw-mono"
-                       placeholder="logbook API key (unchanged if blank)" autocomplete="new-password">
-                <button type="button" class="btn-tint" id="cb-lbsave">Save key</button>
-            </div>
-            <div class="cw-qso-rstpair" style="gap: 8px; margin-top: 10px;">
-                <button type="button" class="btn-primary" id="cb-import">⇊ Import from QRZ</button>
-                <button type="button" class="btn-tint" id="cb-export">⇈ Export to QRZ</button>
-            </div>
-            <div id="cb-sync-result" style="font-size: 0.8rem; margin-top: 8px; color: var(--body-quiet-color);"></div>
+    <section class="cw-setup-card">
+        <div class="cw-step-head"><span class="cw-step-num">🔄</span><h3>QRZ logbook — import / export</h3></div>
+        <p class="cw-setup-note">QRZ hosts its own logbook at logbook.qrz.com, with a separate
+            <b>per-logbook API key</b> (on QRZ: My Logbook → Settings → API) — not your account
+            password. With the key saved: <b>Import</b> pulls your entire QRZ log in here (duplicates
+            skipped, safe to repeat), and <b>Export</b> pushes contacts logged here up to QRZ,
+            marking them so nothing double-sends.</p>
+        <div class="cw-cb-actions">
+            <input type="password" id="cb-lbkey" class="cw-setup-input cw-mono"
+                   placeholder="logbook API key (unchanged if blank)" autocomplete="new-password" style="flex: 1;">
+            <button type="button" class="cw-btn-lg" id="cb-lbsave">Save key</button>
         </div>
-    </div>
+        <div class="cw-cb-actions" style="margin-top: 12px;">
+            <button type="button" class="cw-btn-lg" id="cb-import">⇊ Import from QRZ</button>
+            <button type="button" class="cw-btn-lg" id="cb-export">⇈ Export to QRZ</button>
+        </div>
+        <div id="cb-sync-result" class="cw-cb-result"></div>
+    </section>
 
     {# ── HOW IT FITS ── #}
-    <div class="card">
-        <div class="card-header"><h2>How the pieces fit</h2></div>
-        <div class="card-body" style="font-size: 0.85rem; color: var(--body-quiet-color);">
-            <ul style="margin: 0; padding-left: 18px; line-height: 1.8;">
-                <li><b style="color: var(--body-fg);">No account needed:</b> every callsign in the app links to its QRZ page (<span class="cw-mono">qrz↗</span>).</li>
-                <li><b style="color: var(--body-fg);">XML login:</b> quick-logs and the QSO form auto-fill operator name, QTH, grid, and country.</li>
-                <li><b style="color: var(--body-fg);">Logbook key:</b> your QRZ log and this log stay in sync — import once to bring your history home, export whenever you've logged new contacts.</li>
-                <li><b style="color: var(--body-fg);">ADIF is the common tongue:</b> the same UTC-clean records go to QRZ, eQSL, or any file you ↓ export.</li>
-            </ul>
-        </div>
-    </div>
+    <section class="cw-setup-card">
+        <div class="cw-step-head"><span class="cw-step-num">🧩</span><h3>How the pieces fit</h3></div>
+        <ul class="cw-cb-list">
+            <li><b>No account needed:</b> every callsign in the app links to its QRZ page (<span class="cw-mono">qrz↗</span>).</li>
+            <li><b>XML login:</b> quick-logs and the QSO form auto-fill operator name, QTH, grid, and country.</li>
+            <li><b>Logbook key:</b> your QRZ log and this log stay in sync — import once to bring your history home, export whenever you've logged new contacts.</li>
+            <li><b>ADIF is the common tongue:</b> the same UTC-clean records go to QRZ, eQSL, or any file you ↓ export.</li>
+        </ul>
+    </section>
 </div>
 
 <script>
