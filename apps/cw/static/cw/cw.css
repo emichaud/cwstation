@@ -430,12 +430,18 @@ html[data-theme="light"] body.cw-console .cw-rig-freq > .cw-mono:first-child {
 .cw-ctrl:focus-visible { outline: 2px solid var(--input-focus-border); outline-offset: 2px; }
 .cw-ctrl-wide {
     width: auto;
-    padding: 0 12px;
+    padding: 0 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     font-size: 0.8rem;
     font-weight: 700;
     letter-spacing: 0.06em;
 }
+.cw-tutor-ic { flex: 0 0 auto; }
+/* a subtle "graduating" nudge when tutor mode is on */
+#cw-tutor[aria-pressed="true"] .cw-tutor-ic { transform: translateY(-1px); }
 
 /* ── tutor gloss panel: shorthand → plain English, only when toggled ──── */
 .cw-gloss {

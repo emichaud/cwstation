@@ -204,11 +204,22 @@ identifies a station, its callsign appears under the tape in **Heard on the band
 click **reply** and the Send composer opens pre-filled with a standard answer
 (`W1AW DE YOU YOU K`) ready to key into audio.
 
-**Tutor mode** — hit the **Aa** button under the tape and a *plain English* panel
-appears, expanding the CW shorthand in your copy as it comes in (`CQ` → calling any
-station, `QTH` → location, `73` → best regards…). It only shows what's actually on
-the tape, so it teaches in context without cluttering. The full table is in the
-[Morse Code Reference](/smallstack/help/morse-reference/).
+### Tutor mode
+
+Learning the shorthand? Hit the **🎓 Tutor** button in the controls under the tape.
+A *plain English* panel appears and expands the CW shorthand in your copy as it comes
+in — `CQ` → "calling any station", `QTH` → "location", `73` → "best regards", and so
+on. It only glosses what's actually on the tape, so it teaches in context without
+cluttering the copy; toggle it off with the same button.
+
+Tutor mode also covers **prosigns** (the run-together symbols like `<AR>` end of
+message, `<SK>` end of contact, `<BT>` pause) and Q-signals. Hover any glossed term
+on the tape for the full meaning. The complete list — every abbreviation, Q-code, and
+prosign the station knows — is in the [Morse Code Reference](/smallstack/help/morse-reference/),
+and you can teach it your own expansions from the shorthand table there.
+
+Tutor mode is available on every tape: **Live**, **Simulator**, the **Monitor**
+replay, and any saved **session**.
 
 Radio-side tips: tune the signal so its note sits at one steady pitch (the narrow CW
 filter helps), and prefer slow AGC — the decoder rides through fading, but heavily
