@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
 from django.http import Http404, HttpRequest, HttpResponse
 
 from apps.search.access import SearchAccess
@@ -58,6 +59,13 @@ def _authorized(feed: Feed, user: Any) -> bool:
 
 
 def feed_view(request: HttpRequest, slug: str, fmt: str = "rss") -> HttpResponse:
+    # Master switch: when feeds are disabled the whole surface is off — every
+    # feed (model-backed or custom) 404s, not just the ones whose registration
+    # happens to be guarded. Enforced here on the request path so the switch
+    # can't be bypassed by a lazily-resolved model feed.
+    if not getattr(settings, "SMALLSTACK_FEEDS_ENABLED", True):
+        raise Http404("Feeds are disabled")
+
     feed = get_feed(slug)
     if feed is None:
         raise Http404("No such feed")

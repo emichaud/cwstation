@@ -37,6 +37,20 @@ class FeedSource:
     map: Callable[[Any], dict] | None = None  # ParsedItem -> model kwargs
     dedupe: str = "guid"  # unique field (scoped per-source) to detect seen items
     enabled: bool = True
+    # Auth for gated feeds. `token` is sugar for a Bearer header; `headers`
+    # merges arbitrary request headers. Both are sent on every fetch. Prefer
+    # sourcing the secret from settings/env over hard-coding it.
+    token: str | None = None
+    headers: dict[str, str] | None = None
+
+    def request_headers(self) -> dict[str, str]:
+        """Extra request headers for the fetch (Bearer token + any custom)."""
+        out: dict[str, str] = {}
+        if self.token:
+            out["Authorization"] = f"Bearer {self.token}"
+        if self.headers:
+            out.update(self.headers)
+        return out
 
 
 _sources: dict[str, FeedSource] = {}
@@ -50,11 +64,28 @@ def register_feed_source(
     map: Callable[[Any], dict] | None = None,
     dedupe: str = "guid",
     enabled: bool = True,
+    token: str | None = None,
+    headers: dict[str, str] | None = None,
 ) -> FeedSource:
-    """Register (or replace) a feed source by ``name``."""
+    """Register (or replace) a feed source by ``name``.
+
+    ``token`` sends ``Authorization: Bearer <token>`` on the fetch (for
+    consuming a STAFF/AUTHENTICATED feed — e.g. one this app itself publishes).
+    ``headers`` merges arbitrary request headers. Source the secret from
+    settings/env rather than embedding it in ``url`` as ``?token=``.
+    """
     if name in _sources:
         logger.info("Feed source %r re-registered", name)
-    source = FeedSource(name=name, url=url, model=model, map=map, dedupe=dedupe, enabled=enabled)
+    source = FeedSource(
+        name=name,
+        url=url,
+        model=model,
+        map=map,
+        dedupe=dedupe,
+        enabled=enabled,
+        token=token,
+        headers=headers,
+    )
     _sources[name] = source
     return source
 

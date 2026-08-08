@@ -8,7 +8,10 @@ collect_feeds`` (same core). Idempotent: items are deduped on the source's
 from __future__ import annotations
 
 import logging
+import urllib.error
 import urllib.request
+
+from django.conf import settings
 
 from .parser import ParsedItem, parse_feed
 from .sources import FeedSource, all_sources, get_source
@@ -19,8 +22,11 @@ _USER_AGENT = "SmallStack-FeedCollector/1.0 (+https://github.com/emichaud/django
 _TIMEOUT = 20
 
 
-def _fetch(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+def _fetch(url: str, headers: dict[str, str] | None = None) -> bytes:
+    all_headers = {"User-Agent": _USER_AGENT}
+    if headers:
+        all_headers.update(headers)
+    req = urllib.request.Request(url, headers=all_headers)
     with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:  # noqa: S310 (trusted, registered URLs)
         return resp.read()
 
@@ -64,8 +70,22 @@ def collect_source(name: str) -> dict:
         return {"name": name, "error": "disabled", "fetched": 0, "created": 0, "skipped": 0}
 
     try:
-        content = _fetch(source.url)
+        content = _fetch(source.url, source.request_headers())
         items = parse_feed(content)
+    except urllib.error.HTTPError as exc:
+        # A gated feed answers 401 (or 403) — point the operator at the fix
+        # rather than surfacing the raw urllib message.
+        if exc.code in (401, 403):
+            logger.warning("Feed %s (%s) requires auth (HTTP %s)", name, source.url, exc.code)
+            return {
+                "name": name,
+                "error": f"auth required (HTTP {exc.code}) — set token=/headers= on the source",
+                "fetched": 0,
+                "created": 0,
+                "skipped": 0,
+            }
+        logger.exception("Feed fetch/parse failed for %s (%s)", name, source.url)
+        return {"name": name, "error": str(exc), "fetched": 0, "created": 0, "skipped": 0}
     except Exception as exc:
         logger.exception("Feed fetch/parse failed for %s (%s)", name, source.url)
         return {"name": name, "error": str(exc), "fetched": 0, "created": 0, "skipped": 0}
@@ -96,7 +116,13 @@ def collect_source(name: str) -> dict:
 
 
 def collect_all() -> list[dict]:
-    """Poll every enabled source. One source's failure never aborts the rest."""
+    """Poll every enabled source. One source's failure never aborts the rest.
+
+    No-ops (returns ``[]``) when the ``SMALLSTACK_FEEDS_ENABLED`` master switch
+    is off, so a disabled feeds surface never reaches out over the network.
+    """
+    if not getattr(settings, "SMALLSTACK_FEEDS_ENABLED", True):
+        return []
     results = []
     for source in all_sources():
         if source.enabled:

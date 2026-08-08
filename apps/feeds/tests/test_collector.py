@@ -22,7 +22,7 @@ SAMPLE = b"""<?xml version="1.0"?>
 @pytest.fixture
 def _fake_fetch(monkeypatch):
     """Serve SAMPLE bytes instead of hitting the network."""
-    monkeypatch.setattr(collector, "_fetch", lambda url: SAMPLE)
+    monkeypatch.setattr(collector, "_fetch", lambda url, headers=None: SAMPLE)
 
 
 @pytest.fixture(autouse=True)
@@ -75,10 +75,66 @@ def test_unknown_source_reports_error():
 
 
 def test_fetch_failure_is_contained(monkeypatch):
-    def boom(url):
+    def boom(url, headers=None):
         raise OSError("network down")
 
     monkeypatch.setattr(collector, "_fetch", boom)
     register_feed_source("bad", "https://e/feed.rss")
     result = collect_source("bad")
     assert result["created"] == 0 and "network down" in result["error"]
+
+
+def test_collect_all_noops_when_feeds_disabled(monkeypatch, settings):
+    """Master switch off ⇒ collector does not fetch and returns []."""
+    settings.SMALLSTACK_FEEDS_ENABLED = False
+
+    def boom(url, headers=None):
+        raise AssertionError("collector must not fetch when feeds are disabled")
+
+    monkeypatch.setattr(collector, "_fetch", boom)
+    register_feed_source("blog", "https://e/feed.rss")
+    assert collect_all() == []
+    assert CollectedItem.objects.count() == 0
+
+
+# --- consume-side auth (token/headers threaded into the fetch) ---------------
+
+
+def test_request_headers_builds_bearer_and_custom():
+    from apps.feeds.sources import FeedSource
+
+    s = FeedSource(name="x", url="https://e/f.rss", token="abc123", headers={"X-K": "v"})
+    h = s.request_headers()
+    assert h["Authorization"] == "Bearer abc123"
+    assert h["X-K"] == "v"
+    # No auth configured → no Authorization header.
+    assert "Authorization" not in FeedSource(name="y", url="https://e/f.rss").request_headers()
+
+
+def test_token_source_sends_bearer_header(monkeypatch):
+    """A source with a token collects a gated feed — the Bearer header reaches _fetch."""
+    seen = {}
+
+    def fake_fetch(url, headers=None):
+        seen["headers"] = headers or {}
+        return SAMPLE
+
+    monkeypatch.setattr(collector, "_fetch", fake_fetch)
+    register_feed_source("gated", "https://e/staff.rss", token="tok-xyz")
+    result = collect_source("gated")
+    assert seen["headers"].get("Authorization") == "Bearer tok-xyz"
+    assert result["fetched"] == 2 and result["error"] is None
+
+
+def test_gated_feed_without_auth_reports_auth_required(monkeypatch):
+    """No token on a 401 feed → clear 'auth required' error, zero items."""
+    import urllib.error
+
+    def raise_401(url, headers=None):
+        raise urllib.error.HTTPError(url, 401, "Unauthorized", {}, None)
+
+    monkeypatch.setattr(collector, "_fetch", raise_401)
+    register_feed_source("gated", "https://e/staff.rss")
+    result = collect_source("gated")
+    assert result["fetched"] == 0 and result["created"] == 0
+    assert "auth required" in result["error"] and "401" in result["error"]

@@ -123,3 +123,39 @@ def test_staff_feed_served_to_staff_session(_feeds, django_user_model):
 
 def test_unknown_feed_404s():
     assert Client().get("/feed/does-not-exist.rss").status_code == 404
+
+
+def test_public_feed_404s_when_feeds_disabled(_feeds, settings):
+    """Master switch off ⇒ the whole request surface 404s, even a public feed."""
+    settings.SMALLSTACK_FEEDS_ENABLED = False
+    assert Client().get("/feed/t-public.rss").status_code == 404
+
+
+# --- enclosure / podcast seam (Django 6 dropped the singular `enclosure=`) ----
+
+
+class _EnclosureFeed(Feed):
+    """Emits one item carrying an enclosure via extra_kwargs (either key form)."""
+
+    slug = "t-enclosure"
+    title = "Enclosure"
+    access = SearchAccess.ANONYMOUS
+
+    def __init__(self, extra):
+        self._extra = extra
+
+    def items(self, request):
+        return [FeedItem(title="ep", link="/e", unique_id="e1", extra_kwargs=self._extra)]
+
+
+@pytest.mark.parametrize("key", ["enclosure", "enclosures"])
+def test_enclosure_renders_for_singular_and_plural(key):
+    from django.utils.feedgenerator import Enclosure
+
+    enc = Enclosure("https://example.com/e.mp3", "1024", "audio/mpeg")
+    extra = {"enclosure": enc} if key == "enclosure" else {"enclosures": [enc]}
+    feed = _EnclosureFeed(extra)
+    req = RequestFactory(HTTP_HOST="testserver").get("/feed/t-enclosure.rss")
+    rss, _ = render_feed(feed, req, "rss")
+    assert "<enclosure" in rss
+    assert 'url="https://example.com/e.mp3"' in rss

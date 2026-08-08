@@ -48,6 +48,16 @@ def render_feed(feed: Feed, request: HttpRequest, fmt: str = "rss") -> tuple[str
         # The extension seam wins on any overlapping key (e.g. enclosure,
         # categories) — merge rather than double-pass to add_item().
         kwargs.update(item.extra_kwargs)
+        # Normalize the enclosure seam: Django 6 dropped the singular
+        # ``enclosure=`` kwarg in favour of ``enclosures=[...]``. Accept either
+        # form (and fold a singular into the list) so downstream ``rss_item_extra``
+        # keeps working regardless of Django version / which key it used.
+        if "enclosure" in kwargs:
+            enclosure = kwargs.pop("enclosure")
+            if enclosure is not None:
+                enclosures = list(kwargs.get("enclosures") or [])
+                enclosures.append(enclosure)
+                kwargs["enclosures"] = enclosures
         generator.add_item(**kwargs)
 
     return generator.writeString("utf-8"), generator.content_type

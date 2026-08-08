@@ -108,8 +108,13 @@ from django.utils.feedgenerator import Enclosure
 class EpisodeView(CRUDView):
     enable_rss = True
     def rss_item_extra(self, obj):
-        return {"enclosure": Enclosure(obj.audio_url, str(obj.bytes), "audio/mpeg")}
+        return {"enclosures": [Enclosure(obj.audio_url, str(obj.bytes), "audio/mpeg")]}
 ```
+
+Use the **plural** `enclosures=[...]` — Django 6 dropped the old singular
+`enclosure=` kwarg. SmallStack still accepts a singular `{"enclosure": …}` for
+back-compat (it's folded into the list before rendering), but new code should
+use the list form.
 
 Full podcast feeds also need the iTunes namespace (`itunes:image`,
 `itunes:duration`, …); subclass `Rss201rev2Feed` in a custom renderer for that.
@@ -143,6 +148,34 @@ register_feed_source(
 `map` receives a `ParsedItem` (`title`, `link`, `guid`, `summary`, `author`,
 `published`, `enclosures`, `raw`) and returns model kwargs. Dedupe is scoped per
 source, so two feeds can share a guid without colliding.
+
+### Consuming an authenticated feed
+
+Public feeds need nothing extra. To consume a `STAFF`/`AUTHENTICATED` feed —
+including one **this app itself publishes** (the SmallStack→SmallStack symmetric
+case) — give the source a token so the collector sends
+`Authorization: Bearer <token>`:
+
+```python
+from django.conf import settings
+
+register_feed_source(
+    "internal-audit",
+    "https://myapp.example.com/feed/audit.rss",
+    token=settings.INTERNAL_FEED_TOKEN,        # → Authorization: Bearer …
+)
+
+# Arbitrary headers also work (e.g. a vendor's API-key header):
+register_feed_source("vendor", "https://vendor.example.com/feed.rss",
+                     headers={"X-API-Key": settings.VENDOR_KEY})
+```
+
+Source the secret from settings/env — don't hard-code it. A gated source with no
+`token`/`headers` fails cleanly: the collector reports
+`auth required (HTTP 401) — set token=/headers= on the source` and collects
+nothing. (A reader-style `?token=…` in the source **URL** also works because the
+publish view accepts it, but it stores a long-lived credential in the URL — prefer
+`token=`/`headers=`.)
 
 ### Run the collector
 
