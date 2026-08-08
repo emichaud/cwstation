@@ -9,7 +9,7 @@ listed, no downstream migration is required.
 
 ---
 
-## v0.13.14 — Django 6.1 + email `MAILERS` (breaking **only** if you set `EMAIL_BACKEND`)
+## v0.14.0 — Django 6.1 + email `MAILERS` (breaking **only** if you set `EMAIL_BACKEND`)
 
 **Who is affected:** downstream projects that define **`EMAIL_BACKEND`** (or any `EMAIL_HOST` /
 `EMAIL_PORT` / `EMAIL_USE_TLS` / … *setting*) in their own `config/settings/*.py`. If you only set
