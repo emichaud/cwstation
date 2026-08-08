@@ -3,7 +3,7 @@
 
 {% block title %}Decode &amp; Make CW{% endblock %}
 {% block breadcrumbs %}{% endblock %}
-{% block body_class %}cw-console{% endblock %}
+{% block body_class %}cw-console cw-setup{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'cw/cw.css' %}">
@@ -19,97 +19,119 @@
 {% endblock %}
 
 {% block content %}
-<div class="cw-decode-grid">
+<div class="cw-setup-wrap">
+    <header class="cw-setup-head">
+        <h2>Decode &amp; make CW</h2>
+        <p>Copy Morse from a recording, or key a message into a downloadable WAV — no radio required.</p>
+    </header>
 
     {# ── Copy a recording ── #}
-    <section class="card cw-decode-copy">
-        <div class="card-header"><h2>Copy a recording</h2></div>
-        <div class="card-body">
-            <p style="color: var(--body-quiet-color); font-size: 0.9rem; margin-top: 0;">
-                Upload from your receiver or SDR software — WAV, MP3, FLAC, or OGG (W1AW practice MP3s
-                work as-is). The decoder finds the CW note and adapts to the sender's speed on its own.
-            </p>
-            <form method="post" enctype="multipart/form-data">
-                {% csrf_token %}
-                <input type="hidden" name="mode" value="wav">
-                <div class="cw-field">
-                    <label for="{{ recording_form.recording.id_for_label }}">Recording</label>
-                    {{ recording_form.recording }}
-                    {% if recording_form.recording.errors %}<div class="cw-errors">{{ recording_form.recording.errors|join:" " }}</div>{% endif %}
+    <section class="cw-setup-card">
+        <div class="cw-step-head"><span class="cw-step-num">🎧</span><h3>Copy a recording</h3></div>
+        <p class="cw-setup-note">Upload from your receiver or SDR software — WAV, MP3, FLAC, or OGG
+            (W1AW practice MP3s work as-is). The decoder finds the CW note and adapts to the sender's speed on its own.</p>
+        <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            <input type="hidden" name="mode" value="wav">
+            <label class="cw-dropzone" id="rec-dropzone" for="{{ recording_form.recording.id_for_label }}">
+                <svg class="cw-dropzone-ic" viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+                <span class="cw-dropzone-main">Choose a recording <b>or drop it here</b></span>
+                <span class="cw-dropzone-file" id="rec-filename">WAV · MP3 · FLAC · OGG</span>
+                {{ recording_form.recording }}
+            </label>
+            {% if recording_form.recording.errors %}<div class="cw-errors">{{ recording_form.recording.errors|join:" " }}</div>{% endif %}
+
+            <label class="cw-decode-check">
+                <input type="checkbox" name="auto_tone" checked
+                       onchange="document.getElementById('rec-tone-row').style.opacity = this.checked ? 0.4 : 1;">
+                <span>Auto-detect tone <i>— recommended</i></span>
+            </label>
+            <div class="cw-field" id="rec-tone-row" style="opacity: 0.4;">
+                <label>Tone <span class="cw-slider-val" id="rec-tone-val">600 Hz</span></label>
+                <div class="cw-slider-row">
+                    <input type="range" id="rec-tone" name="tone_hz" min="300" max="1200" step="10" value="600"
+                           oninput="document.getElementById('rec-tone-val').textContent = this.value + ' Hz'">
                 </div>
-                <div class="cw-field">
-                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                        <input type="checkbox" name="auto_tone" checked style="accent-color: var(--primary);"
-                               onchange="document.getElementById('rec-tone-row').style.opacity = this.checked ? 0.4 : 1;">
-                        Auto-detect tone <span style="color: var(--text-muted);">(recommended)</span>
-                    </label>
-                </div>
-                <div class="cw-field" id="rec-tone-row" style="opacity: 0.4;">
-                    <label for="rec-tone">Tone <span class="cw-slider-val" id="rec-tone-val">600 Hz</span></label>
-                    <div class="cw-slider-row">
-                        <input type="range" id="rec-tone" name="tone_hz" min="300" max="1200" step="10" value="600"
-                               oninput="document.getElementById('rec-tone-val').textContent = this.value + ' Hz'">
-                    </div>
-                    {% if recording_form.tone_hz.errors %}<div class="cw-errors">{{ recording_form.tone_hz.errors|join:" " }}</div>{% endif %}
-                </div>
-                <button type="submit" class="btn-primary">Decode recording</button>
-            </form>
-        </div>
+                {% if recording_form.tone_hz.errors %}<div class="cw-errors">{{ recording_form.tone_hz.errors|join:" " }}</div>{% endif %}
+            </div>
+            <button type="submit" class="cw-btn-lg">Decode recording</button>
+        </form>
     </section>
 
     {# ── Keyer — make a WAV ── #}
-    <section class="card cw-decode-keyer">
-        <div class="card-header"><h2>Keyer — make a WAV{% if reply_to %} <span class="cw-badge cw-badge-call" style="vertical-align: middle;">reply to {{ reply_to }}</span>{% endif %}</h2></div>
-        <div class="card-body">
-            <p style="color: var(--body-quiet-color); font-size: 0.9rem; margin-top: 0;">
-                Type a message (or use your message keys and tags), pick a speed, and save it as a WAV —
-                for practice, a code test, or feeding another program. Same keyer as the Live send sheet.
-            </p>
+    <section class="cw-setup-card">
+        <div class="cw-step-head"><span class="cw-step-num">⌨️</span><h3>Keyer — make a WAV{% if reply_to %} <span class="cw-badge cw-badge-call" style="vertical-align: middle;">reply to {{ reply_to }}</span>{% endif %}</h3></div>
+        <p class="cw-setup-note">Type a message (or use your message keys and tags), pick a speed, and save it
+            as a WAV — for practice, a code test, or feeding another program. Same keyer as the Live send sheet.</p>
 
-            <div class="cw-field">
-                <label for="cw-dec-text">Message to key</label>
-                <div class="cw-palette-anchor">
-                    <textarea id="cw-dec-text" name="text" rows="3" class="cw-mono"
-                              placeholder="TYPE — OR / FOR MESSAGE KEYS" spellcheck="false">{{ keyer_prefill|default:"" }}</textarea>
-                    <div class="cw-palette" id="cw-dec-palette" role="listbox" aria-label="Message keys"></div>
-                </div>
-                <div class="cw-keycaps" id="cw-dec-keycaps" aria-label="Message keys"></div>
-                <div class="cw-keycaps cw-tagcaps" id="cw-dec-vars"></div>
-                <div class="cw-prosigns" aria-label="Insert prosign">
-                    <button type="button" class="cw-prosign" data-ps="<AR>" title="End of message">&lt;AR&gt;</button>
-                    <button type="button" class="cw-prosign" data-ps="<SK>" title="End of contact">&lt;SK&gt;</button>
-                    <button type="button" class="cw-prosign" data-ps="<BT>" title="Pause / new paragraph">&lt;BT&gt;</button>
-                    <button type="button" class="cw-prosign" data-ps="<KN>" title="Named station only">&lt;KN&gt;</button>
-                    <button type="button" class="cw-prosign" data-ps="<AS>" title="Wait / stand by">&lt;AS&gt;</button>
-                </div>
+        <div class="cw-field">
+            <label for="cw-dec-text" class="cw-setup-label">Message to key</label>
+            <div class="cw-palette-anchor">
+                <textarea id="cw-dec-text" name="text" rows="3" class="cw-mono"
+                          placeholder="TYPE — OR / FOR MESSAGE KEYS" spellcheck="false">{{ keyer_prefill|default:"" }}</textarea>
+                <div class="cw-palette" id="cw-dec-palette" role="listbox" aria-label="Message keys"></div>
             </div>
+            <div class="cw-keycaps" id="cw-dec-keycaps" aria-label="Message keys"></div>
+            <div class="cw-keycaps cw-tagcaps" id="cw-dec-vars"></div>
+            <div class="cw-prosigns" aria-label="Insert prosign">
+                <button type="button" class="cw-prosign" data-ps="<AR>" title="End of message">&lt;AR&gt;</button>
+                <button type="button" class="cw-prosign" data-ps="<SK>" title="End of contact">&lt;SK&gt;</button>
+                <button type="button" class="cw-prosign" data-ps="<BT>" title="Pause / new paragraph">&lt;BT&gt;</button>
+                <button type="button" class="cw-prosign" data-ps="<KN>" title="Named station only">&lt;KN&gt;</button>
+                <button type="button" class="cw-prosign" data-ps="<AS>" title="Wait / stand by">&lt;AS&gt;</button>
+            </div>
+        </div>
 
-            <div class="cw-field">
-                <label>Speed <span class="cw-slider-val" id="dec-wpm-val">{{ send_wpm|default:20 }} wpm</span></label>
+        <div class="cw-defaults">
+            <div class="cw-default-knob">
+                <label>Speed <span class="cw-slider-val cw-slider-val-lg" id="dec-wpm-val">{{ send_wpm|default:20 }} wpm</span></label>
                 <div class="cw-slider-row">
                     <input type="range" id="dec-wpm" min="5" max="60" step="1" value="{{ send_wpm|default:20 }}"
                            oninput="document.getElementById('dec-wpm-val').textContent = this.value + ' wpm'">
                 </div>
             </div>
-            <div class="cw-field">
-                <label>Sidetone <span class="cw-slider-val" id="dec-tone-val">{{ send_tone_hz|default:600 }} Hz</span></label>
+            <div class="cw-default-knob">
+                <label>Sidetone <span class="cw-slider-val cw-slider-val-lg" id="dec-tone-val">{{ send_tone_hz|default:600 }} Hz</span></label>
                 <div class="cw-slider-row">
                     <input type="range" id="dec-tone" min="300" max="1200" step="10" value="{{ send_tone_hz|default:600 }}"
                            oninput="document.getElementById('dec-tone-val').textContent = this.value + ' Hz'">
                 </div>
             </div>
-
-            <div class="cw-keyer-actions">
-                <button type="button" class="btn-primary" id="dec-make">Make WAV</button>
-                <button type="button" class="btn-tint" id="dec-decode" title="Synthesize and copy it back">Decode it →</button>
-            </div>
-            <div class="cw-sheet-result" id="dec-result"></div>
         </div>
+
+        <div class="cw-keyer-actions" style="margin-top: 20px;">
+            <button type="button" class="cw-btn-lg" id="dec-make">⬇ Make WAV</button>
+            <button type="button" class="cw-btn-lg cw-btn-ghost" id="dec-decode" title="Synthesize and copy it back">Decode it →</button>
+        </div>
+        <div class="cw-sheet-result" id="dec-result"></div>
     </section>
 </div>
 
 <script src="{% static 'cw/macros.js' %}"></script>
 <script>
+    // ── recording drop zone: filename display + drag-and-drop ──
+    (function () {
+        var dz = document.getElementById("rec-dropzone");
+        var input = document.getElementById("{{ recording_form.recording.id_for_label }}");
+        var fname = document.getElementById("rec-filename");
+        if (!dz || !input) return;
+        function show() {
+            var f = input.files && input.files[0];
+            fname.textContent = f ? f.name : "WAV · MP3 · FLAC · OGG";
+            dz.classList.toggle("has-file", !!f);
+        }
+        input.addEventListener("change", show);
+        ["dragenter", "dragover"].forEach(function (ev) {
+            dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.add("dragover"); });
+        });
+        ["dragleave", "dragend", "drop"].forEach(function (ev) {
+            dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.remove("dragover"); });
+        });
+        dz.addEventListener("drop", function (e) {
+            if (e.dataTransfer.files.length) { input.files = e.dataTransfer.files; show(); }
+        });
+    })();
+
     (function () {
         var text = document.getElementById("cw-dec-text");
         var wpm = document.getElementById("dec-wpm");
