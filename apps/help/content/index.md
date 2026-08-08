@@ -1,48 +1,37 @@
-# Welcome
+# CW Station
 
-You made it — nice. This is your project's documentation home, and everything you need is right here.
+A ham-radio CW (Morse) workbench: **decode** CW off the air or from WAV
+recordings, **practice** with synthesized PARIS-timed signals, **send** text as
+clean keyed audio, and **replay** every pass on a paper-tape monitor — with a
+smart **logbook** that matches callsigns, exports ADIF, and syncs to QRZ and
+eQSL.
 
-SmallStack gives you a fully themed Django starter with authentication, dark mode, activity tracking, database backups, background tasks, and a help system (you're looking at it). The goal is simple: clone it, customize it, ship it.
+## Start here
 
-## Where to Start
+- **[Tutorial: Your First Ten Minutes](/help/cw-tutorial/)** — from your first
+  decode to working a simulated band, step by step.
+- **[CW Station — Operator's Guide](/help/cw-station/)** — the day-to-day
+  reference: monitor, decode, send, live tape, and the logbook.
+- **[Install & Deploy CW Station](/help/cw-install/)** — dependencies, config,
+  and the two production gotchas (ASGI for the live tape, persistent volumes).
+- **[Morse Code Reference](/help/morse-reference/)** — every letter, number,
+  punctuation mark, and prosign the station speaks.
 
-**Brand new?** Start with the quick setup guide — it walks you through the first things to configure after cloning:
+## What's in the box
 
-- [Getting Started](/help/getting-started/) — First-run setup, branding, creating pages, and deployment basics
-- [Quick Setup (TL;DR)](/help/quick-setup/) — Clone to deploy in 8 steps
+| Feature | What it does |
+|---------|--------------|
+| **Decode** | Recover CW from a WAV file or live audio with the numpy DSP engine |
+| **Practice** | Synthesize clean, PARIS-timed CW at any speed to train your ear |
+| **Live tape** | Real-time paper-tape monitor of everything the station copies |
+| **Send** | Key text as click-free audio, with expanding macros (`{mycall}`, `{call}`, `{rst}`) |
+| **Logbook** | Auto-matches callsigns to sessions; smart search; ADIF import/export |
+| **QRZ & eQSL** | Callsign lookups and logbook sync, per operator, credentials encrypted at rest |
+| **Rig Setup** | Connect a radio via Hamlib with a stoplight walk-through; upload a photo of your own rig |
 
-**Ready to build?** Jump into the reference docs:
+## A note on your callsign
 
-- [SmallStack Reference](/smallstack/help/smallstack/) — The full documentation covering every feature, component, and configuration option
-
-## What's Included
-
-Here's what works out of the box with zero extra configuration:
-
-| Feature | What It Does |
-|---------|-------------|
-| **Authentication** | Login, signup, password reset — all themed and ready |
-| **User Profiles** | Photo, bio, timezone, color palette preference |
-| **Dark/Light Mode** | 5 color palettes, user-selectable from the topbar |
-| **Activity Tracking** | Request logging with a staff dashboard |
-| **Database Backups** | On-demand + scheduled, with email alerts |
-| **Background Tasks** | Django's built-in task framework, no Redis needed |
-| **Help System** | Markdown docs with search — you're reading it now |
-| **Model Explorer** | Auto-generated CRUD from your admin registrations |
-
-## Adding Your Own Docs
-
-This help system is yours to extend. Add project-specific documentation right alongside the SmallStack reference:
-
-1. Create a `.md` file in `apps/help/content/`
-2. Add it to `apps/help/content/_config.yaml` under your section's pages
-3. It appears at `/help/your-page-slug/`
-
-You can organize docs into sections, add your own icons, and even create separate documentation areas for different parts of your project. See [Using the Help System](/smallstack/help/smallstack/help-system/) for the full guide.
-
-## Quick Links
-
-- [Starter Page](/starter/) — See all UI components in action
-- [Layout Gallery](/smallstack/layouts/) — Preview sidebar + topbar combinations
-- [Theming Guide](/smallstack/help/smallstack/theming/) — Colors, dark mode, custom palettes
-- [FAQ](/smallstack/help/smallstack/faq/) — Common questions answered
+The send macros fill `{mycall}` from **your login username** — no per-macro
+editing. Log in as your callsign (e.g. `N1KRX`) and it just works. See the
+[Install guide](/help/cw-install/#3-your-callsign-and-the-send-macros) for the
+details and the recommended account setup.

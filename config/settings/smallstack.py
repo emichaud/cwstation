@@ -85,8 +85,10 @@ PASSWORD_RESET_TIMEOUT = config("PASSWORD_RESET_TIMEOUT", default=86400, cast=in
 # Feature Flags & UI
 # ---------------------------------------------------------------------------
 # SmallStack Help Documentation
-# Set to False to hide SmallStack reference docs from /help/
-SMALLSTACK_DOCS_ENABLED = config("SMALLSTACK_DOCS_ENABLED", default=True, cast=bool)
+# CW Station tucks the framework reference docs away by default so /help/ shows
+# only CW Station's own guides. Set SMALLSTACK_DOCS_ENABLED=True in the env to
+# expose the framework reference again while developing.
+SMALLSTACK_DOCS_ENABLED = config("SMALLSTACK_DOCS_ENABLED", default=False, cast=bool)
 
 # SmallStack Color Palette
 # System-wide default palette. Users can override in their profile.

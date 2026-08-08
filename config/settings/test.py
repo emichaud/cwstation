@@ -20,6 +20,11 @@ DEBUG = True
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "testserver"]
 
+# CW Station hides the bundled SmallStack framework docs by default (see
+# config/settings/smallstack.py). The framework's own help tests exercise that
+# section, so keep it enabled under test regardless of the project default.
+SMALLSTACK_DOCS_ENABLED = True
+
 # Database. Defaults to in-memory SQLite for fast tests. Set TEST_DB=postgres
 # to exercise the Postgres path (FTS, varchar enforcement, etc.) — e.g.
 # `TEST_DB=postgres make test`. Requires a running Postgres and the
