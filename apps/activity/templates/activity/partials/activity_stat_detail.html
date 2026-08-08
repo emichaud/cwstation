@@ -18,7 +18,7 @@
             <td><code>{{ log.method }}</code></td>
             <td style="font-family: monospace; font-size: 0.85rem;">{{ log.path|truncatechars:50 }}</td>
             <td>
-                <span style="{% if log.status_code >= 500 %}color: var(--delete-button-bg, red);{% elif log.status_code >= 400 %}color: var(--message-warning-bg, orange);{% endif %}">{{ log.status_code }}</span>
+                <span style="{% if log.status_code >= 500 %}color: var(--error-fg);{% elif log.status_code >= 400 %}color: var(--message-warning-bg, orange);{% endif %}">{{ log.status_code }}</span>
             </td>
             <td style="font-size: 0.8rem;">{{ log.user.username|default:"—" }}</td>
             <td style="font-size: 0.85rem;">{{ log.response_time_ms }}</td>

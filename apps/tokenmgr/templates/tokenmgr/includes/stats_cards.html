@@ -19,7 +19,7 @@
         font-size: 0.75rem; font-weight: 600;
         {% if code >= 500 %}
           background: color-mix(in srgb, var(--delete-button-bg, red) 15%, var(--card-bg));
-          color: var(--delete-button-bg, red);
+          color: var(--error-fg);
         {% elif code >= 400 %}
           background: color-mix(in srgb, var(--message-warning-bg, orange) 18%, var(--card-bg));
           color: var(--message-warning-bg, orange);

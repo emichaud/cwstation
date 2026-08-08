@@ -516,11 +516,16 @@
     // htmx swap the body. Exposed on window so inline onclick handlers reach it.
 
     var _statModalRelease = null;
+    var _statModalTrigger = null;
 
-    function openStatModal(title) {
+    // `trigger` is the stat-card button that opened the modal (passed as `this`
+    // from the inline onclick). We stash it so focus returns to it on close —
+    // even if htmx/focus timing means it isn't document.activeElement anymore.
+    function openStatModal(title, trigger) {
         var titleEl = document.getElementById('stat-modal-title');
         var modal = document.getElementById('stat-modal');
         if (!modal) return;
+        _statModalTrigger = trigger || document.activeElement;
         if (titleEl) titleEl.textContent = title;
         modal.classList.add('open');
         _statModalRelease = window.SmallStack.trapFocus(
@@ -532,6 +537,12 @@
         var modal = document.getElementById('stat-modal');
         if (modal) modal.classList.remove('open');
         if (_statModalRelease) { _statModalRelease(); _statModalRelease = null; }
+        // Restore focus to the invoking stat card (trapFocus also attempts this,
+        // but the explicit trigger is the reliable target).
+        if (_statModalTrigger && typeof _statModalTrigger.focus === 'function') {
+            _statModalTrigger.focus();
+        }
+        _statModalTrigger = null;
     }
 
     window.openStatModal = openStatModal;

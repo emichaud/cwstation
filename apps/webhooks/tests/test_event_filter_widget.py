@@ -47,6 +47,15 @@ def test_widget_renders_current_and_custom():
     assert "my.custom.pattern" in html
 
 
+def test_extra_textarea_has_associated_label():
+    """A11y: the custom-patterns textarea must be labelled (id + <label for>),
+    not an orphaned control."""
+    w = EventFilterWidget()
+    html = w.render("event_filter", [])
+    assert 'id="id_event_filter_extra"' in html
+    assert 'for="id_event_filter_extra"' in html
+
+
 def test_available_events_includes_opted_in_model():
     """available_events surfaces the concrete events an enable_webhooks model emits."""
     original = WebhookReceiverCRUDView.enable_webhooks

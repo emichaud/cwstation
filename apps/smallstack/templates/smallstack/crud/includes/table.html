@@ -9,13 +9,17 @@
 {% endif %}
 {% for header in headers %}
     {% if header.sortable %}
-    <th scope="col" aria-sort="{% if header.direction == 'desc' %}descending{% elif header.direction == 'asc' %}ascending{% else %}none{% endif %}" style="cursor: pointer; user-select: none;{% if header.width %} width: {{ header.width }};{% endif %}"
-        hx-get="?ordering={{ header.next_ordering }}"
-        hx-target="#crud-list-content"
-        hx-include="#list-toolbar"
-        hx-push-url="true"
-        hx-swap="innerHTML swap:150ms">
-        {{ header.label }} <span aria-hidden="true" style="font-size: 0.65rem; display: inline-block; width: 0.65em;{% if not header.direction %} visibility: hidden;{% endif %}">{% if header.direction == "desc" %}&#9660;{% else %}&#9650;{% endif %}</span>
+    <th scope="col" class="th-sortable" aria-sort="{% if header.direction == 'desc' %}descending{% elif header.direction == 'asc' %}ascending{% else %}none{% endif %}"{% if header.width %} style="width: {{ header.width }};"{% endif %}>
+        <button type="button" class="th-sort"
+            hx-get="?ordering={{ header.next_ordering }}"
+            hx-target="#crud-list-content"
+            hx-include="#list-toolbar"
+            hx-push-url="true"
+            hx-swap="innerHTML swap:150ms"
+            aria-label="{{ header.label }}, {% if header.direction == 'desc' %}sorted descending{% elif header.direction == 'asc' %}sorted ascending{% else %}not sorted{% endif %} — sort by {{ header.label }}">
+            <span>{{ header.label }}</span>
+            <span aria-hidden="true" style="font-size: 0.65rem; display: inline-block; width: 0.65em;{% if not header.direction %} visibility: hidden;{% endif %}">{% if header.direction == "desc" %}&#9660;{% else %}&#9650;{% endif %}</span>
+        </button>
     </th>
     {% else %}
     <th scope="col"{% if header.width %} style="width: {{ header.width }};"{% endif %}>{{ header.label }}</th>

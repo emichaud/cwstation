@@ -265,9 +265,12 @@
             <div class="hb-chart" id="hb-chart">
                 {% for day in chart_days %}
                 <div class="hb-chart-bar-group"
+                     role="button" tabindex="0"
                      data-ok="{{ day.ok }}" data-fail="{{ day.fail }}"
                      data-date="{{ day.date }}" data-label="{{ day.label }}"
-                     onclick="openDayDrilldown(this)">
+                     aria-label="{{ day.label }}: {{ day.ok }} ok, {{ day.fail }} failed — show details"
+                     onclick="openDayDrilldown(this)"
+                     onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}">
                     <div class="hb-chart-bars">
                         <div class="hb-chart-bar-ok" style="height: 0;"></div>
                         <div class="hb-chart-bar-fail" style="height: 0;"></div>

@@ -20,7 +20,7 @@ htmx fragment swapped into #self-test-result on the Health page when
           display: inline-block; padding: 2px 8px; border-radius: 4px;
           font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em;
           background: color-mix(in srgb, var(--delete-button-bg, red) 15%, var(--card-bg));
-          color: var(--delete-button-bg, red);
+          color: var(--error-fg);
         ">✗ FAIL</span>
       {% endif %}
       <strong>Self-test result</strong>
@@ -28,7 +28,7 @@ htmx fragment swapped into #self-test-result on the Health page when
     {% if entry.detail|stringformat:"s"|slice:":1" == "{" %}
       <ul style="margin: 0; padding-left: 18px; font-family: var(--font-monospace, ui-monospace, Menlo, monospace); font-size: 0.85rem; line-height: 1.7;">
         {% for step, ok in entry.detail.items %}
-          <li>{{ step }} — {% if ok %}<span style="color: var(--success-fg);">✓</span>{% else %}<span style="color: var(--delete-button-bg, red);">✗</span>{% endif %}</li>
+          <li>{{ step }} — {% if ok %}<span style="color: var(--success-fg);">✓</span>{% else %}<span style="color: var(--error-fg);">✗</span>{% endif %}</li>
         {% endfor %}
       </ul>
     {% else %}
