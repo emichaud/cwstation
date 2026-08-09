@@ -9,6 +9,19 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-08-09
+
+### Changed
+- **BREAKING — CRUDViews require login by default.** `CRUDView.mixins` now
+  defaults to `None`, which the framework resolves to `[LoginRequiredMixin]`;
+  previously the default was `[]` (anonymous). A CRUDView that *omitted* `mixins`
+  silently shipped public HTML **and** REST endpoints — now it requires login.
+  Opt into anonymous access with the new **`public = True`** flag (or an explicit
+  `mixins = []`); an explicit `mixins` list always wins. A public view that
+  exposes write actions with `enable_api=True` now emits a warning. All bundled
+  framework views set `mixins` explicitly and are unaffected. See
+  [`UPGRADING.md`](UPGRADING.md). (Codebase-review F6.)
+
 ### Added
 - **`make typecheck`** — mypy + django-stubs, configured leniently and scoped to
   the type-clean apps (starts at `apps/feeds`; widen app-by-app as each reaches
@@ -578,7 +591,8 @@ Condensed highlights of the v0.11 series (see git history for per-patch detail):
 See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full record of the
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
-[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.14.3...HEAD
+[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/emichaud/django-smallstack/compare/v0.14.3...v0.15.0
 [0.14.3]: https://github.com/emichaud/django-smallstack/compare/v0.14.2...v0.14.3
 [0.14.2]: https://github.com/emichaud/django-smallstack/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/emichaud/django-smallstack/compare/v0.14.0...v0.14.1
