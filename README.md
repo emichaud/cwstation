@@ -1,180 +1,106 @@
-# Django SmallStack
+# CW Station
 
-*Django that doesn't get in your way. Focus on your idea, not the stack.*
+*A ham-radio CW (Morse) workbench — decode off the air, practice, send, and log.*
 
 ![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue)
-![Django 6.0](https://img.shields.io/badge/django-6.0-green)
+![Django 6.1](https://img.shields.io/badge/django-6.1-green)
 ![License MIT](https://img.shields.io/badge/license-MIT-brightgreen)
-![Version 0.13.4](https://img.shields.io/badge/version-0.13.4-blue)
-[![Quality A−](https://img.shields.io/badge/quality-A%E2%88%92-2ea44f)](docs/report-cards/)
-![Coverage 80%](https://img.shields.io/badge/coverage-80%25-9acd32)
+![Morse · CW](https://img.shields.io/badge/mode-CW%20%C2%B7%20Morse-e0b84c)
 
-A small-footprint Django foundation for shipping **web apps, REST APIs, MCP servers, search interfaces, and CLI tools** — with a model-to-five-surfaces pipeline already wired. One model definition. Five production surfaces. No boilerplate.
+CW Station copies Morse code from a recording or straight off your receiver, lets you
+**practice** against clean synthesized signals, **sends** text as click-free keyed audio,
+and replays every pass on a **paper-tape monitor** — with a smart **logbook** that matches
+callsigns, exports ADIF, and syncs to QRZ and eQSL.
 
-SQLite by default (scales further than you'd think), no external services required, everything runs on a single machine or container.
-
-📖 **Full docs & guides → [www.smallstack.site](https://www.smallstack.site/)**
-
----
-
-## Five surfaces from one declaration
-
-A `CRUDView` bound to a model derives CRUD tools automatically, then exposes them on the surfaces you opt into. One model. One view. Five independent outputs.
-
-```python
-# apps/tickets/views.py
-class TicketCRUDView(CRUDView):
-    model = Ticket
-    list_columns = ["id", "title", "status"]
-    enable_api = True      # → REST + OpenAPI
-    enable_mcp = True      # → Claude tools
-    enable_search = True   # → full-text search
-```
-
-This generates:
-
-**→ HTML** (`/tickets/`)  
-CRUD pages with htmx tabs, filters, sorting, pagination. Dark/light themes (5 color palettes).
-
-**→ REST API** (`/api/tickets/`)  
-REST endpoints with bearer-token auth, OpenAPI 3.0 spec, automatic pagination and filtering.
-
-**→ MCP Server** (`/mcp`)  
-JSON-RPC tools `tickets_list`, `tickets_get`, `tickets_create`, etc. — ready for Claude Desktop and agent frameworks.
-
-**→ Search Interface** (`/search/`)  
-Full-text search page + `search_tickets` MCP tool for retrieval (RAG pipelines).
-
-**→ CLI** (`sc tickets`)  
-Terminal CRUD: `sc ls`, `sc get`, `sc search`, staff-gated `sc new/set/rm`. `--json` on everything.
-
-Same form validation, same permission logic, all five surfaces. You change the model once; all five update automatically. No "keep the API in sync with the UI" drudgery.
+It runs entirely on your own machine: **SQLite**, no external services, no radio required
+to get started. Attach a rig later and it talks CAT over Hamlib.
 
 ---
 
-## What you get
+## What it does
 
-**The things you don't have to build:**
+- **Decode** — recover CW from a WAV/MP3/FLAC/OGG recording or live sound-card audio. A
+  Django-free numpy DSP engine finds the CW note automatically and rides the sender's
+  speed on its own. (W1AW code-practice files work as-is.)
+- **Practice** — synthesize clean, PARIS-timed CW at any speed, with adjustable noise, to
+  train your ear and test the decoder.
+- **Live tape** — a real-time paper-tape monitor of everything the station copies, streamed
+  over a WebSocket. No radio? A **band simulator** feeds the same tape; an **fldigi tap**
+  brings in PSK31 and other digital modes.
+- **Send** — key text into properly timed, click-free CW audio. Message macros expand
+  `{mycall}`, `{call}`, and your own `{tags}`; an on-air toggle keys the rig via PTT.
+- **Logbook** — contacts are matched to the session they were heard in. Smart search, ADIF
+  import/export, and QRZ + eQSL sync — credentials encrypted at rest.
+- **Rig control** — connect a radio through Hamlib with a stoplight walk-through; the live
+  panel shows the dial, and you can upload a photo of your own rig.
+- **Tutor mode** — expands CW shorthand and prosigns into plain English on any tape, so you
+  learn the abbreviations in context.
 
-- **Web CRUD UI** — HTML pages with htmx interactions, filters, sorting, pagination, dark/light themes (5 color palettes)
-- **REST API** — Bearer-token auth, OpenAPI 3.0 with Swagger UI, automatic pagination, filtering
-- **MCP server** — JSON-RPC + OAuth + PKCE, works with Claude Desktop and agent frameworks
-- **Full-text search** — SQLite FTS or Postgres SearchVector, with custom ranking and variants (SearchBuilder)
-- **CLI tool** — Terminal CRUD operations with `--json` output, staff-gated writes
-- **Background tasks & scheduler** — DB-backed queue (no Redis/Celery to operate) plus a `@scheduled` recurring-job scheduler with a themed UI, REST + MCP surfaces, and cron/interval/once cadences
-- **Activity & audit logs** — Request logging with auto-pruning and breakdown stats
-- **Auth** — Custom User model, photo, timezone, theme preference, token management
-- **Health monitoring** — Uptime monitoring, status page, API/MCP health dashboards
-- **Docs & help system** — Bundled markdown docs with images, versioning, and search
-
-All of these run themselves. You don't configure them; they're just there.
-
----
-
-## For AI-assisted development
-
-SmallStack is built around the vibe-coding workflow. When you open Claude Code or Cursor:
-
-**`CLAUDE.md`** — Orients the AI to your codebase and lists the essential skills per task type. The AI knows where to look and what patterns to follow.
-
-**`docs/skills/`** — A library of reference guides covering the full stack:
-- Modern dark theme (how to build pages that work across all 5 palettes on the first try)
-- CRUDView patterns and configuration
-- SearchBuilder (custom variants, computed fields, ranking)
-- MCP tool authoring
-- API conventions and client generation
-- CLI patterns
-- Deployment playbooks
-
-The depth is real — 40+ skill files covering everything from "add a new model" to "deploy to production" — but they're organized so the AI finds the right one for the task at hand.
-
-**Result:** You spend your mental energy on your app's logic, not wrestling with framework conventions or cargo-culting from Stack Overflow.
-
----
+The operator UI is a clean, industrial console with five color palettes and light/dark
+themes. A staff-only admin console (dashboard, activity, backups, REST/MCP surfaces) sits
+one click away.
 
 ## Quick start
 
-**Prerequisites:** [uv](https://docs.astral.sh/uv/) (manages Python automatically, no system Python needed) and `make`.
+Full first-run walkthrough for a fresh Mac (Homebrew → Python → uv → clone → run) is in
+**[SETUP-MACOS.md](SETUP-MACOS.md)**. The short version, once you have
+[uv](https://docs.astral.sh/uv/) and Python 3.12+:
 
 ```bash
-# Install uv if you don't have it:
-curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS / Linux
-# Windows: powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-
-# Clone and bootstrap:
-git clone https://github.com/emichaud/django-smallstack.git myapp
-cd myapp
-make setup    # uv sync + migrate + create dev superuser (admin/admin)
-make run      # dev server on port 8005
+git clone https://github.com/emichaud/cwmonitor.git
+cd cwmonitor
+make setup     # deps + migrate + a dev admin (admin / admin) + sample data
+make run       # dev server on http://localhost:8010/
 ```
 
-Open http://localhost:8005, log in with `admin` / `admin`. The `/help/` section has the rest.
-
-**Docker:** `cp .env.example .env && docker compose up -d` (port 8010).
-
----
-
-## Modern dark theme
-
-Five color palettes × two themes (light/dark) — switchable from the user menu. The default near-black aesthetic with vibrant Tailwind-style accents works in any light. Build pages that look correct across all 5 automatically.
-
-<p>
-  <img src="apps/smallstack/docs/images/smallstack-docs.png" alt="Help System Dark Mode" width="49%">
-  <img src="apps/smallstack/docs/images/smallstack-docs-light.png" alt="Help System Light Mode" width="49%">
-</p>
-
----
-
-## Development
+Prefer your own account? Skip the demo admin:
 
 ```bash
-make test          # pytest with coverage
-make lint          # ruff check
-make lint-fix      # ruff check --fix
-make api-test      # REST API smoke test
-make mcp-test      # MCP server smoke test
+uv sync --all-extras && uv run python manage.py migrate
+uv run python manage.py createsuperuser   # use your callsign as the username → fills {mycall}
+make run
 ```
 
----
+Decode from the command line, no browser needed:
 
-## What SmallStack is for
+```bash
+uv run python manage.py cw_decode --text "CQ CQ DE N0CALL K" --wpm 22
+uv run python manage.py cw_decode --wav signal.wav --tone 700
+```
 
-| Use Case | Fit |
-|----------|-----|
-| Full web applications | ✓ Sweet spot |
-| Internal business tools | ✓ Sweet spot |
-| Automation & background jobs | ✓ Sweet spot |
-| Data-driven business apps | ✓ Sweet spot |
-| Backend API servers | ✓ Capable |
-| Content management systems | ✓ Capable |
-| ML & data science workflows | ✓ Capable |
-| SaaS platforms | ✗ Not the best fit |
-| E-commerce | ✗ Not the best fit |
-| High-traffic platforms (>1000 req/s) | ✗ Not the best fit |
+## How it works & where the docs are
 
-**In short:** SmallStack shines for solo developers and small teams building web apps, internal tools, and APIs. It's not designed for microservices (monolithic by nature) or high-scale platforms (single-machine focused).
+- **In-app help** at `/smallstack/help/` — the Operator's Guide, a ten-minute tutorial, a
+  Morse reference, and **Install & Deploy**.
+- **How CW Station Works** (`/cw/architecture/`) — a signal-flow blueprint of how audio
+  comes in, gets decoded, and goes back out, and where the rig, simulator, and libraries fit.
+- Deployment (Docker / Kamal), including the two gotchas (serve ASGI for the live tape;
+  persist the DB + credentials key), is in the Install & Deploy guide.
 
----
+## Handy commands
 
-## Quality & transparency
+```bash
+make run        # dev server (port 8010)
+make test       # full pytest suite
+make lint       # ruff + template-comment check
+make migrate    # apply migrations
+make backup     # SQLite snapshot with retention
+uv run python manage.py cw_decode --text "599 TU 73" --wpm 26   # headless decode
+```
 
-Every release includes a **quality report card** — a graded scorecard (security, code quality, testing, docs, accessibility) with evidence behind each grade. See **[docs/report-cards/](docs/report-cards/)** for the latest.
+## Tech, briefly
 
-Why this matters:
-- **Independent** — Produced by a separate testing harness, not self-graded
-- **Reproducible** — The rubric and data are public; anyone can re-run it
-- **Honest** — Open security issues cap the whole card at F; grades improve over time
-
----
-
-## Learn more
-
-**[www.smallstack.site](https://www.smallstack.site/)** has setup guides, palette details, CRUDView patterns, SearchBuilder examples, MCP setup, and deployment recipes.
-
-Your local `/help/` section (available once running) mirrors the essentials.
-
----
+Django + a Django-free **numpy** DSP core (decode + synth), **Django Channels/daphne** for
+the live tape, **Hamlib** (`rigctld`) for CAT rig control, optional **sounddevice** for
+sound-card capture, an optional **fldigi** XML-RPC tap, and Fernet-encrypted credentials.
+SQLite by default; runs on a single machine or container.
 
 ## License
 
-MIT — use it, modify it, ship it.
+MIT — see [LICENSE](LICENSE).
+
+---
+
+<sub>Built on **Django SmallStack**, a small-footprint Django foundation (themed admin,
+REST/MCP/search surfaces, CLI). Framework docs: **[www.smallstack.site](https://www.smallstack.site/)**
+· source: **[github.com/emichaud/django-smallstack](https://github.com/emichaud/django-smallstack)**.</sub>
