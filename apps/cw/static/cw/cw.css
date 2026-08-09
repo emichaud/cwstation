@@ -1084,8 +1084,17 @@ body.cw-console .crud-table td:first-child {
 .cw-qso-act-del:hover { color: var(--error-fg); border-color: color-mix(in srgb, var(--error-fg) 45%, var(--card-border)); }
 @media (hover: none) { .cw-qso-act { opacity: 1; } }
 
-/* ── Sessions: roomy full-width card list (the copy needs the width) ── */
-body.cw-console .card-grid { grid-template-columns: 1fr; gap: 12px; }
+/* ── Sessions: iOS-style collection — flow grid of copy tiles ── */
+body.cw-console .card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+    align-items: stretch;
+}
+body.cw-sessions .cw-sc-head { flex-wrap: wrap; gap: 6px 10px; }
+body.cw-sessions .cw-sc-time { margin-left: auto; }
+body.cw-sessions .cw-sc-copy { -webkit-line-clamp: 3; }  /* a touch more copy in a tile */
+body.cw-sessions .cw-sc-meta { flex-wrap: wrap; gap: 6px 8px; }
+body.cw-sessions .cw-sc-replay { display: none; }  /* whole tile links to the replay */
 
 /* ── Logbook: an Apple-style collection — smaller cards flowing into columns ── */
 body.cw-logbook .card-grid {
