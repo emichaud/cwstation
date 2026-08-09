@@ -32,6 +32,8 @@ import logging
 import re
 from typing import Any, Iterable
 
+from django.db.models import Model
+
 logger = logging.getLogger("smallstack.search")
 
 
@@ -77,7 +79,7 @@ def reindex_instances(
     backend = get_backend()
     count = 0
     for start in range(0, len(pks), chunk_size):
-        batch = list(view.model.objects.filter(pk__in=pks[start : start + chunk_size]))
+        batch = list(view.model._default_manager.filter(pk__in=pks[start : start + chunk_size]))
         with transaction.atomic():
             for obj in batch:
                 backend.index_object(view, obj)
@@ -85,10 +87,10 @@ def reindex_instances(
     return count
 
 
-def _resolve_pks(model: type, objects: Iterable[Any] | None) -> list:
+def _resolve_pks(model: type[Model], objects: Iterable[Any] | None) -> list:
     """Normalize the ``objects`` argument to a concrete list of primary keys."""
     if objects is None:
-        return list(model.objects.values_list("pk", flat=True))
+        return list(model._default_manager.values_list("pk", flat=True))
     # A QuerySet — pull its pks without materializing instances.
     if hasattr(objects, "values_list") and hasattr(objects, "filter"):
         return list(objects.values_list("pk", flat=True))

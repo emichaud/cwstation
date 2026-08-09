@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from django import forms
 
@@ -60,8 +60,9 @@ class RunbookCreateForm(RunbookForm):
         if viewer is not None:
             from . import permissions
             templates = permissions.viewable_runbooks(viewer, templates)
-        self.fields["template"].queryset = templates
-        self.fields["template"].label_from_instance = lambda rb: f"{rb.icon} {rb.name}".strip()
+        template_field = cast("forms.ModelChoiceField", self.fields["template"])
+        template_field.queryset = templates
+        setattr(template_field, "label_from_instance", lambda rb: f"{rb.icon} {rb.name}".strip())
 
 
 class SectionForm(forms.ModelForm):
@@ -91,7 +92,9 @@ class DocumentForm(forms.ModelForm):
         self.runbook: Runbook | None = kwargs.pop("runbook", None)
         super().__init__(*args, **kwargs)
         if self.runbook:
-            self.fields["section"].queryset = Section.objects.filter(runbook=self.runbook)
+            cast("forms.ModelChoiceField", self.fields["section"]).queryset = Section.objects.filter(
+                runbook=self.runbook
+            )
         # On update, the file is optional (metadata-only edits shouldn't require re-upload).
         if self.instance and self.instance.pk:
             self.fields["file"].required = False
@@ -124,10 +127,15 @@ class DocumentCreateFromScratchForm(forms.ModelForm):
         viewer = kwargs.pop("viewer", None)
         super().__init__(*args, **kwargs)
         if self.runbook:
-            self.fields["section"].queryset = Section.objects.filter(runbook=self.runbook)
-        self.fields["template"].queryset = service.list_template_documents(viewer=viewer)
-        self.fields["template"].label_from_instance = (
-            lambda d: f"{d.runbook.name} · {d.title}" if d.runbook_id else d.title
+            cast("forms.ModelChoiceField", self.fields["section"]).queryset = Section.objects.filter(
+                runbook=self.runbook
+            )
+        template_field = cast("forms.ModelChoiceField", self.fields["template"])
+        template_field.queryset = service.list_template_documents(viewer=viewer)
+        setattr(
+            template_field,
+            "label_from_instance",
+            lambda d: f"{d.runbook.name} · {d.title}" if d.runbook_id else d.title,
         )
         _apply_text_class(self)
 

@@ -133,7 +133,7 @@ class Command(BaseCommand):
             version.file.close()
 
     def _doc_label(self, doc: Document) -> str:
-        return f"{doc.runbook.slug}/{doc.key}" if doc.runbook_id and doc.key else f"uid:{doc.uid}"
+        return f"{doc.runbook.slug}/{doc.key}" if doc.runbook and doc.key else f"uid:{doc.uid}"
 
     def _resolve_doc(self, ref: Optional[str], uid: Optional[str]) -> Document:
         """Resolve a Document by ``--uid`` or a ``runbook/key`` path."""
@@ -286,7 +286,7 @@ class Command(BaseCommand):
             body = self._read_version_file(old)
             if opts.json:
                 self.stdout.write(_json_dump({
-                    "uid": str(doc.uid), "runbook": doc.runbook.slug if doc.runbook_id else None,
+                    "uid": str(doc.uid), "runbook": doc.runbook.slug if doc.runbook else None,
                     "key": doc.key, "version": version, "content_markdown": body,
                 }))
                 return
@@ -578,7 +578,7 @@ class Command(BaseCommand):
                     "version": v.version,
                     "source": v.source,
                     "via": v.via,
-                    "created_by": v.created_by.username if v.created_by_id else None,
+                    "created_by": v.created_by.username if v.created_by else None,
                     "created_at": v.created_at,
                     "description": v.description,
                 }
@@ -591,7 +591,7 @@ class Command(BaseCommand):
             return
         rows = [
             [f"v{v.version}", v.via or "-", v.source or "-",
-             v.created_by.username if v.created_by_id else "-",
+             v.created_by.username if v.created_by else "-",
              v.created_at.strftime("%Y-%m-%d %H:%M")]
             for v in versions
         ]

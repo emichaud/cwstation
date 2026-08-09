@@ -157,7 +157,7 @@ class MaintenanceWindow(models.Model):
             .values_list("start", "end")
         )
 
-        merged = []
+        merged: list[Any] = []
         for ws, we in windows:
             s = max(ws, range_start)
             e = min(we, range_end)

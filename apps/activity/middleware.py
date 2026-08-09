@@ -52,7 +52,7 @@ class ActivityMiddleware:
 
         RequestLog.objects.create(
             path=request.path[:2048],
-            method=request.method,
+            method=request.method or "",
             status_code=response.status_code,
             user=user,
             api_token=getattr(request, "_api_token", None),

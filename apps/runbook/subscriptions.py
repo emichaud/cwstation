@@ -9,6 +9,7 @@ that the task (and inline fallback) call.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, cast
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
@@ -17,24 +18,32 @@ from django.db.models import QuerySet
 
 from .models import Document, Subscription
 
+if TYPE_CHECKING:
+    from apps.accounts.models import User as UserType
+
 logger = logging.getLogger("smallstack.runbook")
 
 User = get_user_model()
 
 
-def subscribe(user: AbstractBaseUser, document: Document) -> Subscription:
-    subscription, _ = Subscription.objects.get_or_create(subscriber=user, document=document)
+def _subscriber(user: AbstractBaseUser | AnonymousUser) -> "UserType":
+    """Narrow an actor to the concrete User the subscriber FK stores."""
+    return cast("UserType", user)
+
+
+def subscribe(user: AbstractBaseUser | AnonymousUser, document: Document) -> Subscription:
+    subscription, _ = Subscription.objects.get_or_create(subscriber=_subscriber(user), document=document)
     return subscription
 
 
-def unsubscribe(user: AbstractBaseUser, document: Document) -> None:
-    Subscription.objects.filter(subscriber=user, document=document).delete()
+def unsubscribe(user: AbstractBaseUser | AnonymousUser, document: Document) -> None:
+    Subscription.objects.filter(subscriber=_subscriber(user), document=document).delete()
 
 
 def is_subscribed(user: AbstractBaseUser | AnonymousUser, document: Document) -> bool:
     if not getattr(user, "is_authenticated", False):
         return False
-    return Subscription.objects.filter(subscriber=user, document=document).exists()
+    return Subscription.objects.filter(subscriber=_subscriber(user), document=document).exists()
 
 
 def subscribers_of(document: Document) -> QuerySet:
@@ -54,7 +63,7 @@ def send_update_notifications(document_id: int, change_type: str) -> int:
     if not recipients:
         return 0
 
-    where = doc.runbook.name if doc.runbook_id else "Runbook"
+    where = doc.runbook.name if doc.runbook else "Runbook"
     # Notifying subscribers must never break the document save that triggered
     # it — swallow delivery errors (replaces the deprecated fail_silently=True).
     try:

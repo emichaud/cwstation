@@ -70,7 +70,7 @@ def runbook_of(doc: Document) -> Optional[Runbook]:
     """
     if doc.runbook_id:
         return doc.runbook
-    if doc.section_id:
+    if doc.section_id and doc.section is not None:
         return doc.section.runbook
     return None
 

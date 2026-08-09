@@ -14,7 +14,7 @@ from typing import Any
 from django.contrib import admin
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
-from django.urls import path
+from django.urls import URLPattern, path
 from django.utils.html import format_html
 
 from .backends import get_backend
@@ -23,7 +23,9 @@ from .registry import (
 )
 
 
-@admin.register
+# admin.register is typed for type[Model]; here it decorates a custom
+# AdminSite subclass (existing behavior). Suppress the arg-type mismatch.
+@admin.register  # type: ignore[arg-type]
 class SearchConfigAdmin(admin.AdminSite):
     """Custom admin site for search configuration."""
 
@@ -68,7 +70,7 @@ class SearchConfigListView:
         return render(request, 'admin/search_config_list.html', context)
 
 
-def get_search_admin_urls() -> list[tuple]:
+def get_search_admin_urls() -> list[URLPattern]:
     """Return URL patterns for search admin views."""
     return [
         path(
@@ -104,7 +106,7 @@ def get_search_configuration_summary() -> dict[str, Any]:
 
     models_with_variants = 0
     total_variants = 0
-    models_by_feature = {
+    models_by_feature: dict[str, list[Any]] = {
         'filtering': [],
         'ranking': [],
         'variants': []

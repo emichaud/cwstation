@@ -44,6 +44,7 @@ def _has_enable_mcp_classvar(source: str) -> bool:
         if not isinstance(node, ast.ClassDef):
             continue
         for stmt in node.body:
+            value: ast.expr | None
             if isinstance(stmt, ast.Assign):
                 names = [t.id for t in stmt.targets if isinstance(t, ast.Name)]
                 value = stmt.value

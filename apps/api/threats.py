@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Any, Literal, cast
 
 from django.db.models import Count, Q
 from django.utils import timezone
@@ -95,9 +95,9 @@ def detect_auth_failure_burst(*, window_hours: int = 1, threshold: int = 10) -> 
         .annotate(n=Count("id"), first_seen=Count("id"))
     )
     # Use a separate aggregation for first/last seen since Count("id") doesn't give us min/max timestamp.
-    rows = list(rows.filter(n__gte=threshold).order_by("-n")[:20])
+    top_rows = cast("list[dict[str, Any]]", list(rows.filter(n__gte=threshold).order_by("-n")[:20]))
     signals: list[ThreatSignal] = []
-    for r in rows:
+    for r in top_rows:
         ip = r["ip_address"]
         log_qs = RequestLog.objects.filter(
             path__startswith="/api",

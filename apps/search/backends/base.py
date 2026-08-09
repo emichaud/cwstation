@@ -15,6 +15,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+from django.db.models import Model
+
 
 @dataclass
 class SearchHit:
@@ -62,7 +64,7 @@ class IndexedView:
     """
 
     view_cls: type
-    model: type
+    model: type[Model]
     fields: list[str]                            # search_fields
     weights: dict[str, int] = field(default_factory=dict)  # search_weight
     display_field: str | None = None             # search_display

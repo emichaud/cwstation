@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import secrets
+from typing import cast
 from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
@@ -29,6 +30,7 @@ from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
+from apps.accounts.models import User
 from apps.smallstack.models import APIToken
 
 from .models import OAuthAuthorizationCode
@@ -275,7 +277,7 @@ class AuthorizeView(View):
         code = secrets.token_urlsafe(32)
         OAuthAuthorizationCode.objects.create(
             code=code,
-            user=request.user,
+            user=cast("User", request.user),  # @login_required guarantees an authenticated User
             api_token=token,
             raw_key=raw_key,
             redirect_uri=redirect_uri,

@@ -17,9 +17,14 @@ Dashboard widgets (rendered on /smallstack/):
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from django.http import HttpRequest
+
+# A display "field" reference resolved by _resolve_field(): a field/dotted-path
+# name, or a callable(obj) computing the value. None means "unset".
+FieldRef = str | Callable[[Any], Any] | None
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -288,7 +293,7 @@ def _resolve_field(obj: Any, path: Any) -> Any:
     return value
 
 
-def _resolve_image_url(obj: Any, path: str) -> str | None:
+def _resolve_image_url(obj: Any, path: FieldRef) -> str | None:
     """Resolve an ImageField-style reference to its .url (or None)."""
     image = _resolve_field(obj, path)
     if not image:
@@ -441,10 +446,10 @@ class AvatarCardDisplay(CardDisplay):
 
     def __init__(
         self,
-        title_field: str | None = None,
-        subtitle_field: str | None = None,
-        image_field: str | None = None,
-        pill_field: str | None = None,
+        title_field: FieldRef = None,
+        subtitle_field: FieldRef = None,
+        image_field: FieldRef = None,
+        pill_field: FieldRef = None,
         pill_label: str | None = None,
         show_avatar: bool | None = None,
     ) -> None:
@@ -523,8 +528,8 @@ class CalendarDisplay(ListDisplay):
         self,
         date_field: str,
         end_field: str | None = None,
-        title_field: str | None = None,
-        status_field: str | None = None,
+        title_field: FieldRef = None,
+        status_field: FieldRef = None,
         variant: str = "chip",
         month_param: str = "month",
     ) -> None:

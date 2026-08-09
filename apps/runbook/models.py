@@ -4,15 +4,23 @@ from __future__ import annotations
 
 import re
 import uuid
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 from django.conf import settings
-from django.contrib.auth.models import AbstractBaseUser
+from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.core.files import File
 from django.core.validators import FileExtensionValidator
 from django.db import models
 from django.urls import reverse
 from django.utils.text import slugify
+
+if TYPE_CHECKING:
+    from apps.accounts.models import User
+
+    # A caller-supplied actor: the concrete User (what FKs store), an
+    # AnonymousUser (unauthenticated request.user), or None. Kept type-only so
+    # runtime imports stay unchanged.
+    Actor = Union[User, AnonymousUser, AbstractBaseUser, None]
 
 
 class Runbook(models.Model):
@@ -214,7 +222,10 @@ class Document(models.Model):
     @property
     def file(self) -> Optional[File]:
         """The head version's file (read-only). Writers go through versions."""
-        return self.current_version.file if self.current_version_id else None
+        if not self.current_version_id:
+            return None
+        assert self.current_version is not None
+        return self.current_version.file
 
     @property
     def is_markdown(self) -> bool:
@@ -237,8 +248,10 @@ class Document(models.Model):
         """
         parts = []
         if self.runbook_id:
+            assert self.runbook is not None
             parts.append(self.runbook.name)
         if self.section_id:
+            assert self.section is not None
             parts.append(self.section.name)
         return " · ".join(parts)
 
@@ -255,7 +268,7 @@ class Document(models.Model):
         self,
         *,
         file: File,
-        created_by: Optional[AbstractBaseUser] = None,
+        created_by: Actor = None,
         description: str = "",
         source: str = "",
         via: str = "web",
@@ -264,14 +277,18 @@ class Document(models.Model):
 
         The first call on a fresh document (no ``current_version``) produces v1.
         """
-        next_version = (self.current_version.version + 1) if self.current_version_id else 1
+        if self.current_version_id:
+            assert self.current_version is not None
+            next_version = self.current_version.version + 1
+        else:
+            next_version = 1
         version = DocumentVersion(
             document=self,
             version=next_version,
             file=file,
             title=self.title,
             description=description,
-            created_by=created_by,
+            created_by=cast("User | None", created_by),
             source=source,
             via=via,
         )
@@ -317,7 +334,7 @@ class DocumentVersion(models.Model):
         return f"{self.title or self.document_id} v{self.version}"
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        if self.file and not self.file_type:
+        if self.file and not self.file_type and self.file.name:
             self.file_type = self.file.name.rsplit(".", 1)[-1].lower()
         # Extract searchable text on create/upload. Callers writing the file
         # content directly (in-place editor) pass skip_content_extract=True.
@@ -373,7 +390,7 @@ class DocumentImage(models.Model):
         ordering = ["-created_at"]
 
     def __str__(self) -> str:
-        return self.image.name
+        return self.image.name or ""
 
     def get_absolute_url(self) -> str:
         return reverse("runbook:serve_image", kwargs={"pk": self.pk})

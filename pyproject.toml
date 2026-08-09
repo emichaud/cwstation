@@ -70,20 +70,10 @@ check_untyped_defs = false
 warn_redundant_casts = true
 warn_unused_ignores = false
 exclude = '(/migrations/|/tests/|test_[^/]*\.py$)'
-# Type-clean under mypy + django-stubs. The framework core (apps/smallstack)
-# and its CRUDView consumers are all covered; widen to remaining apps
-# (accounts, activity, api, heartbeat, help, mcp, profile, tasks) as they go
+# Type-clean under mypy + django-stubs: every app is covered. Migrations and
+# tests are excluded (see `exclude`). New apps should be added here and kept
 # green.
-files = [
-    "apps/feeds",
-    "apps/datasets",
-    "apps/scheduler",
-    "apps/webhooks",
-    "apps/usermanager",
-    "apps/tokenmgr",
-    "apps/explorer",
-    "apps/smallstack",
-]
+files = ["apps"]
 
 [tool.django-stubs]
 django_settings_module = "config.settings.test"

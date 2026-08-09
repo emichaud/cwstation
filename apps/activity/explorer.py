@@ -1,5 +1,7 @@
 """Explorer registration for activity models."""
 
+from datetime import timedelta
+
 from django.utils import timezone
 
 from apps.explorer.registry import explorer
@@ -8,12 +10,16 @@ from apps.smallstack.displays import DashboardWidget, StatsAccessory
 from .admin import RequestLogAdmin
 from .models import RequestLog
 
-RequestLogAdmin.explorer_list_fields = ("timestamp", "method", "status_code", "path")
-RequestLogAdmin.explorer_column_widths = {
-    "timestamp": "22%",
-    "method": "10%",
-    "status_code": "10%",
-}
+setattr(RequestLogAdmin, "explorer_list_fields", ("timestamp", "method", "status_code", "path"))
+setattr(
+    RequestLogAdmin,
+    "explorer_column_widths",
+    {
+        "timestamp": "22%",
+        "method": "10%",
+        "status_code": "10%",
+    },
+)
 
 
 class ActivityDashboardWidget(DashboardWidget):
@@ -31,7 +37,7 @@ class ActivityDashboardWidget(DashboardWidget):
     def get_data(self, model_class=None):
         now = timezone.now()
         total = model_class.objects.count()
-        recent = model_class.objects.filter(timestamp__gte=now - timezone.timedelta(hours=24)).count()
+        recent = model_class.objects.filter(timestamp__gte=now - timedelta(hours=24)).count()
         return {
             "headline": f"{total:,} requests",
             "detail": f"{recent:,} in last 24h",
@@ -40,24 +46,28 @@ class ActivityDashboardWidget(DashboardWidget):
         }
 
 
-RequestLogAdmin.explorer_dashboard_widgets = [ActivityDashboardWidget()]
+setattr(RequestLogAdmin, "explorer_dashboard_widgets", [ActivityDashboardWidget()])
 
-RequestLogAdmin.explorer_list_accessories = [
-    StatsAccessory(
-        stats=[
-            {"label": "Total", "value": lambda qs: qs.count()},
-            {
-                "label": "Last 24h",
-                "value": lambda qs: qs.filter(timestamp__gte=timezone.now() - timezone.timedelta(hours=24)).count(),
-                "color": "var(--primary)",
-            },
-            {
-                "label": "Errors",
-                "value": lambda qs: qs.filter(status_code__gte=400).count(),
-                "color": "var(--error-fg, #e74c3c)",
-            },
-        ]
-    )
-]
+setattr(
+    RequestLogAdmin,
+    "explorer_list_accessories",
+    [
+        StatsAccessory(
+            stats=[
+                {"label": "Total", "value": lambda qs: qs.count()},
+                {
+                    "label": "Last 24h",
+                    "value": lambda qs: qs.filter(timestamp__gte=timezone.now() - timedelta(hours=24)).count(),
+                    "color": "var(--primary)",
+                },
+                {
+                    "label": "Errors",
+                    "value": lambda qs: qs.filter(status_code__gte=400).count(),
+                    "color": "var(--error-fg, #e74c3c)",
+                },
+            ]
+        )
+    ],
+)
 
 explorer.register(RequestLog, RequestLogAdmin, group="Monitoring")

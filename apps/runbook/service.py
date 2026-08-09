@@ -17,9 +17,9 @@ from __future__ import annotations
 import dataclasses
 import os
 from datetime import datetime
-from typing import Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
-from django.contrib.auth.models import AbstractBaseUser
+from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.core.files import File
 from django.core.files.base import ContentFile
 from django.db import transaction
@@ -31,6 +31,9 @@ from django.utils.text import slugify
 from . import permissions, signals
 from .models import Document, DocumentImage, DocumentVersion, Runbook, Section, strip_frontmatter
 
+if TYPE_CHECKING:
+    from apps.accounts.models import User
+
 # -- Types --------------------------------------------------------------------
 
 WriteMode = Literal["new_version", "overwrite", "append", "append_version"]
@@ -39,7 +42,14 @@ ChangeType = Literal["created", "new_version", "overwrite", "append", "append_ve
 
 RunbookRef = Union[Runbook, str]
 SectionRef = Union[Section, str, None]
-Actor = Optional[AbstractBaseUser]
+# A caller-supplied actor: the concrete User (what FKs store), an AnonymousUser
+# (unauthenticated request.user), or None.
+Actor = Union["User", AnonymousUser, AbstractBaseUser, None]
+
+
+def _as_user(actor: Actor) -> "User | None":
+    """Narrow an actor to the concrete User FKs accept (type-only cast)."""
+    return cast("User | None", actor)
 
 
 class DocumentServiceError(Exception):
@@ -104,7 +114,7 @@ class DocumentSummary:
         return cls(
             id=doc.pk,
             uid=str(doc.uid),
-            runbook=doc.runbook.slug if doc.runbook_id else None,
+            runbook=doc.runbook.slug if doc.runbook else None,
             key=doc.key,
             title=doc.title,
             version=doc.version,
@@ -138,7 +148,7 @@ class DocumentResult:
         return cls(
             id=doc.pk,
             uid=str(doc.uid),
-            runbook=doc.runbook.slug if doc.runbook_id else None,
+            runbook=doc.runbook.slug if doc.runbook else None,
             key=doc.key,
             title=doc.title,
             version=doc.version,
@@ -185,6 +195,7 @@ def read_head(doc: Document) -> str:
     """Return the current version's markdown body ('' if there is none)."""
     if not doc.current_version_id:
         return ""
+    assert doc.current_version is not None
     handle = doc.current_version.file
     handle.open("rb")
     try:
@@ -196,6 +207,7 @@ def read_head(doc: Document) -> str:
 def _overwrite_head(doc: Document, body: str, *, source: str, via: str) -> DocumentVersion:
     """Replace the current version's content in place and resync the head."""
     version = doc.current_version
+    assert version is not None
     version.file.open("wb")
     version.file.write(body.encode("utf-8"))
     version.file.close()
@@ -342,7 +354,7 @@ def create_document(
         is_generated=is_generated,
         doc_type=doc_type,
         locked=locked,
-        created_by=actor,
+        created_by=_as_user(actor),
     )
     doc.create_new_version(file=_md_file(body, doc), created_by=actor, source=source, via=via)
     _emit_written(doc, "created", previous_version=None, actor=actor, source=source, via=via)
@@ -362,7 +374,7 @@ def attach_image(
     """Attach an image to a document and return the markdown snippet to embed."""
     doc = document if document is not None else _get_doc(runbook, key)
     content = file if file is not None else ContentFile(data or b"", name="image.png")
-    image = DocumentImage.objects.create(document=doc, image=content, alt=alt, uploaded_by=actor)
+    image = DocumentImage.objects.create(document=doc, image=content, alt=alt, uploaded_by=_as_user(actor))
 
     def _send() -> None:
         signals.document_image_attached.send(sender=Document, document=doc, image=image, actor=actor)
@@ -741,7 +753,7 @@ def create_runbook(
     if Runbook.objects.filter(slug=slug).exists():
         raise RunbookAlreadyExists(f"A runbook with slug {slug!r} already exists.")
     return Runbook.objects.create(
-        slug=slug, name=name or slug, description=description, owner=owner, is_public=is_public,
+        slug=slug, name=name or slug, description=description, owner=_as_user(owner), is_public=is_public,
     )
 
 
@@ -811,9 +823,9 @@ def clone_referenced_images(body: str, source_doc: Document, target_doc: Documen
             data = image.image.read()
         finally:
             image.image.close()
-        name = os.path.basename(image.image.name) or "image.png"
+        name = os.path.basename(image.image.name or "") or "image.png"
         new_image = DocumentImage.objects.create(
-            document=target_doc, image=ContentFile(data, name=name), alt=image.alt, uploaded_by=actor
+            document=target_doc, image=ContentFile(data, name=name), alt=image.alt, uploaded_by=_as_user(actor)
         )
         new_serve_url = reverse("runbook:serve_image", kwargs={"pk": new_image.pk})
         body = body.replace(serve_url, new_serve_url)
@@ -926,7 +938,7 @@ def clone_runbook(
         slug=new_slug or _unique_slug(slugify(new_name) if new_name else src.slug),
         description=src.description,
         icon=src.icon,
-        owner=owner,
+        owner=_as_user(owner),
         is_template=as_template,
         default_max_versions=src.default_max_versions,
         default_max_version_age_days=src.default_max_version_age_days,
@@ -949,7 +961,7 @@ def clone_runbook(
     for doc in docs:
         new_doc = Document.objects.create(
             runbook=target,
-            section=section_map.get(doc.section_id),
+            section=section_map.get(doc.section_id) if doc.section_id else None,
             key=doc.key,
             title=doc.title,
             slug=doc.slug,
@@ -959,7 +971,7 @@ def clone_runbook(
             source=doc.source,
             via="clone",
             locked=doc.locked and copy_locked,
-            created_by=actor,
+            created_by=_as_user(actor),
         )
         body = clone_referenced_images(read_head(doc), doc, new_doc, actor)
         new_doc.create_new_version(file=_md_file(body, new_doc), created_by=actor, source=doc.source, via="clone")

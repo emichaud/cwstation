@@ -181,16 +181,16 @@ class PostgresFTSBackend:
         with connection.cursor() as cur:
             cur.execute(sql)
             affected = cur.rowcount
-        return affected if affected is not None and affected >= 0 else view.model.objects.count()
+        return affected if affected is not None and affected >= 0 else view.model._default_manager.count()
 
     def _rebuild_per_row(self, view: IndexedView) -> int:
         from django.db import transaction
 
-        pks = list(view.model.objects.values_list("pk", flat=True))
+        pks = list(view.model._default_manager.values_list("pk", flat=True))
         chunk_size = 500
         count = 0
         for start in range(0, len(pks), chunk_size):
-            batch = list(view.model.objects.filter(pk__in=pks[start : start + chunk_size]))
+            batch = list(view.model._default_manager.filter(pk__in=pks[start : start + chunk_size]))
             with transaction.atomic():
                 for obj in batch:
                     self.index_object(view, obj)
@@ -244,7 +244,7 @@ class PostgresFTSBackend:
         # Re-hydrate objects in one query and preserve rank ordering.
         ids = [r[0] for r in rows]
         rank_by_id = {r[0]: r[1] for r in rows}
-        objects_by_id = {o.pk: o for o in view.model.objects.filter(pk__in=ids)}
+        objects_by_id = {o.pk: o for o in view.model._default_manager.filter(pk__in=ids)}
 
         hits: list[SearchHit] = []
         for obj_id in ids:

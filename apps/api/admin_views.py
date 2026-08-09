@@ -16,7 +16,7 @@ api_doctor; admin views rebind it to an HTML surface.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from django.http import Http404, HttpResponse
 from django.views.generic import TemplateView, View
@@ -272,14 +272,17 @@ class APIAdminActivityView(_AdminBase):
             base = base.filter(timestamp__gte=cutoff)
 
         # Region 1: per-endpoint summary across the current `since` window.
-        per_endpoint = list(
-            base.values("path")
-            .annotate(
-                hits=Count("id"),
-                avg_ms=Avg("response_time_ms"),
-                errors=Count("id", filter=Q(status_code__gte=400)),
-            )
-            .order_by("-hits")[:10]
+        per_endpoint = cast(
+            "list[dict[str, Any]]",
+            list(
+                base.values("path")
+                .annotate(
+                    hits=Count("id"),
+                    avg_ms=Avg("response_time_ms"),
+                    errors=Count("id", filter=Q(status_code__gte=400)),
+                )
+                .order_by("-hits")[:10]
+            ),
         )
         for row in per_endpoint:
             row["error_rate"] = (row["errors"] / row["hits"] * 100) if row["hits"] else 0.0

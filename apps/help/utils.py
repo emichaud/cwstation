@@ -12,6 +12,7 @@ import logging
 import re
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import markdown
 import yaml
@@ -131,7 +132,7 @@ def get_variables(section: str = "") -> dict:
     return variables
 
 
-def substitute_variables(content: str, section: str = "", extra_vars: dict = None) -> str:
+def substitute_variables(content: str, section: str = "", extra_vars: dict | None = None) -> str:
     """
     Replace {{ variable }} placeholders with values from config.
 
@@ -222,7 +223,7 @@ def get_help_page(slug: str, section: str = "") -> dict | None:
         raw_content = f.read()
 
     # Extract YAML frontmatter if present
-    frontmatter = {}
+    frontmatter: dict[str, Any] = {}
     content = raw_content
     if raw_content.startswith("---"):
         parts = raw_content.split("---", 2)
@@ -242,13 +243,13 @@ def get_help_page(slug: str, section: str = "") -> dict | None:
     else:
         # For root pages, check the root section in sections list
         root_config = get_config()
-        root_section = next(
+        root_section: dict[str, Any] = next(
             (s for s in root_config.get("sections", []) if s.get("slug") == ""),
             {},
         )
         config = {"pages": root_section.get("pages", [])}
 
-    page_config = next(
+    page_config: dict[str, Any] = next(
         (p for p in config.get("pages", []) if p.get("slug") == slug),
         {},
     )
@@ -281,7 +282,7 @@ def get_section_pages(section: str) -> list:
     if not section:
         # Root section from main config
         root_config = get_config()
-        root_section = next(
+        root_section: dict[str, Any] = next(
             (s for s in root_config.get("sections", []) if s.get("slug") == ""),
             {},
         )

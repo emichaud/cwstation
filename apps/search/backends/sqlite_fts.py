@@ -102,13 +102,13 @@ class SQLiteFTSBackend:
             cur.execute(f'DELETE FROM "{table}"')
 
         # Materialize pk list upfront — no open cursor during writes
-        pks = list(view.model.objects.values_list("pk", flat=True))
+        pks = list(view.model._default_manager.values_list("pk", flat=True))
         chunk_size = 500
         count = 0
 
         # Load and index in explicit batches, one transaction per batch
         for start in range(0, len(pks), chunk_size):
-            batch = list(view.model.objects.filter(pk__in=pks[start : start + chunk_size]))
+            batch = list(view.model._default_manager.filter(pk__in=pks[start : start + chunk_size]))
             with transaction.atomic():
                 for obj in batch:
                     self.index_object(view, obj)
@@ -155,7 +155,7 @@ class SQLiteFTSBackend:
         # Re-hydrate objects in one query and preserve rank ordering.
         ids = [r[0] for r in rows]
         rank_by_id = {r[0]: r[1] for r in rows}
-        objects = view.model.objects.filter(pk__in=ids)
+        objects = view.model._default_manager.filter(pk__in=ids)
         objects_by_id = {o.pk: o for o in objects}
 
         hits: list[SearchHit] = []

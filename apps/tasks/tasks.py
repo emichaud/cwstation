@@ -136,6 +136,7 @@ def send_html_email_task(
 
     # Try to find a matching .txt template for plain-text fallback
     txt_template = template.rsplit(".", 1)[0] + ".txt"
+    text_content: str
     try:
         text_content = render_to_string(txt_template, ctx)
     except TemplateDoesNotExist:

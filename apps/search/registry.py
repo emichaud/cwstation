@@ -290,14 +290,14 @@ def get_indexed_sources(user: Any = None) -> list[dict]:
         examples: list[str] = []
         total = 0
         try:
-            qs = view.model.objects.all()
+            qs = view.model._default_manager.all()
             total = _display_row_count(view.model)
             recent = list(qs.order_by("-pk")[:5])
             for obj in recent:
                 display_val = ""
                 if view.display_field:
                     parts = view.display_field.split("__")
-                    val = obj
+                    val: Any = obj
                     for part in parts:
                         if val is None:
                             break
@@ -307,7 +307,9 @@ def get_indexed_sources(user: Any = None) -> list[dict]:
                     display_val = str(obj)
                 url = None
                 try:
-                    url = obj.get_absolute_url()
+                    get_url = getattr(obj, "get_absolute_url", None)
+                    if get_url is not None:
+                        url = get_url()
                 except Exception:
                     pass
                 previews.append({
@@ -479,7 +481,7 @@ def search_all(query: str, limit_per_model: int = 5, user: Any = None) -> list[S
         if hits and not is_privileged and view.visibility is not None:
             try:
                 hit_ids = [h.object_id for h in hits]
-                visible_qs = view.visibility(view.model.objects.filter(pk__in=hit_ids), user)
+                visible_qs = view.visibility(view.model._default_manager.filter(pk__in=hit_ids), user)
                 visible_ids = set(visible_qs.values_list("pk", flat=True))
                 hits = [h for h in hits if h.object_id in visible_ids]
             except Exception:
