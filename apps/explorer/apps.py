@@ -7,6 +7,12 @@ class ExplorerConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "apps.explorer"
     verbose_name = "Model Explorer"
+    # Register the bundled help section so the Explorer page's own "how to enable
+    # models" link resolves instead of 404ing (content/ ships admin-api.md etc.
+    # but upstream never registered it — see apps/runbook for the same pattern).
+    help_content_dir = "content"
+    help_section_slug = "explorer"
+    help_section_title = "Model Explorer"
 
     def ready(self):
         from apps.smallstack import dashboard
