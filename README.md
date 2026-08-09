@@ -47,8 +47,8 @@ Full first-run walkthrough for a fresh Mac (Homebrew → Python → uv → clone
 [uv](https://docs.astral.sh/uv/) and Python 3.12+:
 
 ```bash
-git clone https://github.com/emichaud/cwmonitor.git
-cd cwmonitor
+git clone https://github.com/emichaud/cwstation.git
+cd cwstation
 make setup     # deps + migrate + a dev admin (admin / admin) + sample data
 make run       # dev server on http://localhost:8010/
 ```

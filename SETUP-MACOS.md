@@ -50,8 +50,8 @@ brew install hamlib
 
 ```bash
 cd ~/Documents            # or wherever you keep projects
-git clone https://github.com/emichaud/cwmonitor.git
-cd cwmonitor
+git clone https://github.com/emichaud/cwstation.git
+cd cwstation
 ```
 
 <details>
@@ -69,8 +69,8 @@ Paste it at **GitHub → Settings → SSH and GPG keys → New SSH key**, then:
 
 ```bash
 ssh -T git@github.com
-git clone git@github.com:emichaud/cwmonitor.git
-cd cwmonitor
+git clone git@github.com:emichaud/cwstation.git
+cd cwstation
 ```
 </details>
 
