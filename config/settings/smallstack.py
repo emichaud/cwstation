@@ -70,7 +70,13 @@ BRAND_SIGNUP_TERMS_NOTICE = config("BRAND_SIGNUP_TERMS_NOTICE", default=True, ca
 # Email Defaults
 # ---------------------------------------------------------------------------
 DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="noreply@example.com")
-EMAIL_BACKEND = config("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
+
+# Django 6.1's MAILERS (replaces the deprecated EMAIL_* settings; removed in 7.0).
+# Base default is the console backend; production overrides to SMTP. Still
+# driven by the same EMAIL_* env vars — see config/settings/_email.py.
+from ._email import CONSOLE_BACKEND, build_mailers  # noqa: E402
+
+MAILERS = build_mailers(default_backend=CONSOLE_BACKEND)
 
 # Accent colour used in HTML emails (the branded header band + buttons).
 # Emails can't use the live CSS palette, so this is a single re-brandable knob.

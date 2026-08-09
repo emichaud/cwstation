@@ -9,6 +9,37 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-08-08
+
+Django 6.1 + the email `MAILERS` migration. Minor bump because the email change
+is **breaking for downstream projects that set `EMAIL_BACKEND`** in their own
+settings (see UPGRADING). Also the first published release to carry the
+accessibility foundation and the RSS/Atom feeds surface from v0.13.13.
+
+### Changed
+- **Django 6.0 → 6.1** (latest stable). `manage.py check` clean and the full
+  suite passes; every third-party dependency (axes, csp, filter, htmx,
+  tasks-db, cors-headers, debug-toolbar, extensions, whitenoise, mcp) is
+  compatible unchanged.
+- **Email migrated to Django 6.1's `MAILERS`.** The framework now ships a
+  `MAILERS` dict (assembled from the same `EMAIL_*` **environment variables**
+  via `config/settings/_email.py`) instead of the deprecated flat `EMAIL_*`
+  *settings*, and drops the deprecated `fail_silently` argument across all mail
+  calls. This clears every `RemovedInDjango70Warning`. `DEFAULT_FROM_EMAIL` /
+  `SERVER_EMAIL` and `send_mail` / `EmailMultiAlternatives` / `mail_admins` are
+  unchanged. **Breaking:** Django 6.1 raises `ImproperlyConfigured` if a
+  deprecated `EMAIL_*` setting coexists with `MAILERS` — downstream projects
+  that define `EMAIL_BACKEND` must migrate (UPGRADING.md).
+
+### Fixed
+- Accessibility WCAG 2.1 AA follow-ups across the theme, CRUD tables, and the
+  feeds surfaces (sortable headers became real `<button>`s with `aria-sort`,
+  focus and labelling polish).
+- Feeds: enforce the `SMALLSTACK_FEEDS_ENABLED` master switch on the request
+  surface, Django-6 enclosure handling, and consume-side auth headers.
+- Test suite: silenced pre-existing naive-datetime and unclosed-file
+  `ResourceWarning` noise (no behavior change).
+
 ## [0.13.13] - 2026-08-08
 
 Two new surfaces — first-party RSS/Atom feeds and an accessibility foundation —
@@ -474,7 +505,8 @@ Condensed highlights of the v0.11 series (see git history for per-patch detail):
 See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full record of the
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
-[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.13.13...HEAD
+[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/emichaud/django-smallstack/compare/v0.13.13...v0.14.0
 [0.13.13]: https://github.com/emichaud/django-smallstack/compare/v0.13.12...v0.13.13
 [0.13.12]: https://github.com/emichaud/django-smallstack/compare/v0.13.11...v0.13.12
 [0.13.8]: https://github.com/emichaud/django-smallstack/compare/v0.13.7...v0.13.8

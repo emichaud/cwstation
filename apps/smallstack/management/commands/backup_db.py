@@ -58,7 +58,6 @@ class Command(BaseCommand):
                     mail_admins(
                         subject="Database backup skipped (non-SQLite engine)",
                         message=msg,
-                        fail_silently=True,
                     )
                 except Exception:
                     pass
@@ -121,7 +120,6 @@ class Command(BaseCommand):
                     mail_admins(
                         subject="Database backup failed",
                         message=f"Backup failed at {datetime.now()}\n\nError: {e}",
-                        fail_silently=True,
                     )
                 except Exception:
                     pass

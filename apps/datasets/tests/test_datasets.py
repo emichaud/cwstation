@@ -675,10 +675,19 @@ def _seed_dates():
 
 
 def test_date_range_gte_lt_is_half_open():
+    import datetime as _dt
+
+    from django.utils import timezone as _tz
+
     _seed_dates()
     ds = get_dataset("t_requestlog")
+    # tz-aware ISO bounds (same tz as the seed's make_aware) — string inputs, as
+    # the dataset filter API expects, but offset-aware so Django doesn't warn
+    # about a naive datetime against the aware timestamp field.
+    lo = _tz.make_aware(_dt.datetime(2026, 7, 1)).isoformat()
+    hi = _tz.make_aware(_dt.datetime(2026, 7, 8)).isoformat()
     rows = ds.rows(
-        filters={"timestamp__gte": "2026-07-01", "timestamp__lt": "2026-07-08"},
+        filters={"timestamp__gte": lo, "timestamp__lt": hi},
         limit=100,
     )
     # July 1 and 4 included; July 8 excluded (half-open).

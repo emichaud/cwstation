@@ -1,10 +1,10 @@
 [project]
 name = "django-smallstack"
-version = "0.13.13"
+version = "0.14.0"
 description = "A minimal Django stack for building and deploying admin-style apps"
 requires-python = ">=3.12"
 dependencies = [
-    "django>=6.0",
+    "django>=6.1",
     "python-decouple>=3.8",
     "pillow>=10.0",
     "gunicorn>=21.0",
@@ -73,6 +73,11 @@ asyncio_default_fixture_loop_scope = "function"
 addopts = "--ds=config.settings.test --cov=apps --cov-report=term-missing:skip-covered --cov-report=html -m 'not starter_content'"  # starter pages removed downstream
 filterwarnings = [
     "ignore:SMALLSTACK_TOPBAR_NAV_ITEMS:DeprecationWarning",
+    # Media (.md) files served by whitenoise / read by Django's FileField during
+    # runbook tests are closed by GC, not explicitly — a harmless test-env
+    # artifact, not a production leak. Scoped to the unclosed-file message so a
+    # genuine future leak still surfaces.
+    "ignore:unclosed file:ResourceWarning",
 ]
 markers = [
     "starter_content: tests that assert upstream starter *copy/pages* (legal text, marketing/home, signup) a downstream replaces or disables — safe to skip downstream. Do NOT tag framework chrome (breadcrumbs, topbar nav) that downstream keeps.",

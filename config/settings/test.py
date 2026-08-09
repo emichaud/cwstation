@@ -53,8 +53,10 @@ PASSWORD_HASHERS = [
     "django.contrib.auth.hashers.MD5PasswordHasher",
 ]
 
-# Email backend for testing
-EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+# Email backend for testing — locmem captures sends in mail.outbox. Django 6.1
+# forbids EMAIL_BACKEND alongside MAILERS (base sets MAILERS), so override the
+# default mailer here rather than the deprecated setting.
+MAILERS = {"default": {"BACKEND": "django.core.mail.backends.locmem.EmailBackend", "OPTIONS": {}}}
 
 # Disable logging during tests
 LOGGING = {

@@ -82,8 +82,8 @@ DATABASES = {
     }
 }
 
-# Print emails to console
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+# Print emails to console (Django 6.1: override MAILERS, not EMAIL_BACKEND)
+MAILERS = {"default": {"BACKEND": "django.core.mail.backends.console.EmailBackend", "OPTIONS": {}}}
 ```
 
 **When to add settings here:**
@@ -456,22 +456,37 @@ DATABASES = {
 
 ### Email Configuration
 
-**Development (Console):**
-```python
-# development.py
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+SmallStack uses Django 6.1's **`MAILERS`** setting (the flat `EMAIL_BACKEND` /
+`EMAIL_HOST` / … *settings* were deprecated in 6.1, removed in 7.0). You still
+configure it with the **same `EMAIL_*` environment variables** — the base
+settings feed them into `MAILERS` via `config/settings/_email.py:build_mailers()`
+(console backend in dev, SMTP in production):
+
+```bash
+# .env — the interface you actually use (unchanged)
+EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+EMAIL_HOST=smtp.example.com
+EMAIL_PORT=587
+EMAIL_USE_TLS=true
+EMAIL_HOST_USER=your-email@example.com
+EMAIL_HOST_PASSWORD=your-password
 ```
 
-**Production (SMTP):**
+The resulting setting looks like:
+
 ```python
-# production.py
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = config("EMAIL_HOST")
-EMAIL_PORT = config("EMAIL_PORT", default=587, cast=int)
-EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=True, cast=bool)
-EMAIL_HOST_USER = config("EMAIL_HOST_USER")
-EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD")
+MAILERS = {
+    "default": {
+        "BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+        "OPTIONS": {"host": "smtp.example.com", "port": 587, "use_tls": True, ...},
+    },
+}
 ```
+
+> ⚠️ **Do not add `EMAIL_BACKEND` (or other `EMAIL_*`) as a Django *setting*.**
+> Django 6.1 raises `ImproperlyConfigured` if a deprecated `EMAIL_*` setting is
+> defined alongside `MAILERS`. Override `MAILERS` directly, or use the env vars
+> above. (`DEFAULT_FROM_EMAIL` / `SERVER_EMAIL` are unaffected.)
 
 ### Static Files
 

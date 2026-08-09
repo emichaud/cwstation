@@ -78,7 +78,6 @@ def send_email_task(
         message=message,
         from_email=from_email or getattr(settings, "DEFAULT_FROM_EMAIL", None),
         recipient_list=recipient_list,
-        fail_silently=False,
     )
 
 
@@ -151,7 +150,7 @@ def send_html_email_task(
         to=recipient_list,
     )
     email.attach_alternative(html_content, "text/html")
-    return email.send(fail_silently=False)
+    return email.send()
 
 
 @task(queue_name="email")
@@ -214,7 +213,7 @@ def send_welcome_email(user_id: int) -> int:
         to=[user.email],
     )
     email.attach_alternative(html_content, "text/html")
-    return email.send(fail_silently=False)
+    return email.send()
 
 
 @task(priority=5)
