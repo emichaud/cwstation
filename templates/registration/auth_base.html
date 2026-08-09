@@ -1,0 +1,36 @@
+{% load static %}
+{% comment %}CW Station override of the SmallStack auth shell: adds cw.css, the
+gold brand palette by default, and the cw-login body hook so the login/signup/
+reset screens wear the same clean, large console aesthetic as the setup pages.{% endcomment %}
+<!DOCTYPE html>
+<html lang="en" data-palette="gold">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{% endblock %} | {{ brand.name }}</title>
+    <link rel="icon" type="image/svg+xml" href="{% static brand.favicon %}">
+    {% comment %}Default anonymous auth screens to the CW Station gold brand
+    palette; theme.js reads window.SMALLSTACK.colorPalette (a stored preference
+    still wins).{% endcomment %}
+    <script>window.SMALLSTACK = { colorPalette: 'gold' };</script>
+    <script>(function(){var t=localStorage.getItem('smallstack-theme')||'dark';document.documentElement.setAttribute('data-theme',t);var p=localStorage.getItem('smallstack-palette')||'gold';document.documentElement.setAttribute('data-palette',p);})()</script>
+    <link rel="stylesheet" href="{% static 'admin/css/base.css' %}">
+    <link rel="stylesheet" href="{% static 'smallstack/css/theme.css' %}">
+    <link rel="stylesheet" href="{% static 'smallstack/css/palettes.css' %}">
+    <link rel="stylesheet" href="{% static 'smallstack/css/components.css' %}">
+    <link rel="stylesheet" href="{% static 'cw/cw.css' %}">
+</head>
+<body class="auth-page cw-login">
+    <main id="main-content" class="auth-container">
+        <div class="auth-brand">
+            <img src="{% static brand.logo %}" alt="{{ brand.name }}" class="auth-logo auth-logo-light">
+            <img src="{% static brand.logo_dark %}" alt="{{ brand.name }}" class="auth-logo auth-logo-dark">
+        </div>
+        <div class="auth-card">
+            {% block auth_content %}{% endblock %}
+        </div>
+    </main>
+
+    <script src="{% static 'smallstack/js/theme.js' %}"></script>
+</body>
+</html>

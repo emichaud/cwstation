@@ -1177,6 +1177,56 @@ body.cw-console.cw-logbook .card-grid {
 @media (hover: none) { .cw-sc-del, .cw-sc-replay { opacity: 1; } }
 @media (max-width: 560px) { .cw-sc-time { margin-left: 0; width: 100%; } }
 
+/* ── Auth screens (login / signup / password reset): CW Station setup look ── */
+body.cw-login { background: var(--body-bg); }
+body.cw-login .auth-container { max-width: 440px; }
+body.cw-login .auth-brand { margin-bottom: 26px; }
+body.cw-login .auth-logo { height: 42px; }
+body.cw-login .auth-card {
+    border-radius: 16px;
+    padding: 32px 30px 26px;
+    border: 1px solid var(--card-border);
+    border-top: 3px solid var(--primary);
+    box-shadow: 0 14px 44px rgba(0, 0, 0, 0.38);
+}
+body.cw-login .auth-header { margin-bottom: 26px; }
+body.cw-login .auth-header h1 { font-size: 1.6rem; letter-spacing: -0.01em; }
+body.cw-login .auth-header p { font-size: 0.95rem; color: var(--body-quiet-color); }
+body.cw-login .auth-form .form-group { margin-bottom: 18px; }
+body.cw-login .auth-form label { font-size: 0.92rem; font-weight: 600; margin-bottom: 8px; }
+body.cw-login .auth-form .vTextField,
+body.cw-login .auth-form input[type="text"],
+body.cw-login .auth-form input[type="email"],
+body.cw-login .auth-form input[type="password"] {
+    width: 100%; box-sizing: border-box; height: 48px; padding: 0 14px;
+    font-size: 1rem; border-radius: 10px;
+    border: 1px solid var(--card-border); background: var(--body-bg); color: var(--body-fg);
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+body.cw-login .auth-form .vTextField:focus,
+body.cw-login .auth-form input:focus {
+    outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--accent-band-bg);
+}
+body.cw-login .auth-form .btn-primary,
+body.cw-login .auth-form button[type="submit"] {
+    width: 100%; min-height: 52px; margin-top: 4px;
+    font-size: 1.05rem; font-weight: 700; border-radius: 11px;
+}
+body.cw-login .auth-footer-links {
+    margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--card-border);
+    display: flex; flex-direction: column; gap: 12px; text-align: center;
+}
+body.cw-login .auth-footer-links a { color: var(--primary); font-size: 0.9rem; text-decoration: none; }
+body.cw-login .auth-footer-links a:hover { text-decoration: underline; }
+body.cw-login .message.error,
+body.cw-login .message.success {
+    border-radius: 10px; padding: 12px 14px; margin-bottom: 18px; font-size: 0.9rem;
+}
+body.cw-login .message.error {
+    border: 1px solid color-mix(in srgb, var(--error-fg) 40%, var(--card-border));
+    background: color-mix(in srgb, var(--error-fg) 10%, transparent); color: var(--error-fg);
+}
+
 /* ── Callbook (setup-style tool page) ── */
 .cw-cb-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .cw-cb-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
