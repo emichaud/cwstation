@@ -7,6 +7,7 @@ Claude.ai's Connectors UI fails to attach. Each section prints PASS / WARN
 
 from __future__ import annotations
 
+import ast
 import json as jsonlib
 import sys
 from io import StringIO
@@ -23,6 +24,37 @@ GREEN = "\033[32m"
 YELLOW = "\033[33m"
 RED = "\033[31m"
 RESET = "\033[0m"
+
+
+def _has_enable_mcp_classvar(source: str) -> bool:
+    """True if ``source`` contains a real ``enable_mcp = True`` class attribute.
+
+    AST-based, not a substring match: the marker must be an ``Assign`` /
+    ``AnnAssign`` to a name ``enable_mcp`` with the constant ``True`` in a
+    ``ClassDef`` body. This ignores the same characters when they appear inside
+    a string literal, comment, or docstring — e.g. the runbook seed command
+    embeds a ``enable_mcp = True`` teaching example in its markdown content,
+    which the old substring scan flagged as an unregistered opt-in.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for stmt in node.body:
+            if isinstance(stmt, ast.Assign):
+                names = [t.id for t in stmt.targets if isinstance(t, ast.Name)]
+                value = stmt.value
+            elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                names = [stmt.target.id]
+                value = stmt.value
+            else:
+                continue
+            if "enable_mcp" in names and isinstance(value, ast.Constant) and value.value is True:
+                return True
+    return False
 
 
 class Command(BaseCommand):
@@ -271,7 +303,6 @@ class Command(BaseCommand):
 
         from django.apps import apps as django_apps
 
-        marker = "enable_mcp = True"
         hits: list[tuple] = []
         for app_config in django_apps.get_app_configs():
             if app_config.label == "mcp_server":
@@ -285,14 +316,18 @@ class Command(BaseCommand):
                 if "tests" in parts or "migrations" in parts:
                     continue
                 try:
-                    if marker in py_file.read_text(encoding="utf-8", errors="ignore"):
-                        try:
-                            display = str(py_file.relative_to(app_path.parent))
-                        except ValueError:
-                            display = str(py_file)
-                        hits.append((py_file, display))
+                    source = py_file.read_text(encoding="utf-8", errors="ignore")
                 except OSError:
                     continue
+                # Cheap pre-filter, then confirm it's a real class attribute via
+                # AST — not the same text inside a string/comment/docstring.
+                if "enable_mcp" not in source or not _has_enable_mcp_classvar(source):
+                    continue
+                try:
+                    display = str(py_file.relative_to(app_path.parent))
+                except ValueError:
+                    display = str(py_file)
+                hits.append((py_file, display))
         return sorted(hits, key=lambda t: t[1])
 
     def _check_urls(self, report):
