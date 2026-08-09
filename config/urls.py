@@ -114,12 +114,6 @@ if getattr(settings, "SMALLSTACK_MCP_ENABLED", True):
         *oauth_wellknown_urlpatterns,
     ]
 
-# Debug toolbar (off by default, enable with DEBUG_TOOLBAR=true in .env)
-if settings.DEBUG and "debug_toolbar" in settings.INSTALLED_APPS:
-    urlpatterns += [
-        path("__debug__/", include("debug_toolbar.urls")),
-    ]
-
 # Preview error pages in development
 if settings.DEBUG:
     from django.views.defaults import bad_request, page_not_found, permission_denied, server_error

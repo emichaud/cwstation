@@ -317,12 +317,6 @@ pages:
     icon: "database"
     category: "Built-in Tools"
 
-  - slug: debug-toolbar
-    title: "Debug Toolbar"
-    description: "Enable Django Debug Toolbar for SQL profiling, template inspection, and request debugging"
-    icon: "terminal"
-    category: "Development"
-
   - slug: logging-audit
     title: "Logging & Audit Trail"
     description: "Built-in logging and activity tracking that just works"

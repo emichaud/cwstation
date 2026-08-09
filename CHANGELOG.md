@@ -9,6 +9,16 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+### Added
+- **`make typecheck`** — mypy + django-stubs, configured leniently and scoped to
+  the type-clean apps (starts at `apps/feeds`; widen app-by-app as each reaches
+  green). A local / pre-commit guard, no CI lane. (Codebase-review F3.)
+
+### Removed
+- **django-debug-toolbar** — removed from the project entirely (dependency, the
+  dev-settings toggle, the `__debug__/` URL, and the bundled help page). It was
+  off-by-default dev tooling; dropping it slims the dependency surface.
+
 ## [0.14.3] - 2026-08-09
 
 Fixes from a full codebase review (two security fixes + a Django 6.1 deploy-check
