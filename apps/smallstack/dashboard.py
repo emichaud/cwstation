@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.urls import NoReverseMatch, reverse
 from django.utils.safestring import mark_safe
+from django.views.generic.base import ContextMixin
 
 if TYPE_CHECKING:
     from django.db.models import Model
@@ -218,7 +219,7 @@ api_widgets = _build_api_view()
 # ---------------------------------------------------------------------------
 
 
-class DashboardWidgetsMixin:
+class DashboardWidgetsMixin(ContextMixin):
     """Adds `widgets` to template context.
 
     Optional class attributes:

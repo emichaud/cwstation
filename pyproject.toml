@@ -57,11 +57,11 @@ select = ["E", "F", "I", "W"]
 "*/migrations/*.py" = ["E501"]  # Migrations are auto-generated
 
 [tool.mypy]
-# Lenient by design: locks in the already-strongly-typed apps and stops type
-# drift there, without requiring the ~29%-typed core to be fully annotated
-# first. Run with `make typecheck`. No CI lane — CI is intentionally absent
-# upstream; this is a local / pre-commit guard. Widen `files` as core modules
-# gain annotations.
+# Lenient by design: locks in type-clean apps and stops drift there. Bodies of
+# untyped functions aren't checked (check_untyped_defs=false), so this catches
+# signature/attribute/annotation errors without demanding full annotation.
+# Run with `make typecheck`. No CI lane — CI is intentionally absent upstream;
+# this is a local / pre-commit guard. Widen `files` as more apps go green.
 python_version = "3.12"
 plugins = ["mypy_django_plugin.main"]
 ignore_missing_imports = true
@@ -70,9 +70,10 @@ check_untyped_defs = false
 warn_redundant_casts = true
 warn_unused_ignores = false
 exclude = '(/migrations/|/tests/|test_[^/]*\.py$)'
-# Type-clean under mypy + django-stubs. Widen one app at a time as each is
-# brought to green. The framework core (apps/smallstack) is the last, largest
-# step — its CRUDView library is only ~29% annotated.
+# Type-clean under mypy + django-stubs. The framework core (apps/smallstack)
+# and its CRUDView consumers are all covered; widen to remaining apps
+# (accounts, activity, api, heartbeat, help, mcp, profile, tasks) as they go
+# green.
 files = [
     "apps/feeds",
     "apps/datasets",
@@ -81,6 +82,7 @@ files = [
     "apps/usermanager",
     "apps/tokenmgr",
     "apps/explorer",
+    "apps/smallstack",
 ]
 
 [tool.django-stubs]

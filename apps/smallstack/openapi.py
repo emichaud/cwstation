@@ -7,6 +7,11 @@ standard OpenAPI document.  The single public entry point is
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from apps.smallstack.crud import CRUDView
+
 # ---------------------------------------------------------------------------
 # Type mapping
 # ---------------------------------------------------------------------------
@@ -31,10 +36,10 @@ _TYPE_MAP: dict[str, dict[str, str]] = {
 }
 
 
-def _smallstack_type_to_openapi(field_schema: dict[str, object]) -> dict[str, object]:
+def _smallstack_type_to_openapi(field_schema: dict[str, Any]) -> dict[str, Any]:
     """Convert a SmallStack field schema dict to an OpenAPI property dict."""
     st = field_schema.get("type", "string")
-    base = dict(_TYPE_MAP.get(st, {"type": "string"}))
+    base: dict[str, Any] = dict(_TYPE_MAP.get(st, {"type": "string"}))
 
     if st == "choice" and "choices" in field_schema:
         base["type"] = "string"
@@ -350,7 +355,7 @@ def _build_crud_paths(crud_config, list_url_name: str) -> dict[str, dict]:
 def _build_auth_paths() -> dict[str, dict]:
     """Static path definitions for all auth endpoints."""
     tag = "Auth"
-    bearer = [{"bearerAuth": []}]
+    bearer: list[dict[str, Any]] = [{"bearerAuth": []}]
     error_ref = {"$ref": "#/components/schemas/Error"}
     auth_user_ref = {"$ref": "#/components/schemas/AuthUser"}
     auth_user_ext_ref = {"$ref": "#/components/schemas/AuthUserExtended"}
@@ -623,7 +628,7 @@ def _build_custom_paths(custom_registry: list[dict]) -> dict[str, dict]:
 
 
 def build_openapi_spec(
-    api_registry: list[tuple[object, str]],
+    api_registry: list[tuple[type[CRUDView], str]],
     server_url: str | None = None,
     custom_paths: list[dict] | None = None,
 ) -> dict:
@@ -666,6 +671,8 @@ def build_openapi_spec(
     schemas: dict[str, dict] = {}
 
     for crud_config, list_url_name in api_registry:
+        if crud_config.model is None:
+            continue  # an api-registered CRUDView always has a model, but keep mypy happy
         model_name = crud_config.model.__name__
         crud_paths = _build_crud_paths(crud_config, list_url_name)
         paths.update(crud_paths)

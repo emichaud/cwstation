@@ -16,7 +16,7 @@ from __future__ import annotations
 import functools
 import json
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse, QueryDict
@@ -28,7 +28,7 @@ from .crud import Action, BulkAction, _apply_ordering_fields
 
 if TYPE_CHECKING:
     from django import forms
-    from django.db.models import QuerySet
+    from django.db.models import Model, QuerySet
 
 # ---------------------------------------------------------------------------
 # API registry — populated by build_api_urls() for schema introspection
@@ -280,8 +280,12 @@ def api_view(methods=None, require_auth=True, require_staff=False, require_auth_
 
 def _authenticate_api_request(
     request: HttpRequest,
-) -> tuple[object | None, JsonResponse | None]:
-    """Authenticate via Bearer token or existing session. API views only."""
+) -> tuple[Any, JsonResponse | None]:
+    """Authenticate via Bearer token or existing session. API views only.
+
+    The user slot is the swappable ``AUTH_USER_MODEL`` instance (``Any``) when
+    the second element is ``None``; ``None`` otherwise.
+    """
     auth_header = request.META.get("HTTP_AUTHORIZATION", "")
 
     if auth_header.startswith("Bearer "):
@@ -304,8 +308,9 @@ def _authenticate_api_request(
                 return None, _error("Token inactive", 401)
             return None, _error("Invalid token", 401)
         request.user = user
-        request._api_token = token
-        request._api_token_auth = True
+        # Dynamic attributes read back downstream (audit log, throttling).
+        setattr(request, "_api_token", token)
+        setattr(request, "_api_token_auth", True)
         return user, None
 
     # No Bearer header — use existing session auth
@@ -628,7 +633,7 @@ def _serialize(
     data: dict = {"id": obj.pk}
     all_fields = list(fields) + list(extra_fields or [])
     for f in all_fields:
-        val = getattr(obj, f, None)
+        val: Any = getattr(obj, f, None)
         if hasattr(val, "isoformat"):
             val = val.isoformat()
         elif hasattr(val, "pk"):
@@ -716,7 +721,7 @@ def api_schema(request: HttpRequest) -> JsonResponse:
 # ---------------------------------------------------------------------------
 
 
-def _field_to_schema(name: str, form_field: forms.Field, model: type) -> dict:
+def _field_to_schema(name: str, form_field: forms.Field, model: type[Model]) -> dict:
     """Map a Django form field to a type/constraints dict."""
     from django import forms
 
@@ -726,11 +731,14 @@ def _field_to_schema(name: str, form_field: forms.Field, model: type) -> dict:
     widget = form_field.widget
     if isinstance(form_field, forms.ModelChoiceField):
         info["type"] = "fk"
-        related_model = form_field.queryset.model
-        info["related_model"] = related_model.__name__
+        if form_field.queryset is not None:
+            info["related_model"] = form_field.queryset.model.__name__
     elif isinstance(form_field, forms.TypedChoiceField) or isinstance(form_field, forms.ChoiceField):
         info["type"] = "choice"
-        info["choices"] = [[v, str(label)] for v, label in form_field.choices if v != ""]
+        # .choices is a normalized list of pairs at runtime; the stub type is a
+        # broad union that isn't statically iterable, so narrow it explicitly.
+        choices = cast("list[tuple[Any, Any]]", form_field.choices)
+        info["choices"] = [[v, str(label)] for v, label in choices if v != ""]
     elif isinstance(form_field, (forms.FileField, forms.ImageField)):
         info["type"] = "file"
     elif isinstance(form_field, forms.BooleanField):
@@ -781,7 +789,7 @@ def _field_to_schema(name: str, form_field: forms.Field, model: type) -> dict:
     return info
 
 
-def _model_field_type(model: type, field_name: str) -> str:
+def _model_field_type(model: type[Model], field_name: str) -> str:
     """Derive a schema type from a model field for read-only extra fields."""
     from django.db import models as dm
 
@@ -1385,7 +1393,7 @@ def api_auth_token(request: HttpRequest) -> JsonResponse:
     # Post-check: if this attempt just triggered lockout, return 403 JSON
     # (clear the flag so AxesMiddleware doesn't replace with HTML)
     if getattr(request, "axes_locked_out", False):
-        request.axes_locked_out = False
+        setattr(request, "axes_locked_out", False)
         return _lockout_response(request)
 
     if user is None or not user.is_active:

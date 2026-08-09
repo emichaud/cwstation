@@ -28,7 +28,7 @@ from django import forms
 from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist
 from django.db import IntegrityError
-from django.db.models import ProtectedError, QuerySet, RestrictedError
+from django.db.models import Model, ProtectedError, QuerySet, RestrictedError
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import redirect as _redirect
 from django.urls import path, reverse
@@ -94,7 +94,7 @@ def _apply_list_search(qs, request: HttpRequest, crud_config) -> QuerySet:
         return qs
 
     # Pre-parse the query for date-like patterns
-    date_filters = None
+    date_filters: dict[str, Any] | None = None
     if re.fullmatch(r"\d{4}", q):
         date_filters = {"__year": int(q)}
     elif re.fullmatch(r"\d{4}-\d{1,2}", q):
@@ -294,7 +294,7 @@ def _build_filter_meta(model, field_name: str) -> dict[str, Any] | None:
     except Exception:
         return None
 
-    meta = {
+    meta: dict[str, Any] = {
         "name": field_name,
         "label": str(getattr(field, "verbose_name", field_name)).capitalize(),
     }
@@ -332,7 +332,7 @@ def _build_filter_meta(model, field_name: str) -> dict[str, Any] | None:
     if isinstance(field, _m.ForeignKey):
         related_model = field.related_model
         try:
-            objects = related_model.objects.all()[:100]
+            objects = related_model._default_manager.all()[:100]
             choices = [("", "All")]
             for obj in objects:
                 choices.append((str(obj.pk), str(obj)))
@@ -367,7 +367,7 @@ def _build_filter_meta(model, field_name: str) -> dict[str, Any] | None:
 class _CRUDContextMixin:
     """Injects CRUD metadata into template context for all generated views."""
 
-    crud_config = None  # Set by CRUDView._make_view()
+    crud_config: type["CRUDView"]  # injected by CRUDView._make_view() on every generated view
 
     # Reserved context variable names that Django's auth/template system uses.
     # If the model's default context_object_name would collide, we prefix it.
@@ -718,7 +718,7 @@ class _CRUDBulkActionView:
     and catch ProtectedError per row.
     """
 
-    crud_config = None
+    crud_config: type["CRUDView"]  # injected by CRUDView._make_bulk_action_view()
 
     @classmethod
     def as_view(cls):
@@ -1158,12 +1158,13 @@ class CRUDView:
     # class from any code that walks _registry at runtime (mcp_doctor's
     # orphan detector, related-tabs URL resolution, etc.), pointing them at
     # Explorer's clone instead.
-    _registry: dict[type, type["CRUDView"]] = {}
+    _registry: dict[type[Model], type["CRUDView"]] = {}
 
-    def __init_subclass__(cls, **kwargs):
+    def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        if getattr(cls, "model", None) is not None:
-            CRUDView._registry.setdefault(cls.model, cls)
+        model = getattr(cls, "model", None)
+        if model is not None:
+            CRUDView._registry.setdefault(model, cls)
 
     # Config source
     admin_class: Any = None  # ModelAdmin subclass — the standard Django config DSL
@@ -1195,19 +1196,19 @@ class CRUDView:
     breadcrumb_parent: Any = None  # Optional (label, url_name) for parent breadcrumb
 
     # Display
-    displays = []  # List of ListDisplay classes/instances. Empty = legacy auto-detect.
+    displays: list[Any] = []  # List of ListDisplay classes/instances. Empty = legacy auto-detect.
     default_display: Any = None  # Defaults to first in displays
-    detail_displays = []  # List of DetailDisplay classes/instances
-    list_accessories = []  # ListAccessory instances rendered above the toolbar
+    detail_displays: list[Any] = []  # List of DetailDisplay classes/instances
+    list_accessories: list[Any] = []  # ListAccessory instances rendered above the toolbar
 
     # Form displays
-    form_displays = []  # FormDisplay classes/instances (both create + edit)
-    create_displays = []  # Create-only (overrides form_displays for create)
-    edit_displays = []  # Edit-only (overrides form_displays for edit)
+    form_displays: list[Any] = []  # FormDisplay classes/instances (both create + edit)
+    create_displays: list[Any] = []  # Create-only (overrides form_displays for create)
+    edit_displays: list[Any] = []  # Edit-only (overrides form_displays for edit)
     default_form_display: Any = None  # Defaults to first in resolved list
 
     # Bulk operations
-    bulk_actions = []  # Opt-in: [BulkAction.DELETE, BulkAction.UPDATE]
+    bulk_actions: list[Any] = []  # Opt-in: [BulkAction.DELETE, BulkAction.UPDATE]
 
     # RSS/Atom feeds (apps.feeds). Opt-in: publish this model as a feed at
     # /feed/<slug>.rss (+ .atom). Item fields fall back to the search
@@ -1226,14 +1227,14 @@ class CRUDView:
 
     # API
     enable_api = False  # Opt-in: generate JSON API endpoints alongside HTML views
-    api_extra_fields = []  # Extra read-only fields appended to API responses (e.g. ["created_at", "updated_at"])
-    api_expand_fields = []  # FK fields always expanded as {"id": pk, "name": str(obj)} (e.g. ["category"])
-    api_aggregate_fields = []  # Numeric fields that support sum/avg/min/max aggregation
-    ordering_fields = []  # Fields allowed for ?ordering= (defaults to sortable list_fields)
-    search_fields = []  # Fields for ?q= search (reads from admin_class.search_fields)
-    filter_fields = []  # Fields for query-param filtering (reads from admin_class.list_filter)
+    api_extra_fields: list[str] = []  # Read-only fields appended to API responses (e.g. ["created_at", "updated_at"])
+    api_expand_fields: list[str] = []  # FK fields always expanded as {"id": pk, "name": str(obj)} (e.g. ["category"])
+    api_aggregate_fields: list[str] = []  # Numeric fields that support sum/avg/min/max aggregation
+    ordering_fields: list[str] = []  # Fields allowed for ?ordering= (defaults to sortable list_fields)
+    search_fields: list[str] = []  # Fields for ?q= search (reads from admin_class.search_fields)
+    filter_fields: list[str] = []  # Fields for query-param filtering (reads from admin_class.list_filter)
     filter_class: Any = None  # Optional django-filters FilterSet class
-    export_formats = []  # e.g. ["csv", "json"] — enables ?format= on API list
+    export_formats: list[str] = []  # e.g. ["csv", "json"] — enables ?format= on API list
 
     # Search exposure — opt-in keyword search via FTS5 (SQLite) /
     # SearchVector+GIN (Postgres) / __icontains (fallback). When
@@ -1288,7 +1289,7 @@ class CRUDView:
 
     # Related object tabs (reverse FK relations on detail page)
     related_tabs: Any = None  # None=auto-discover, list=explicit accessor names, False=disabled
-    related_tabs_exclude = []  # Accessor names to exclude from auto-discovery
+    related_tabs_exclude: list[str] = []  # Accessor names to exclude from auto-discovery
     related_tabs_paginate_by = 10
 
     # Legacy/direct config
@@ -1302,10 +1303,16 @@ class CRUDView:
     # -- Config resolution: admin_class → legacy attrs → defaults --
 
     @classmethod
+    def _model(cls) -> type[Model]:
+        """The configured model, asserted non-None (every routed CRUDView has one)."""
+        assert cls.model is not None, f"{cls.__name__} has no model configured"
+        return cls.model
+
+    @classmethod
     def _get_url_base(cls) -> str:
         if cls.url_base:
             return cls.url_base
-        return cls.model._meta.model_name
+        return cls._model()._meta.model_name or ""
 
     @classmethod
     def _reverse(cls, url_name: str, **kwargs) -> str:
@@ -1323,11 +1330,11 @@ class CRUDView:
         if cls.admin_class:
             ld = getattr(cls.admin_class, "list_display", ["__str__"])
             if list(ld) != ["__str__"]:
-                model_field_names = {f.name for f in cls.model._meta.get_fields()}
+                model_field_names = {f.name for f in cls._model()._meta.get_fields()}
                 fields = [f for f in ld if f in model_field_names and f != "pk"]
                 if fields:
                     return fields
-        return cls.fields
+        return cls.fields or []
 
     @classmethod
     def _get_list_columns(cls) -> list[str]:
@@ -1361,13 +1368,13 @@ class CRUDView:
         from django.db.models import AutoField, BigAutoField, Field, ForeignKey
 
         all_fields = []
-        for f in cls.model._meta.get_fields():
+        for f in cls._model()._meta.get_fields():
             if not isinstance(f, (Field, ForeignKey)):
                 continue
             if isinstance(f, (AutoField, BigAutoField)):
                 continue
             all_fields.append(f.name)
-        return all_fields or cls.fields
+        return all_fields or cls.fields or []
 
     @classmethod
     def _get_link_field(cls) -> str | None:
@@ -1462,13 +1469,18 @@ class CRUDView:
         if cls.related_tabs is False:
             return []
 
+        from django.db.models.fields.reverse_related import ForeignObjectRel
         from django.urls import NoReverseMatch
 
         tabs = []
-        for rel in cls.model._meta.get_fields():
-            if not rel.one_to_many:
+        for rel in cls._model()._meta.get_fields():
+            # Reverse FK relations only — narrows rel to ForeignObjectRel, which
+            # carries get_accessor_name()/field (a plain Field does not).
+            if not isinstance(rel, ForeignObjectRel) or not rel.one_to_many:
                 continue
             related_model = rel.related_model
+            if related_model is None:
+                continue
             related_crud = CRUDView._registry.get(related_model)
             if not related_crud:
                 continue

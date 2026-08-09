@@ -573,7 +573,7 @@ class CalendarDisplay(ListDisplay):
 
         # Bucket events onto each day they touch
         has_detail = Action.DETAIL in crud_config.actions
-        events_by_day = {}
+        events_by_day: dict[Any, list[dict[str, Any]]] = {}
         for obj in filtered:
             start = _to_local_date(_resolve_field(obj, self.date_field))
             end = (
@@ -616,7 +616,7 @@ class CalendarDisplay(ListDisplay):
         # Build Monday-start 7-column week grid
         first_weekday = month_start.weekday()  # 0 = Monday
         weeks = []
-        current_week = [None] * first_weekday
+        current_week: list[Any] = [None] * first_weekday
         for day_num in range(1, last_day + 1):
             d = month_start.replace(day=day_num)
             current_week.append(

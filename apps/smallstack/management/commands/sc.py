@@ -29,6 +29,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
+from django.db.models import Model
 from django.http import HttpRequest, QueryDict
 
 from apps.smallstack.api import apply_filters, apply_ordering, apply_search, serialize
@@ -180,7 +181,7 @@ class Command(BaseCommand):
         labels = sorted(m._meta.label for m, _ in matches)
         raise CommandError(f"ambiguous model {token!r}; matches {', '.join(labels)}. Use the app.model form.")
 
-    def _sorted_views(self) -> list[tuple[str, Any, type]]:
+    def _sorted_views(self) -> list[tuple[str, type[Model], type[CRUDView]]]:
         """[(canonical_token, model, view)] sorted by token."""
         rows = [(self._canonical_token(m), m, v) for m, v in CRUDView._registry.items()]
         rows.sort(key=lambda r: r[0])
@@ -754,8 +755,8 @@ class Command(BaseCommand):
         if not data:
             self.stdout.write("(no tokens)")
             return
-        rows = [[d["prefix"], d["name"], d["access_level"], "yes" if d["active"] else "no",
-                 d["user"] or "-", str(d["last_used_at"] or "-")] for d in data]
+        rows = [[str(d["prefix"]), str(d["name"]), str(d["access_level"]), "yes" if d["active"] else "no",
+                 str(d["user"] or "-"), str(d["last_used_at"] or "-")] for d in data]
         self.stdout.write(table(rows, ["PREFIX", "NAME", "ACCESS", "ACTIVE", "USER", "LAST USED"]))
 
     def _token_revoke(self, argv: list[str]) -> None:

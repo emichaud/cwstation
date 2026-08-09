@@ -73,7 +73,9 @@ class RequestIDMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         request_id = request.META.get("HTTP_X_REQUEST_ID") or f"req_{uuid.uuid4()}"
-        request.id = request_id
+        # Dynamic attribute read back by logging/templates — setattr keeps the
+        # type checker happy without a custom HttpRequest subclass.
+        setattr(request, "id", request_id)
 
         response = self.get_response(request)
         response[self.HEADER] = request_id
@@ -109,10 +111,10 @@ class TimezoneMiddleware:
             # Log at debug and fall back to the server timezone set above.
             logger.debug("TimezoneMiddleware: falling back to server tz", exc_info=True)
 
-        # Cache on request for template tags
-        request._tz_user = user_tz
-        request._tz_server = server_tz
-        request._tz_differs = str(user_tz) != str(server_tz)
+        # Cache on request for template tags (dynamic attributes — see above).
+        setattr(request, "_tz_user", user_tz)
+        setattr(request, "_tz_server", server_tz)
+        setattr(request, "_tz_differs", str(user_tz) != str(server_tz))
 
         timezone.activate(user_tz)
 
