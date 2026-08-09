@@ -74,6 +74,7 @@ exclude = '(/migrations/|/tests/|test_[^/]*\.py$)'
 # app at a time (datasets/scheduler/webhooks next) as each is brought to green.
 files = [
     "apps/feeds",
+    "apps/datasets",
 ]
 
 [tool.django-stubs]

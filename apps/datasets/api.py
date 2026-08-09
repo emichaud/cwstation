@@ -15,6 +15,7 @@ Routes:
 from __future__ import annotations
 
 import csv
+from typing import overload
 
 from django.conf import settings
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
@@ -31,6 +32,23 @@ _RESERVED = {
     "ordering", "limit", "offset", "format", "dimension", "measure", "agg", "expand",
     "buckets", "auto", "auto_limit", "label_field", "bucket",
 }
+
+
+@overload
+def _int_param(request: HttpRequest, name: str, default: int) -> int: ...
+@overload
+def _int_param(request: HttpRequest, name: str, default: None) -> int | None: ...
+def _int_param(request: HttpRequest, name: str, default: int | None) -> int | None:
+    """Parse an integer query param, falling back to ``default`` when absent or
+    non-numeric. Query params arrive as strings; passing them straight to
+    ``rows()``/``series()`` (which slice with them) would crash on ``?offset=5``."""
+    raw = request.GET.get(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
 
 
 def _parse_dimension(request: HttpRequest, field: str | None) -> dict | None:
@@ -147,18 +165,18 @@ class DatasetSchemaView(_DatasetApiView):
 
 
 class DatasetRowsView(_DatasetApiView):
-    def get(self, request: HttpRequest, key: str) -> JsonResponse:
+    def get(self, request: HttpRequest, key: str) -> HttpResponse:
         ds = _require_api_dataset(key)
         filters = {k: v for k, v in request.GET.items() if k not in _RESERVED}
         is_csv = request.GET.get("format") == "csv"
         # CSV is the whole filtered set (an export), ignoring paging unless the
         # caller explicitly passes limit/offset; JSON pages (default limit 50).
+        # Query params are strings — parse to int (rows() slices with them).
         if is_csv:
-            limit = request.GET.get("limit")  # None (absent) → unbounded
-            offset = request.GET.get("offset", 0)
+            limit = _int_param(request, "limit", None)  # None → unbounded
         else:
-            limit = request.GET.get("limit", 50)
-            offset = request.GET.get("offset", 0)
+            limit = _int_param(request, "limit", 50)
+        offset = _int_param(request, "offset", 0)
         # Bucket drilldown: ?dimension=…&(buckets|auto)…&bucket=<key> narrows the
         # rows to one bucket — the rows behind a clicked chart segment.
         bucket = request.GET.get("bucket") or None
@@ -178,10 +196,7 @@ class DatasetRowsView(_DatasetApiView):
             return JsonResponse({"error": str(exc)}, status=400)
         if is_csv:
             return _rows_csv_response(ds, key, rows)
-        try:
-            offset_echo = max(0, int(offset or 0))
-        except (TypeError, ValueError):
-            offset_echo = 0
+        offset_echo = max(0, offset)
         # ``total`` is the full matching count (of the bucket, if drilling down);
         # ``count`` stays the length of this page (unchanged for compatibility).
         return JsonResponse(
@@ -214,7 +229,7 @@ class DatasetSeriesView(_DatasetApiView):
                 bucketed if bucketed is not None else field,
                 measure=(request.GET.get("measure") or None),
                 agg=request.GET.get("agg", "count"),
-                limit=request.GET.get("limit", 50),
+                limit=_int_param(request, "limit", 50),
                 filters=filters,
                 request=request,
             )

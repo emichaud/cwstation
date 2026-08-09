@@ -429,6 +429,47 @@ def test_rest_rows_expand_returns_id_name(client, _api_token):
     assert set(user_val.keys()) == {"id", "name"}
 
 
+def test_rest_rows_string_offset_paginates(client, _api_token):
+    """Regression: query-string ``offset``/``limit`` arrive as strings; the view
+    must int-coerce them before ``rows()`` slices with them. Before the fix,
+    ``?offset=2`` crashed with a ``str + int`` TypeError (HTTP 500)."""
+    # Seed rows under a unique status_code so we can filter to exactly this
+    # test's data (isolating from any rows a prior transactional test left) and
+    # order by response_time_ms (unique per row) for a deterministic page order.
+    for i in range(4):
+        RequestLog.objects.create(
+            path=f"/pg/{i}", method="GET", status_code=418, response_time_ms=100 + i
+        )
+    q = "status_code=418&ordering=response_time_ms"
+    base = client.get(
+        f"/smallstack/datasets/t_requestlog/?{q}&limit=2&offset=0",
+        HTTP_AUTHORIZATION=f"Bearer {_api_token}",
+    )
+    assert base.status_code == 200
+    paged = client.get(
+        f"/smallstack/datasets/t_requestlog/?{q}&limit=2&offset=2",
+        HTTP_AUTHORIZATION=f"Bearer {_api_token}",
+    )
+    assert paged.status_code == 200
+    assert paged.json()["offset"] == 2
+    # Distinct pages — no overlap between offset=0 and offset=2.
+    first_ids = {r["id"] for r in base.json()["results"]}
+    second_ids = {r["id"] for r in paged.json()["results"]}
+    assert len(first_ids) == 2 and len(second_ids) == 2
+    assert first_ids.isdisjoint(second_ids)
+
+
+def test_rest_rows_junk_offset_falls_back(client, _api_token):
+    """A non-numeric ``offset`` degrades to 0 rather than 500ing."""
+    _seed()
+    resp = client.get(
+        "/smallstack/datasets/t_requestlog/?offset=nope&limit=abc",
+        HTTP_AUTHORIZATION=f"Bearer {_api_token}",
+    )
+    assert resp.status_code == 200
+    assert resp.json()["offset"] == 0
+
+
 # --- REST: CSV export + scalar route (Round-2 regressions) ------------------
 
 
