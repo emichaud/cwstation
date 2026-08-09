@@ -340,7 +340,7 @@ html[data-theme="light"] body.cw-console .cw-rig-freq > .cw-mono:first-child {
     letter-spacing: 0.14em;
     color: var(--primary);
     min-height: 32px;
-    max-height: 104px;              /* ~3 lines; long copy scrolls */
+    max-height: 165px;              /* ~5 lines; long copy scrolls */
     overflow-y: auto;
     overscroll-behavior: contain;
     word-break: break-word;
@@ -366,7 +366,16 @@ html[data-theme="light"] body.cw-console .cw-rig-freq > .cw-mono:first-child {
 }
 @keyframes cw-blink { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .cw-cursor { animation: none; } }
-.cw-truth { margin-top: 10px; font-size: 12px; color: var(--body-quiet-color); }
+.cw-truth {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--body-quiet-color);
+    /* Ground-truth of a whole recording can be long — cap + scroll like the copy. */
+    max-height: 8.5em;              /* ~5 lines */
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    word-break: break-word;
+}
 .cw-truth b { color: var(--success-fg); letter-spacing: 0.1em; }
 
 .cw-gauges {
@@ -1829,6 +1838,12 @@ a.cw-btn-lg { display: inline-flex; align-items: center; text-decoration: none; 
     line-height: 1.9;
     word-break: break-word;
     color: var(--body-fg);
+    /* Long copy (a whole recording) stays a fixed 5 rows tall and scrolls
+       instead of pushing the page down. 1.9em == one line at this line-height. */
+    max-height: calc(1.9em * 5);
+    overflow-y: auto;
+    padding-right: 6px; /* keep the scrollbar off the text */
+    overscroll-behavior: contain;
 }
 .cw-copy .lowconf { color: var(--error-fg); }
 
