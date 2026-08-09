@@ -111,3 +111,97 @@ def test_bulk_update_get_is_405(staff):
     req = RequestFactory().get("/x/bulk-update/")
     req.user = staff
     assert _make_api_bulk_update_view(_TokenBulkView)(req).status_code == 405
+
+
+# --- HTML bulk views (crud.py 730-961) --------------------------------------
+
+
+class _TokenDeleteOnlyView(CRUDView):
+    model = APIToken
+    url_base = "test/tokdel"
+    mixins = [StaffRequiredMixin]
+    bulk_actions = [BulkAction.DELETE]
+    actions = [Action.LIST, Action.DELETE]
+    fields = ["name", "is_active"]
+
+
+def _bulk_action_view(view_cls):
+    from apps.smallstack.crud import _CRUDBulkActionView
+
+    return type("B", (_CRUDBulkActionView,), {"crud_config": view_cls}).as_view()
+
+
+def _bulk_post(user, payload):
+    req = RequestFactory().post("/x/bulk/", data=json.dumps(payload), content_type="application/json")
+    req.user = user
+    return req
+
+
+def test_html_bulk_update_success(staff):
+    toks = _tokens(staff)
+    resp = _bulk_action_view(_TokenBulkView)(
+        _bulk_post(staff, {"action": "update", "ids": [t.pk for t in toks], "fields": {"name": "bulkhtml"}})
+    )
+    assert resp.status_code == 200
+    assert json.loads(resp.content)["updated"] == [t.pk for t in toks]
+    for t in toks:
+        t.refresh_from_db()
+        assert t.name == "bulkhtml"
+
+
+def test_html_bulk_update_not_enabled_is_403(staff):
+    toks = _tokens(staff, 1)
+    resp = _bulk_action_view(_TokenDeleteOnlyView)(
+        _bulk_post(staff, {"action": "update", "ids": [toks[0].pk], "fields": {"name": "x"}})
+    )
+    assert resp.status_code == 403
+
+
+def test_html_bulk_update_no_fields_is_400(staff):
+    toks = _tokens(staff, 1)
+    resp = _bulk_action_view(_TokenBulkView)(
+        _bulk_post(staff, {"action": "update", "ids": [toks[0].pk], "fields": {}})
+    )
+    assert resp.status_code == 400
+
+
+def test_html_bulk_update_invalid_field_is_400(staff):
+    toks = _tokens(staff, 1)
+    resp = _bulk_action_view(_TokenBulkView)(
+        _bulk_post(staff, {"action": "update", "ids": [toks[0].pk], "fields": {"key_hash": "x"}})
+    )
+    assert resp.status_code == 400
+
+
+def test_html_bulk_delete_success(staff):
+    toks = _tokens(staff)
+    resp = _bulk_action_view(_TokenBulkView)(
+        _bulk_post(staff, {"action": "delete", "ids": [t.pk for t in toks]})
+    )
+    assert resp.status_code == 200
+    assert json.loads(resp.content)["deleted"] == [t.pk for t in toks]
+    assert not APIToken.objects.filter(pk__in=[t.pk for t in toks]).exists()
+
+
+def test_html_bulk_unknown_action_is_400(staff):
+    toks = _tokens(staff, 1)
+    resp = _bulk_action_view(_TokenBulkView)(
+        _bulk_post(staff, {"action": "frobnicate", "ids": [toks[0].pk]})
+    )
+    assert resp.status_code == 400
+
+
+def test_html_bulk_no_ids_is_400(staff):
+    resp = _bulk_action_view(_TokenBulkView)(_bulk_post(staff, {"action": "delete", "ids": []}))
+    assert resp.status_code == 400
+
+
+def test_bulk_update_form_view_renders_fields(staff):
+    from apps.smallstack.crud import _make_bulk_update_form_view
+
+    req = RequestFactory().get("/x/bulk/update-form/")
+    req.user = staff
+    resp = _make_bulk_update_form_view(_TokenBulkView)(req)
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert 'data-field="name"' in body and 'data-field="is_active"' in body
