@@ -73,7 +73,9 @@ class ModelFeed(Feed):
     from the CRUDView's ``rss_*`` attributes, falling back to its search
     declarations."""
 
-    def __init__(self, view_cls: type):
+    def __init__(self, view_cls: Any) -> None:
+        # view_cls is a CRUDView subclass; its framework attrs (model, url_base,
+        # rss_*, search_*) are dynamic, so it's typed Any here.
         self.view_cls = view_cls
         self.model = view_cls.model
 
@@ -91,8 +93,10 @@ class ModelFeed(Feed):
             self.model._meta.verbose_name_plural
         ).title()
         self.description = getattr(view_cls, "rss_feed_description", "") or f"Recent {self.title}."
-        self.access = getattr(view_cls, "rss_access", None) or getattr(
-            view_cls, "search_access", SearchAccess.STAFF
+        self.access = (
+            getattr(view_cls, "rss_access", None)
+            or getattr(view_cls, "search_access", None)
+            or SearchAccess.STAFF
         )
         self.limit = int(getattr(view_cls, "rss_limit", 50) or 50)
 
@@ -106,6 +110,7 @@ class ModelFeed(Feed):
 
         # A downstream may override rss_item_extra(obj) for enclosures etc.
         self._extra_hook = getattr(view_cls, "rss_item_extra", None)
+        self.link = self._channel_link()
 
     def _default_slug(self) -> str:
         base = getattr(self.view_cls, "url_base", None)
@@ -119,8 +124,7 @@ class ModelFeed(Feed):
                 return name
         return None
 
-    @property
-    def link(self) -> str:  # channel link → the model's list page if resolvable
+    def _channel_link(self) -> str:  # channel link → the model's list page if resolvable
         from django.urls import NoReverseMatch, reverse
 
         url_base = getattr(self.view_cls, "url_base", None)
@@ -145,7 +149,7 @@ class ModelFeed(Feed):
 
         for obj in qs:
             title = _resolve(obj, self.title_field) or str(obj)
-            extra = {}
+            extra: dict[str, Any] = {}
             if instance is not None:
                 try:
                     extra = instance.rss_item_extra(obj) or {}

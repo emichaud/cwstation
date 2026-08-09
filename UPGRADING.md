@@ -9,6 +9,48 @@ listed, no downstream migration is required.
 
 ---
 
+## v0.15.0 — CRUDViews require login by default (BREAKING)
+
+**Who is affected:** any CRUDView that relied on the old empty-`mixins` default to be
+**anonymous/public**. Views that set `mixins` explicitly — e.g. `[StaffRequiredMixin]`, which
+every bundled framework view does — are unaffected.
+
+**What changed:** `CRUDView.mixins` now defaults to `None` (secure), which the framework resolves
+to `[LoginRequiredMixin]`. Previously the default was `[]` (no auth), so a CRUDView that *omitted*
+`mixins` silently shipped anonymous HTML **and** REST endpoints. Now such a view requires login.
+
+**Symptom on upgrade:** a page/endpoint that used to be public now redirects to the login page
+(HTML) or returns `401` (REST) for anonymous visitors.
+
+**Find affected views:**
+```bash
+# CRUDViews that set NO mixins (they inherit the new secure default):
+grep -rLn "mixins =" $(grep -rln "CRUDView)" apps/)
+```
+
+**Migration — make public access explicit:**
+```python
+from apps.smallstack.crud import CRUDView, Action
+
+# Opt into anonymous access with the readable flag (recommended):
+class ProductCatalogView(CRUDView):
+    model = Product
+    public = True
+    actions = [Action.LIST, Action.DETAIL]   # read-only — public writes are almost never intended
+
+# …or the low-level equivalent:
+class ProductCatalogView(CRUDView):
+    mixins = []
+```
+Nothing to do if your CRUDViews already set `mixins` (login/staff) explicitly — an explicit list
+always wins over the default and over `public`.
+
+**New guard:** a CRUDView that is public (no auth mixins) **and** exposes write actions
+(create/update/delete) with `enable_api=True` now emits a warning — restrict `actions` to
+`LIST`/`DETAIL` for public views, or gate it. Note the REST API still requires authentication for
+every request regardless (token or session), so a `public=True` view is public over HTML but its
+API stays auth-gated.
+
 ## v0.14.0 — Django 6.1 + email `MAILERS` (breaking **only** if you set `EMAIL_BACKEND`)
 
 **Who is affected:** downstream projects that define **`EMAIL_BACKEND`** (or any `EMAIL_HOST` /
@@ -69,9 +111,6 @@ migrations applied cleanly, **no data loss**, `manage.py check` passed.
   `RUNBOOK_GENERATED_*` retention caps — see `config/settings/smallstack.py`.
 - `TRUST_PROXY_HEADERS` (default `False`) — only enable behind a trusted proxy that sets
   `X-Forwarded-For` (kamal-proxy does).
-
-**Evidence:** upgrade path and full quality assessment in the v0.13.0 report card
-([`docs/report-cards/`](docs/report-cards/)).
 
 ---
 

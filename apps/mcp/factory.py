@@ -58,7 +58,7 @@ def _fake_request(user) -> HttpRequest:
 def _has_staff_mixin(view_cls) -> bool:
     return any(
         issubclass(m, StaffRequiredMixin) or getattr(m, "__name__", "") == "StaffRequiredMixin"
-        for m in (view_cls.mixins or [])
+        for m in view_cls._resolved_mixins()
     )
 
 

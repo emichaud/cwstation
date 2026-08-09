@@ -1,7 +1,7 @@
 # Makefile for Django SmallStack
 # Run 'make help' to see available commands
 
-.PHONY: help run sim services migrate migrations superuser shell test coverage collectstatic docker-up docker-down lint clean deploy logs backup screenshot-auth optimize-images mcp-doctor mcp-test api-test
+.PHONY: help run sim services migrate migrations superuser shell test coverage collectstatic docker-up docker-down lint lint-fix typecheck clean deploy logs backup screenshot-auth optimize-images mcp-doctor mcp-test api-test
 
 # Default port for development server
 PORT ?= 8010
@@ -26,6 +26,7 @@ help:
 	@echo "  make mcp-test     - End-to-end MCP smoke test (requires \`make run\` in another shell)"
 	@echo "  make api-test     - End-to-end REST API smoke test (requires \`make run\` in another shell)"
 	@echo "  make lint         - Run ruff linter"
+	@echo "  make typecheck    - Run mypy (scoped to typed apps; see [tool.mypy])"
 	@echo "  make screenshot-auth - Generate shot-scraper auth JSON"
 	@echo "  make optimize-images - Optimize PNG images with pngquant"
 	@echo "  make clean        - Clean up generated files"
@@ -106,6 +107,9 @@ lint:
 
 lint-fix:
 	uv run ruff check --fix .
+
+typecheck:
+	uv run mypy
 
 # Kamal deployment (optional - requires Kamal to be installed and configured)
 # See /help/smallstack/kamal-deployment/ for setup guide

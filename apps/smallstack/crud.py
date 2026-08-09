@@ -890,7 +890,7 @@ class _CRUDBulkActionView:
                 )
 
         # Apply mixins
-        bases = tuple(config.mixins) + (BulkView,)
+        bases = tuple(config._resolved_mixins()) + (BulkView,)
         view_cls = type(f"{config.model.__name__}BulkActionView", bases, {})
         return view_cls.as_view()
 
@@ -956,7 +956,7 @@ def _make_bulk_update_form_view(crud_config):
             return HttpResponse("".join(html_parts))
 
     # Apply mixins
-    bases = tuple(config.mixins) + (BulkUpdateFormView,)
+    bases = tuple(config._resolved_mixins()) + (BulkUpdateFormView,)
     view_cls = type(f"{config.model.__name__}BulkUpdateFormView", bases, {})
     return view_cls.as_view()
 
@@ -1181,7 +1181,14 @@ class CRUDView:
     url_base = None
     namespace: str | None = None  # URL namespace for child ExplorerSite instances
     paginate_by = 25
-    mixins = []
+    # Auth mixins wrapped around every generated view (HTML + REST). SECURE BY
+    # DEFAULT: leave `mixins` unset (None) and the framework applies
+    # LoginRequiredMixin. Set it explicitly to override entirely
+    # (e.g. [StaffRequiredMixin], or [] for a fully public view). To make a view
+    # anonymous, prefer the readable `public = True` flag below. Resolved via
+    # `_resolved_mixins()`.
+    mixins = None
+    public = False  # opt into anonymous access (only when `mixins` is unset)
     actions = [Action.LIST, Action.CREATE, Action.DETAIL, Action.UPDATE, Action.DELETE]
     breadcrumb_parent = None  # Optional (label, url_name) for parent breadcrumb
 
@@ -1716,10 +1723,27 @@ class CRUDView:
         return AutoCRUDForm
 
     @classmethod
+    def _resolved_mixins(cls) -> list:
+        """The effective auth mixins for every generated view (HTML + REST).
+
+        Secure by default: an unset ``mixins`` (``None``) requires login; set
+        ``public = True`` for anonymous access. An explicit ``mixins`` list
+        (including ``[]`` or ``[StaffRequiredMixin]``) always wins — this only
+        changes the behavior of a view that set *neither*.
+        """
+        if cls.mixins is not None:
+            return list(cls.mixins)
+        if cls.public:
+            return []
+        from django.contrib.auth.mixins import LoginRequiredMixin
+
+        return [LoginRequiredMixin]
+
+    @classmethod
     def _make_view(cls, base_class):
         """Create a view class with mixins applied."""
         name = f"{cls.model.__name__}{base_class.__name__.lstrip('_')}"
-        bases = tuple(cls.mixins) + (base_class,)
+        bases = tuple(cls._resolved_mixins()) + (base_class,)
         resolved_paginate_by = cls._resolve_paginate_by()
         # When displays are configured, the display handles pagination —
         # skip Django's built-in paginate_by.

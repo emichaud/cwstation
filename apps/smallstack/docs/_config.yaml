@@ -269,6 +269,18 @@ pages:
     icon: "code"
     category: "Development"
 
+  - slug: webhooks
+    title: "Webhooks"
+    description: "Signed outbound delivery on model change + verified inbound receivers, with four seams for Zapier/n8n/Stripe/Slack"
+    icon: "api"
+    category: "Development"
+
+  - slug: feeds
+    title: "RSS / Atom Feeds"
+    description: "Publish any model as an RSS/Atom feed with one flag, or consume external feeds on a schedule into a model"
+    icon: "api"
+    category: "Development"
+
   - slug: background-tasks
     title: "Background Tasks"
     description: "Running tasks outside the request-response cycle"
@@ -304,12 +316,6 @@ pages:
     description: "Visual dashboard for scheduling, running, and downloading database backups"
     icon: "database"
     category: "Built-in Tools"
-
-  - slug: debug-toolbar
-    title: "Debug Toolbar"
-    description: "Enable Django Debug Toolbar for SQL profiling, template inspection, and request debugging"
-    icon: "terminal"
-    category: "Development"
 
   - slug: logging-audit
     title: "Logging & Audit Trail"

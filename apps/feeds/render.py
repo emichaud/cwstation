@@ -7,6 +7,8 @@ and custom feeds, so every feed is emitted identically.
 
 from __future__ import annotations
 
+from typing import Any
+
 from django.http import HttpRequest
 from django.utils.feedgenerator import Atom1Feed, Rss201rev2Feed
 
@@ -33,7 +35,7 @@ def render_feed(feed: Feed, request: HttpRequest, fmt: str = "rss") -> tuple[str
     )
 
     for item in feed.items(request):
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "title": item.title,
             "link": _absolute(request, item.link),
             "unique_id": item.unique_id,

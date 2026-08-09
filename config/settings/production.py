@@ -98,6 +98,17 @@ CSRF_COOKIE_SECURE = config("CSRF_COOKIE_SECURE", default=True, cast=bool)
 # REMOTE_ADDR. See apps/smallstack/client_ip.py.
 TRUST_PROXY_HEADERS = config("TRUST_PROXY_HEADERS", default=True, cast=bool)
 
+# The same proxy-trust decision applies to the forwarded protocol. kamal-proxy
+# terminates TLS and forwards to the container over HTTP with
+# ``X-Forwarded-Proto: https``. Without trusting it, ``request.is_secure()`` is
+# False behind the proxy and Django builds ``http://`` absolute URLs — feed
+# self-links, sitemaps, and the links in password-reset / invite emails all go
+# out as http. Trust the header only when TRUST_PROXY_HEADERS is on: a container
+# reachable *only* through the proxy can't have it spoofed, whereas a
+# directly-exposed deploy (flag off) must not trust a client-supplied header.
+if TRUST_PROXY_HEADERS:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 # Backups — store on the mounted data volume so they survive deploys
 BACKUP_DIR = config("BACKUP_DIR", default="/app/data/backups")
 

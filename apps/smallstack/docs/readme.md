@@ -5,34 +5,45 @@ description: Project overview and quick start guide
 
 # Django SmallStack
 
-*A minimal Django stack for building and deploying admin-style apps.*
+*One small backend. Many roles.*
 
-A modern, batteries-included Django starter project built on Django's powerful admin foundation. Production-ready with SQLite, Docker, and zero-downtime Kamal deployment. Clone it, customize it, ship it.
+A modern, batteries-included Django foundation that plays many roles in your stack — an admin app, a REST backend for your React/Svelte/Solid frontend, an MCP server, a search engine, an integration hub, and a task runner — all from a single model definition. Production-ready with SQLite, Docker, and zero-downtime Kamal deployment. Clone it, customize it, ship it.
 
 SmallStack is not a theme you have to implement — it's a production-ready system with clear patterns for you to extend with your own ideas and creativity. You focus on what makes your app unique, and SmallStack handles the platform.
 
+📖 **Full docs & the full story → [www.smallstack.site](https://www.smallstack.site/)**
+
 ## Features
 
-### Profile App
-Complete user profile management with photo uploads, cover images, bio, location, and customizable display names. Extend it with your own fields.
+### Five surfaces from one model
+Declare a `CRUDView` and opt in with flags — `enable_api`, `enable_mcp`, `enable_search`. One model becomes an HTML admin, a REST API (with OpenAPI), MCP tools for AI agents, a full-text search interface, and a terminal CLI (`sc`). Change the model once; all five stay in sync.
 
-### Help System
-Built-in documentation system with markdown support, table of contents, search, and easy-to-edit content files. Perfect for user guides or internal docs.
+### REST API & bundled clients
+Bearer-token REST with an OpenAPI 3.0 spec, Swagger UI, and ReDoc — plus typed TypeScript/JS and Python clients (`clients/`) so a React, Svelte, Solid, or Streamlit frontend can talk to it immediately.
 
-### Background Tasks
-Django 6's new Tasks framework is pre-configured with database backend. Send emails, process data, and run jobs in the background effortlessly.
+### MCP server
+A first-class Model Context Protocol server (OAuth + JSON-RPC) exposes your models as tools for Claude Desktop and agent frameworks — no extra setup.
+
+### Full-text search
+Real ranked search — SQLite FTS5 or Postgres SearchVector — with a Ctrl-K omnibar, a search page, an MCP retrieval tool (RAG), and custom variants via SearchBuilder.
+
+### Webhooks & feeds
+Signed outbound webhooks on model change and verified inbound receivers (seams for Zapier/n8n/Stripe/Slack), plus RSS/Atom feeds you can publish from any model or consume on a schedule.
+
+### Background tasks & scheduler
+Django's Tasks framework is pre-configured with a database backend, plus a `@scheduled` recurring-job scheduler with a themed UI. Send emails, process data, and run jobs — no Redis or Celery to operate.
+
+### Profile & authentication
+Complete user profile management (photo, cover image, bio, location, display name) on a custom User model with email login, password reset flows, and secure sessions.
+
+### Help system
+Built-in documentation with markdown support, table of contents, search, and easy-to-edit content files. Perfect for user guides or product docs.
 
 ### Theming
-Beautiful light and dark modes with CSS custom properties. Customize colors, shadows, and spacing from a single file. User preferences are saved.
+Beautiful light and dark modes with five color palettes and CSS custom properties. Customize colors, shadows, and spacing from a single file. User preferences are saved.
 
-### Authentication
-Custom User model ready for email login. Password reset flows, secure sessions, and extensible auth patterns built on Django's proven foundation.
-
-### Docker Ready
-Production-ready Docker configuration with multi-service compose, health checks, and background worker. Deploy anywhere containers run.
-
-### SQLite by Default
-Production-ready SQLite configuration with the database stored outside the container. Perfect for solo developers, small teams, and internal applications. No database service fees—just simple, reliable data storage that backs up with your VPS. [Upgrade to PostgreSQL](/help/smallstack/database-postgresql/) when you need it.
+### Docker & SQLite
+Production-ready Docker (multi-service compose, health checks, background worker) with SQLite stored outside the container — reliable data storage that backs up with your VPS, no database service fees. [Upgrade to PostgreSQL](/help/smallstack/database-postgresql/) when you need it.
 
 ## Built on Django Best Practices
 
@@ -133,7 +144,7 @@ django-smallstack/
 
 ## Built to Extend
 
-{{ project_name }} comes pre-populated with working examples and sensible defaults. Use it as-is for internal tools, or customize everything to build your vision.
+{{ project_name }} comes pre-populated with working examples and sensible defaults. Use it as-is, or customize everything to build your vision.
 
 - **Split settings for dev/prod** - Environment-specific configuration
 - **UV package management** - Fast, modern Python packaging

@@ -9,6 +9,82 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-08-09
+
+### Internal
+- **Test coverage backfill (codebase-review F4).** No behavior change — new
+  tests only. `postgres_fts.py` 0% → 83% (a Postgres-gated suite that runs under
+  `TEST_DB=postgres` and skips on SQLite); `api.py` 75% → 88% (the auth endpoints
+  — register / password change / admin reset — and the REST bulk-update
+  endpoint); `mcp/factory.py` 76% → 92% (the update/delete MCP tool handlers);
+  `crud.py` 78% → 84% (the HTML bulk-action + bulk-update-form views);
+  `audit.py` 57% → 80% (the `log_write` never-raises discipline).
+
+## [0.15.0] - 2026-08-09
+
+### Changed
+- **BREAKING — CRUDViews require login by default.** `CRUDView.mixins` now
+  defaults to `None`, which the framework resolves to `[LoginRequiredMixin]`;
+  previously the default was `[]` (anonymous). A CRUDView that *omitted* `mixins`
+  silently shipped public HTML **and** REST endpoints — now it requires login.
+  Opt into anonymous access with the new **`public = True`** flag (or an explicit
+  `mixins = []`); an explicit `mixins` list always wins. A public view that
+  exposes write actions with `enable_api=True` now emits a warning. All bundled
+  framework views set `mixins` explicitly and are unaffected. See
+  [`UPGRADING.md`](UPGRADING.md). (Codebase-review F6.)
+
+### Added
+- **`make typecheck`** — mypy + django-stubs, configured leniently and scoped to
+  the type-clean apps (starts at `apps/feeds`; widen app-by-app as each reaches
+  green). A local / pre-commit guard, no CI lane. (Codebase-review F3.)
+
+### Removed
+- **django-debug-toolbar** — removed from the project entirely (dependency, the
+  dev-settings toggle, the `__debug__/` URL, and the bundled help page). It was
+  off-by-default dev tooling; dropping it slims the dependency surface.
+
+## [0.14.3] - 2026-08-09
+
+Fixes from a full codebase review (two security fixes + a Django 6.1 deploy-check
+regression). All backward-compatible.
+
+### Fixed
+- **Security — stored XSS on public search snippets.** Dropped `|safe` on the
+  website search result snippet (`templates/website/search.html`); the value is
+  raw model text and the view is anonymous, so it's now auto-escaped.
+- **Security — PKCE code-challenge compared in constant time.** `verify_pkce`
+  (`apps/mcp/oauth.py`) now uses `hmac.compare_digest` instead of `==`.
+- **Fresh-clone `manage.py check --deploy` passes again.** Django 6.1's
+  `mail.E001` deploy check errored on dev's console email backend; it's now
+  silenced in development settings (dev isn't a deploy target — production/SMTP
+  is unaffected and still validated). Regression from the v0.14.2 / Django 6.1
+  MAILERS migration.
+
+### Removed
+- **Dead search abstraction layer** — `apps/search/{api,orchestration,cache,serializers}.py`
+  (813 lines with no runtime importers; runtime search goes through
+  `get_backend()` directly). Removing it also eliminates a latent
+  `SearchAPI.search()` access-gate bypass.
+
+### Internal
+- Test integrity + coverage: replaced hollow `api_doctor` tests with a real
+  fail-case assertion, restored the SearchBuilder-example + search-admin tests,
+  and added audit-logging failure-path tests (`audit.py` 57% → 80%). Documented
+  the help-renderer trust boundary.
+
+## [0.14.2] - 2026-08-09
+
+### Fixed
+- **Absolute URLs are `https://` behind kamal-proxy.** The base `production.py`
+  shipped without `SECURE_PROXY_SSL_HEADER`, so behind the TLS-terminating proxy
+  (which forwards over HTTP) `request.is_secure()` was False and Django built
+  `http://` absolute URLs — feed self-links, sitemaps, and the links in
+  password-reset / invite emails all went out as http. Now sets
+  `SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")`, **gated on the
+  existing `TRUST_PROXY_HEADERS` flag** (default-on in production). Safe by
+  default for non-proxy deployments: a directly-exposed instance
+  (`TRUST_PROXY_HEADERS=false`) never trusts a client-supplied `X-Forwarded-Proto`.
+
 ## [0.14.1] - 2026-08-09
 
 Two upstream bug fixes surfaced by a downstream deploy.
@@ -526,7 +602,11 @@ Condensed highlights of the v0.11 series (see git history for per-patch detail):
 See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full record of the
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
-[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.14.1...HEAD
+[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.15.1...HEAD
+[0.15.1]: https://github.com/emichaud/django-smallstack/compare/v0.15.0...v0.15.1
+[0.15.0]: https://github.com/emichaud/django-smallstack/compare/v0.14.3...v0.15.0
+[0.14.3]: https://github.com/emichaud/django-smallstack/compare/v0.14.2...v0.14.3
+[0.14.2]: https://github.com/emichaud/django-smallstack/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/emichaud/django-smallstack/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/emichaud/django-smallstack/compare/v0.13.13...v0.14.0
 [0.13.13]: https://github.com/emichaud/django-smallstack/compare/v0.13.12...v0.13.13

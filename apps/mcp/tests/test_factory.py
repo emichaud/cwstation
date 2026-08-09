@@ -251,3 +251,69 @@ def test_no_expand_keeps_fk_as_bare_pk(widget_view, user_a, readonly_token):
         reset_context(ctx)
 
     assert result["results"][0]["owner"] == user_a.pk  # bare int, not dict
+
+
+# --- update / delete tool handlers (factory.py 325-394) ---------------------
+
+
+def _ctx_call(tool_name, args, user, token):
+    from apps.mcp.server import TOOL_HANDLERS, ToolContext, reset_context, set_context
+
+    ctx = set_context(ToolContext(user=user, token=token))
+    try:
+        return TOOL_HANDLERS[tool_name](args)
+    finally:
+        reset_context(ctx)
+
+
+def test_update_widget_handler_updates(widget_view, user_a, readonly_token, monkeypatch):
+    from .models import Widget
+
+    # Audit logging is tested separately; a LogEntry for the test-only Widget's
+    # ContentType trips SQLite's teardown FK check, so no-op it here.
+    monkeypatch.setattr("apps.mcp.factory.log_write", lambda *a, **k: None)
+    register_mcp_tools_from_crudview(widget_view)
+    w = Widget.objects.create(name="old", owner=user_a)
+    token, _ = readonly_token
+    result = _ctx_call("update_widget", {"pk": w.pk, "name": "new"}, user_a, token)
+    assert "error" not in result and "errors" not in result
+    w.refresh_from_db()
+    assert w.name == "new"
+
+
+def test_update_widget_handler_missing_pk(widget_view, user_a, readonly_token):
+    register_mcp_tools_from_crudview(widget_view)
+    token, _ = readonly_token
+    assert _ctx_call("update_widget", {"name": "x"}, user_a, token) == {"error": "pk is required"}
+
+
+def test_update_widget_handler_not_found(widget_view, user_a, readonly_token):
+    register_mcp_tools_from_crudview(widget_view)
+    token, _ = readonly_token
+    result = _ctx_call("update_widget", {"pk": 999999, "name": "x"}, user_a, token)
+    assert "not found" in result["error"]
+
+
+def test_delete_widget_handler_deletes(widget_view, user_a, readonly_token, monkeypatch):
+    from .models import Widget
+
+    monkeypatch.setattr("apps.mcp.factory.log_write", lambda *a, **k: None)
+    register_mcp_tools_from_crudview(widget_view)
+    w = Widget.objects.create(name="doomed", owner=user_a)
+    token, _ = readonly_token
+    result = _ctx_call("delete_widget", {"pk": w.pk}, user_a, token)
+    assert result == {"deleted": True, "pk": w.pk}
+    assert not Widget.objects.filter(pk=w.pk).exists()
+
+
+def test_delete_widget_handler_missing_pk(widget_view, user_a, readonly_token):
+    register_mcp_tools_from_crudview(widget_view)
+    token, _ = readonly_token
+    assert _ctx_call("delete_widget", {}, user_a, token) == {"error": "pk is required"}
+
+
+def test_delete_widget_handler_not_found(widget_view, user_a, readonly_token):
+    register_mcp_tools_from_crudview(widget_view)
+    token, _ = readonly_token
+    result = _ctx_call("delete_widget", {"pk": 999999}, user_a, token)
+    assert "not found" in result["error"]
