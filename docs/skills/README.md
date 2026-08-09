@@ -16,6 +16,8 @@ When an AI agent is asked to modify or extend this project, these files help it:
 | File | Description |
 |------|-------------|
 | [cw-audioengine.md](cw-audioengine.md) | **Read before touching `apps/cw/`** — the CW engine's three rules (Django-free engine, one event contract, Python-decodes/JS-renders), module map, how to add a decode mode |
+| [cw-screen-design.md](cw-screen-design.md) | **Read before building/restyling any CW operator screen** — the house style: the two archetypes (setup/tool page via `cw-setup` primitives; collection list), the primitives table, auth branding, and the shared gotchas (multi-line `{# #}`, dev-server template cache) |
+| [cw-collection-view.md](cw-collection-view.md) | **Read before building a record-list screen** (Sessions, Logbook) — the iOS-style collection: a `CardDisplay` subclass + flow-grid tiles + a Table toggle + the search/filter-toggle/count htmx toolbar; the `hx-get` clean-path + OOB-count gotchas |
 | [cli-tools.md](cli-tools.md) | **Start here for "is there a tool for X?"** — task → tool / failure → tool / tool → docs lookup tables |
 | [modern-dark-theme.md](modern-dark-theme.md) | **Read before building any page** — canonical patterns, anti-patterns, variable list for the v0.9.x modern-dark theme |
 | [accessibility.md](accessibility.md) | **Read before building any page/form/modal** — a11y primitives (`.sr-only`, `.skip-link`, `:focus-visible`, `trapFocus`), the rules, and the pre-"done" checklist (WCAG 2.1 AA) |

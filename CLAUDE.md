@@ -27,6 +27,8 @@ When the user asks you to do any of these, read the matching skill file BEFORE w
 
 | If the user wants to… | Read first |
 |---|---|
+| Build or restyle any **CW operator screen** (setup/tool page, or match the house style) | `docs/skills/cw-screen-design.md` |
+| Build a **record-list screen** — cards collection + Table toggle + search/filter toolbar (Sessions/Logbook style) | `docs/skills/cw-collection-view.md` |
 | Build a new page, component, card, table, modal, badge (using SmallStack's theme) | `docs/skills/modern-dark-theme.md` |
 | Build/edit any page, form, table, modal, or interactive control — make it **accessible** (a11y / WCAG) | `docs/skills/accessibility.md` |
 | Change accent colors — add or tune a color palette | `docs/skills/modify-palettes.md` |
