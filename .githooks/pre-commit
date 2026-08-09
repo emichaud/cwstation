@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+#
+# SmallStack pre-commit hook: fast static checks before a commit lands.
+#
+#   ruff  (make lint)      — style + import lint
+#   mypy  (make typecheck) — django-stubs type check over the typed apps
+#
+# Install with `make install-hooks` (points core.hooksPath here).
+# Bypass a single commit with `git commit --no-verify`, or set SKIP_HOOKS=1.
+
+set -euo pipefail
+
+if [ "${SKIP_HOOKS:-0}" = "1" ]; then
+    echo "pre-commit: skipped (SKIP_HOOKS=1)"
+    exit 0
+fi
+
+# Run from the repo root so the Makefile targets resolve regardless of where
+# `git commit` was invoked.
+cd "$(git rev-parse --show-toplevel)"
+
+echo "pre-commit: ruff …"
+make lint
+
+echo "pre-commit: mypy …"
+make typecheck
+
+echo "pre-commit: OK"

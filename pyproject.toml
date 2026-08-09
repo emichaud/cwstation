@@ -67,6 +67,10 @@ plugins = ["mypy_django_plugin.main"]
 ignore_missing_imports = true
 follow_imports = "silent"
 check_untyped_defs = false
+# Silence the per-file "note: ...untyped functions are not checked" chatter that
+# check_untyped_defs=false emits — it's informational, not a finding, and would
+# spam the pre-commit hook output.
+disable_error_code = ["annotation-unchecked"]
 warn_redundant_casts = true
 warn_unused_ignores = false
 exclude = '(/migrations/|/tests/|test_[^/]*\.py$)'
