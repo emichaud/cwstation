@@ -9,6 +9,17 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-08-09
+
+### Internal
+- **Test coverage backfill (codebase-review F4).** No behavior change — new
+  tests only. `postgres_fts.py` 0% → 83% (a Postgres-gated suite that runs under
+  `TEST_DB=postgres` and skips on SQLite); `api.py` 75% → 88% (the auth endpoints
+  — register / password change / admin reset — and the REST bulk-update
+  endpoint); `mcp/factory.py` 76% → 92% (the update/delete MCP tool handlers);
+  `crud.py` 78% → 84% (the HTML bulk-action + bulk-update-form views);
+  `audit.py` 57% → 80% (the `log_write` never-raises discipline).
+
 ## [0.15.0] - 2026-08-09
 
 ### Changed
@@ -591,7 +602,8 @@ Condensed highlights of the v0.11 series (see git history for per-patch detail):
 See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full record of the
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
-[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.15.1...HEAD
+[0.15.1]: https://github.com/emichaud/django-smallstack/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/emichaud/django-smallstack/compare/v0.14.3...v0.15.0
 [0.14.3]: https://github.com/emichaud/django-smallstack/compare/v0.14.2...v0.14.3
 [0.14.2]: https://github.com/emichaud/django-smallstack/compare/v0.14.1...v0.14.2
