@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 
 from django.http import HttpRequest
 
@@ -28,7 +29,8 @@ def verify_pkce(code_verifier: str, code_challenge: str, method: str = "S256") -
         return False
     digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
     computed = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
-    return computed == code_challenge
+    # Constant-time compare — avoid leaking the challenge via response timing.
+    return hmac.compare_digest(computed, code_challenge)
 
 
 def issuer_url(request: HttpRequest) -> str:

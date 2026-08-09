@@ -6,7 +6,6 @@ import json
 
 import pytest
 from django.core.management import call_command
-from django.test import override_settings
 
 pytestmark = pytest.mark.django_db
 
@@ -107,19 +106,19 @@ def test_doctor_orphan_detection_ignores_explorer_enable_api():
     assert "heartbeat/admin.py" not in str(orphans.get("orphans", []))
 
 
-def test_doctor_check_only_exits_nonzero_on_fail():
+def test_doctor_check_only_exits_zero_when_all_pass():
+    """--check-only does NOT exit when every check passes."""
+    _run(["--no-self-test", "--check-only"])  # no SystemExit raised
+
+
+def test_doctor_check_only_exits_nonzero_on_fail(monkeypatch):
     """--check-only must SystemExit(1) when any check FAILs."""
-    # All checks currently PASS, so this should NOT exit.
-    _run(["--no-self-test", "--check-only"])
+    from apps.api.management.commands.api_doctor import Command
 
+    def _inject_fail(self, report):
+        report.append({"name": "Injected", "status": "FAIL", "detail": "forced failure"})
 
-@override_settings(INSTALLED_APPS=[])
-def test_doctor_handles_missing_apps_gracefully():
-    """When apps.smallstack isn't installed the dependencies check must FAIL
-    but the rest of the command should not blow up."""
-    # We can't override INSTALLED_APPS at runtime safely — this is a smoke
-    # test only that the command code path doesn't raise on import.
-    # Real coverage: the explicit `from apps.smallstack.api import ...`
-    # inside each check is the failure surface, and pytest exercises it
-    # under the default settings (which have apps.smallstack installed).
-    assert True
+    monkeypatch.setattr(Command, "_check_dependencies", _inject_fail)
+    with pytest.raises(SystemExit) as exc:
+        _run(["--no-self-test", "--check-only"])
+    assert exc.value.code == 1

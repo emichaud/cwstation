@@ -157,6 +157,15 @@ def render_markdown(content: str) -> dict:
         - html: The rendered HTML content
         - toc: HTML table of contents
         - toc_tokens: Structured TOC data
+
+    SECURITY / trust boundary: this renders **trusted, bundled** markdown
+    (dev-authored files under content/ and each app's docs/), so it deliberately
+    enables ``attr_list`` + ``md_in_html`` for rich formatting and the output is
+    rendered with ``|safe``. The output is NOT hardened. If help content ever
+    becomes user- or AI-editable, this becomes a stored-XSS vector: at that point
+    drop ``attr_list`` / ``md_in_html`` and apply
+    ``apps.smallstack.transforms.harden_markdown_renderer`` (as the runbook
+    renderer does for its untrusted documents).
     """
     md = markdown.Markdown(
         extensions=[

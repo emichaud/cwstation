@@ -874,7 +874,7 @@
                 <div class="result-row-text">
                   <div class="result-row-title">{{ hit.display }}</div>
                   {% if hit.snippet or hit.subtitle %}
-                    <div class="result-row-snippet">{{ hit.snippet|default:hit.subtitle|safe }}</div>
+                    <div class="result-row-snippet">{{ hit.snippet|default:hit.subtitle }}</div>
                   {% endif %}
                 </div>
                 <div class="result-row-meta">
