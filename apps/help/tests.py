@@ -194,6 +194,25 @@ class TestHelpViews:
         assert "sections" in response.context
 
     @pytest.mark.django_db
+    def test_operator_index_hides_framework_sections_when_docs_off(self, client, settings):
+        """With framework docs tucked away, the operator help index lists only
+        the project's own sections — app-contributed ones (runbook, explorer,
+        smallstack) are dropped, though still reachable by URL."""
+        from apps.help.utils import get_app_section_slugs
+
+        app_slugs = get_app_section_slugs()
+        assert app_slugs, "expected app-contributed help sections to exist"
+
+        settings.SMALLSTACK_DOCS_ENABLED = False
+        shown = {s["slug"] for s in client.get(reverse("help:index")).context["sections"]}
+        assert not (shown & app_slugs), f"framework sections leaked into operator index: {shown & app_slugs}"
+
+        settings.SMALLSTACK_DOCS_ENABLED = True
+        shown_on = {s["slug"] for s in client.get(reverse("help:index")).context["sections"]}
+        # with docs on, non-smallstack app sections are shown again
+        assert (shown_on & app_slugs) - {"smallstack"}
+
+    @pytest.mark.django_db
     def test_disabled_smallstack_docs_redirect_not_404(self, client, settings):
         """With framework docs tucked away, its section pages redirect to the
         help index instead of 404 — so admin-surface links never dead-end."""

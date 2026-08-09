@@ -12,6 +12,7 @@ from .utils import (
     SMALLSTACK_SECTION_SLUG,
     build_search_index,
     get_all_sections,
+    get_app_section_slugs,
     get_config,
     get_deck_slides,
     get_help_page,
@@ -43,7 +44,14 @@ class HelpIndexView(TemplateView):
         context = super().get_context_data(**kwargs)
         config = get_config()
         # Exclude SmallStack section — it has its own sidebar link and index page
-        context["sections"] = [s for s in get_all_sections() if s["slug"] != SMALLSTACK_SECTION_SLUG]
+        sections = [s for s in get_all_sections() if s["slug"] != SMALLSTACK_SECTION_SLUG]
+        # When the framework docs are tucked away, keep the other app-contributed
+        # (framework/tool) sections — runbook, explorer, … — out of the operator
+        # help index too. They stay reachable by direct URL for staff.
+        if not is_smallstack_docs_enabled():
+            app_slugs = get_app_section_slugs()
+            sections = [s for s in sections if s["slug"] not in app_slugs]
+        context["sections"] = sections
         context["page_title"] = config.get("title", "Help & Documentation")
         context["config"] = config
         return context

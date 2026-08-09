@@ -46,6 +46,13 @@ def _get_app_help_sources() -> dict[str, dict]:
     return sources
 
 
+def get_app_section_slugs() -> set[str]:
+    """Slugs of help sections contributed by installed apps (framework/tool docs
+    like smallstack, runbook, explorer) — as opposed to the project's own
+    sections defined in content/_config.yaml."""
+    return set(_get_app_help_sources().keys())
+
+
 def _get_section_dir(section: str) -> Path | None:
     """Resolve the directory for a section, checking app sources then content/."""
     if not section:
