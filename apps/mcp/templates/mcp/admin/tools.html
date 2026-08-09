@@ -28,7 +28,7 @@
   {% include "smallstack/includes/empty_state.html" with
      title="No tools registered yet"
      body="Opt a <code>CRUDView</code> in with <code>enable_mcp = True</code>, or add a custom tool via <code>@tool</code> in your app's <code>mcp_tools.py</code>."
-     cta_url="/smallstack/help/smallstack/mcp-enable-models/"
+     cta_url=smallstack_docs_enabled|yesno:"/smallstack/help/smallstack/mcp-enable-models/,"
      cta_label="Read the opt-in guide" %}
 {% else %}
   {# ── Stat cards: total / read / write ───────────────────────── #}

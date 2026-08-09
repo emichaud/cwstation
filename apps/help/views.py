@@ -5,6 +5,7 @@ Supports hierarchical documentation with sections (folders).
 """
 
 from django.http import Http404, HttpRequest, JsonResponse
+from django.shortcuts import redirect
 from django.views.generic import TemplateView
 
 from .utils import (
@@ -17,7 +18,20 @@ from .utils import (
     get_section_pages,
     get_section_pages_grouped,
     get_slide_deck,
+    is_smallstack_docs_enabled,
 )
+
+
+class _SmallstackDocsGateMixin:
+    """When the SmallStack framework docs are tucked away
+    (SMALLSTACK_DOCS_ENABLED=False), its section pages redirect to the help
+    index instead of 404 — so links from admin surfaces (the Help & Docs
+    dashboard widget, backup config cards, etc.) never dead-end."""
+
+    def get(self, request: HttpRequest, *args, **kwargs):
+        if kwargs.get("section") == SMALLSTACK_SECTION_SLUG and not is_smallstack_docs_enabled():
+            return redirect("help:index")
+        return super().get(request, *args, **kwargs)
 
 
 class HelpIndexView(TemplateView):
@@ -35,7 +49,7 @@ class HelpIndexView(TemplateView):
         return context
 
 
-class HelpSectionIndexView(TemplateView):
+class HelpSectionIndexView(_SmallstackDocsGateMixin, TemplateView):
     """Display the index page for a specific section with cards.
 
     Falls back to HelpDetailView if the slug is a root page, not a section.
@@ -84,7 +98,7 @@ class HelpSectionIndexView(TemplateView):
         return context
 
 
-class HelpSectionTocView(TemplateView):
+class HelpSectionTocView(_SmallstackDocsGateMixin, TemplateView):
     """Display a dense table of contents for a section, grouped by category."""
 
     template_name = "help/help_toc.html"
@@ -143,7 +157,7 @@ class HelpDetailView(TemplateView):
         return context
 
 
-class HelpSectionDetailView(TemplateView):
+class HelpSectionDetailView(_SmallstackDocsGateMixin, TemplateView):
     """Display a help page within a section."""
 
     template_name = "help/help_detail.html"

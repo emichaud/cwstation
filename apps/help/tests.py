@@ -194,6 +194,20 @@ class TestHelpViews:
         assert "sections" in response.context
 
     @pytest.mark.django_db
+    def test_disabled_smallstack_docs_redirect_not_404(self, client, settings):
+        """With framework docs tucked away, its section pages redirect to the
+        help index instead of 404 — so admin-surface links never dead-end."""
+        settings.SMALLSTACK_DOCS_ENABLED = False
+        for name, kwargs in [
+            ("help:section_index", {"section": "smallstack"}),
+            ("help:section_toc", {"section": "smallstack"}),
+            ("help:section_detail", {"section": "smallstack", "slug": "dashboard-widgets"}),
+        ]:
+            r = client.get(reverse(name, kwargs=kwargs))
+            assert r.status_code == 302, name
+            assert r.headers["Location"] == reverse("help:index")
+
+    @pytest.mark.django_db
     def test_help_detail_view(self, client):
         """Help detail should return 200 for existing root page."""
         response = client.get(reverse("help:detail", kwargs={"slug": "index"}))

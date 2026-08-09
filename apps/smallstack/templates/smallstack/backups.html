@@ -50,7 +50,7 @@
                 </svg>
                 <div>
                     <div class="action-card-title">Not Scheduled</div>
-                    <div class="action-card-subtitle"><a href="{% url 'help:section_detail' 'smallstack' 'database-backups' %}" style="color: inherit;">Set up cron</a></div>
+                    <div class="action-card-subtitle">{% if smallstack_docs_enabled %}<a href="{% url 'help:section_detail' 'smallstack' 'database-backups' %}" style="color: inherit;">Set up cron</a>{% else %}Set up cron{% endif %}</div>
                 </div>
             </div>
         </div>
@@ -103,8 +103,8 @@
         only support <strong>SQLite</strong> — they snapshot the <code>.sqlite3</code> file. This
         deployment runs on <strong>{{ engine }}</strong>, so they do nothing and the history below
         will stay empty even if a nightly cron is configured. Back this database up with
-        <code>pg_dump</code> or your managed provider's snapshots instead. See
-        <a href="{% url 'help:section_detail' 'smallstack' 'database-postgresql' %}">PostgreSQL &rarr; Backups</a>.
+        <code>pg_dump</code> or your managed provider's snapshots instead.{% if smallstack_docs_enabled %} See
+        <a href="{% url 'help:section_detail' 'smallstack' 'database-postgresql' %}">PostgreSQL &rarr; Backups</a>.{% endif %}
     </p>
 </div>
 {% endif %}
