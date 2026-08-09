@@ -70,9 +70,6 @@ migrations applied cleanly, **no data loss**, `manage.py check` passed.
 - `TRUST_PROXY_HEADERS` (default `False`) — only enable behind a trusted proxy that sets
   `X-Forwarded-For` (kamal-proxy does).
 
-**Evidence:** upgrade path and full quality assessment in the v0.13.0 report card
-([`docs/report-cards/`](docs/report-cards/)).
-
 ---
 
 ## v0.12.0 — `django-tables2` removed (BREAKING)
