@@ -9,6 +9,27 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-08-09
+
+Two upstream bug fixes surfaced by a downstream deploy.
+
+### Fixed
+- **Docker builds install from the frozen `uv.lock`.** The `Dockerfile` copied
+  `uv.lock` but installed with `uv pip install -e .`, which re-resolves the
+  `pyproject.toml` ranges (`django>=6.1`, …) against the index at build time and
+  ignores the lock — so images could silently drift onto newer, untested
+  dependency releases (a routine deploy pulling a future Django and breaking on
+  an incompatible transitive dep, with nothing changed in the repo). Now exports
+  the frozen lock and installs that exact set, then the project with `--no-deps`.
+  Builds are reproducible (prod == local == CI) and fail loudly if `uv.lock`
+  drifts from `pyproject.toml`. Verified via an image build.
+- **`mcp_doctor` no longer false-positives on `enable_mcp = True` in strings.**
+  The unregistered-opt-in scan was a naive substring match that fired on the
+  marker inside docstrings/seed content (the runbook seed command embeds a
+  teaching example), turning `mcp_doctor` and the dashboard MCP card yellow over
+  a non-issue. It now uses AST detection — the marker counts only as a real
+  `ClassDef`-body assignment. `mcp_doctor` goes 6✓/1⚠ → 7✓/0⚠.
+
 ## [0.14.0] - 2026-08-08
 
 Django 6.1 + the email `MAILERS` migration. Minor bump because the email change
@@ -505,7 +526,8 @@ Condensed highlights of the v0.11 series (see git history for per-patch detail):
 See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full record of the
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
-[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.14.1...HEAD
+[0.14.1]: https://github.com/emichaud/django-smallstack/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/emichaud/django-smallstack/compare/v0.13.13...v0.14.0
 [0.13.13]: https://github.com/emichaud/django-smallstack/compare/v0.13.12...v0.13.13
 [0.13.12]: https://github.com/emichaud/django-smallstack/compare/v0.13.11...v0.13.12

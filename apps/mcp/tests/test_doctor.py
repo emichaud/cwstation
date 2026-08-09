@@ -139,11 +139,12 @@ def test_scanner_skips_tests_and_migrations(tmp_path, monkeypatch):
 
     fake_app = tmp_path / "fake_app"
     fake_app.mkdir()
-    (fake_app / "views.py").write_text("enable_mcp = True\n")
+    # A real opt-in is a class attribute (the AST scan requires it as such).
+    (fake_app / "views.py").write_text("class V(CRUDView):\n    enable_mcp = True\n")
     (fake_app / "tests").mkdir()
-    (fake_app / "tests" / "conftest.py").write_text("enable_mcp = True\n")
+    (fake_app / "tests" / "conftest.py").write_text("class V(CRUDView):\n    enable_mcp = True\n")
     (fake_app / "migrations").mkdir()
-    (fake_app / "migrations" / "0001.py").write_text("enable_mcp = True\n")
+    (fake_app / "migrations" / "0001.py").write_text("class V(CRUDView):\n    enable_mcp = True\n")
 
     fake_cfg = MagicMock()
     fake_cfg.label = "fake_app"
