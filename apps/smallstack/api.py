@@ -75,14 +75,24 @@ def register_api_path(
     })
 
 
+def _has_write_actions(crud_config) -> bool:
+    """Whether the CRUDView exposes create/update/delete."""
+    return any(a in crud_config.actions for a in (Action.CREATE, Action.UPDATE, Action.DELETE))
+
+
 def build_api_urls(crud_config) -> list[URLPattern]:
     """Generate API URL patterns from a CRUDView config."""
-    # Safety warning: public API endpoints with no auth mixins
-    if not crud_config.mixins:
+    # Safety warning: a public (anonymous) CRUDView with write actions exposes
+    # anonymous create/update/delete over the API. (API requests still require
+    # authentication via _authenticate_api_request; this flags the writable-
+    # while-public combination, which is almost never intended.)
+    if not crud_config._resolved_mixins() and _has_write_actions(crud_config):
         import warnings
 
         warnings.warn(
-            f"{crud_config.__name__} has enable_api=True with no mixins — API endpoints are public",
+            f"{crud_config.__name__} is public (no auth mixins) with write actions "
+            "and enable_api=True — anonymous writes are exposed; restrict `actions` "
+            "to LIST/DETAIL or gate it.",
             stacklevel=2,
         )
 
@@ -314,7 +324,7 @@ def _check_api_permissions(request, crud_config, method="GET"):
     """Translate CRUDView mixins to API responses (JSON, not redirects)."""
     from apps.smallstack.mixins import StaffRequiredMixin
 
-    for mixin in crud_config.mixins:
+    for mixin in crud_config._resolved_mixins():
         if issubclass(mixin, StaffRequiredMixin) or mixin.__name__ == "StaffRequiredMixin":
             if not request.user.is_staff:
                 return _error("Staff access required", 403)

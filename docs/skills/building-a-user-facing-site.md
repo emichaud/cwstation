@@ -53,11 +53,13 @@ urlpatterns = [
 
 ### Move 2 — `LoginRequiredMixin`, not `StaffRequiredMixin`
 
-For CRUDViews backing user-facing data, drop `StaffRequiredMixin` and use Django's `LoginRequiredMixin`. The page is still gated (anonymous redirects to `/accounts/login/`), but any signed-in user can reach it.
+For CRUDViews backing user-facing data, drop `StaffRequiredMixin`. **Login is the
+secure default** (since v0.15.0): a CRUDView that sets no `mixins` requires login
+automatically, so you can simply omit it. Set it explicitly if you prefer, or to
+override (e.g. staff-only).
 
 ```python
 # apps/billing/views.py
-from django.contrib.auth.mixins import LoginRequiredMixin
 from apps.smallstack.crud import CRUDView, Action
 from .models import Invoice
 
@@ -65,9 +67,20 @@ from .models import Invoice
 class InvoiceCRUDView(CRUDView):
     model = Invoice
     url_base = "invoices"
-    mixins = [LoginRequiredMixin]   # ← not StaffRequiredMixin
+    # no `mixins` → LoginRequiredMixin by default (anonymous → /accounts/login/)
     actions = [Action.LIST, Action.DETAIL]     # read-only for users
     list_fields = ["number", "amount_due", "due_date", "status"]
+```
+
+**Fully public pages** (a catalogue, a public status list — no login at all): set
+`public = True` and keep it read-only.
+
+```python
+class PublicCatalogView(CRUDView):
+    model = Product
+    url_base = "catalog"
+    public = True                              # ← anonymous access, explicit
+    actions = [Action.LIST, Action.DETAIL]     # never expose anonymous writes
 ```
 
 **Wait — but the MCP tools the factory generates will inherit that mixin too.** Yes, exactly. A `LoginRequiredMixin` CRUDView produces MCP tools that accept any `readonly` token instead of demanding `staff`. That's the user-facing tenancy story extended to MCP: the same Alice who logs in via the browser can hit `list_invoices` via her readonly token and get the same scoped result set.
