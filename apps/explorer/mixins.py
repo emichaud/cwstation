@@ -37,17 +37,26 @@ Usage — single model page (hardcoded):
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.http import Http404
+from django.views.generic.base import ContextMixin
 
 if TYPE_CHECKING:
     from .registry import ExplorerSite
 
 
-class _ExplorerSiteMixin:
-    """Base mixin that resolves which ExplorerSite to query."""
+class _ExplorerSiteMixin(ContextMixin):
+    """Base mixin that resolves which ExplorerSite to query.
 
+    Inherits ``ContextMixin`` so ``super().get_context_data()`` resolves and the
+    ``kwargs`` attribute (set by ``View.setup()`` at runtime) is known to the
+    type checker. These mixins are always combined with a ``TemplateView``,
+    which already carries ``ContextMixin`` in its MRO — so this base is a
+    no-op at runtime and only documents the real contract.
+    """
+
+    kwargs: dict[str, Any]
     explorer_site: ExplorerSite | None = None
 
     def _get_site(self) -> ExplorerSite:

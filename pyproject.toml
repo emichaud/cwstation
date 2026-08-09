@@ -71,13 +71,16 @@ warn_redundant_casts = true
 warn_unused_ignores = false
 exclude = '(/migrations/|/tests/|test_[^/]*\.py$)'
 # Type-clean under mypy + django-stubs. Widen one app at a time as each is
-# brought to green (the CRUDView-heavy admin apps — usermanager, tokenmgr,
-# explorer — are the next candidates).
+# brought to green. The framework core (apps/smallstack) is the last, largest
+# step — its CRUDView library is only ~29% annotated.
 files = [
     "apps/feeds",
     "apps/datasets",
     "apps/scheduler",
     "apps/webhooks",
+    "apps/usermanager",
+    "apps/tokenmgr",
+    "apps/explorer",
 ]
 
 [tool.django-stubs]
