@@ -9,6 +9,19 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.14.2] - 2026-08-09
+
+### Fixed
+- **Absolute URLs are `https://` behind kamal-proxy.** The base `production.py`
+  shipped without `SECURE_PROXY_SSL_HEADER`, so behind the TLS-terminating proxy
+  (which forwards over HTTP) `request.is_secure()` was False and Django built
+  `http://` absolute URLs — feed self-links, sitemaps, and the links in
+  password-reset / invite emails all went out as http. Now sets
+  `SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")`, **gated on the
+  existing `TRUST_PROXY_HEADERS` flag** (default-on in production). Safe by
+  default for non-proxy deployments: a directly-exposed instance
+  (`TRUST_PROXY_HEADERS=false`) never trusts a client-supplied `X-Forwarded-Proto`.
+
 ## [0.14.1] - 2026-08-09
 
 Two upstream bug fixes surfaced by a downstream deploy.
@@ -526,7 +539,8 @@ Condensed highlights of the v0.11 series (see git history for per-patch detail):
 See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full record of the
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
-[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.14.1...HEAD
+[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.14.2...HEAD
+[0.14.2]: https://github.com/emichaud/django-smallstack/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/emichaud/django-smallstack/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/emichaud/django-smallstack/compare/v0.13.13...v0.14.0
 [0.13.13]: https://github.com/emichaud/django-smallstack/compare/v0.13.12...v0.13.13
