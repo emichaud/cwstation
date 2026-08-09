@@ -85,7 +85,7 @@ def _replay(delivery_id: int) -> dict[str, Any]:
     if original is None:
         return {"error": f"delivery {delivery_id} not found"}
     replay = services.replay_delivery(original)
-    result = {"queued": True, "delivery_id": replay.pk, "replayed_from": delivery_id}
+    result: dict[str, Any] = {"queued": True, "delivery_id": replay.pk, "replayed_from": delivery_id}
     if not original.endpoint.enabled:
         result["note"] = (
             f'endpoint "{original.endpoint.name}" is disabled — the replay goes out, '

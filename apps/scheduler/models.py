@@ -9,6 +9,7 @@ return value / traceback — those are read back from the task engine.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -95,9 +96,9 @@ class ScheduledJob(models.Model):
     def clean(self) -> None:
         """Reject incoherent cadences at save time, not at 2am in the tick."""
         required = {
-            self.Type.ONCE: ("run_at", self.run_at),
-            self.Type.INTERVAL: ("interval_spec", self.interval_spec),
-            self.Type.CRON: ("cron_expression", self.cron_expression),
+            self.Type.ONCE.value: ("run_at", self.run_at),
+            self.Type.INTERVAL.value: ("interval_spec", self.interval_spec),
+            self.Type.CRON.value: ("cron_expression", self.cron_expression),
         }.get(self.schedule_type)
         if required is None:
             raise ValidationError({"schedule_type": "Choose once, interval, or cron."})
@@ -131,7 +132,7 @@ class ScheduledJob(models.Model):
         "anchor_at",
     )
 
-    def save(self, *args: object, **kwargs: object) -> None:
+    def save(self, *args: Any, **kwargs: Any) -> None:
         # Re-seed next_run_at when the schedule is freshly enabled (cursor is
         # None) OR its cadence changed — so a retune via the themed form, the
         # REST/MCP update path, or a programmatic edit takes effect on the *next*

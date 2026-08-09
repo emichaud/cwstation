@@ -1166,19 +1166,21 @@ class CRUDView:
             CRUDView._registry.setdefault(cls.model, cls)
 
     # Config source
-    admin_class = None  # ModelAdmin subclass — the standard Django config DSL
+    admin_class: Any = None  # ModelAdmin subclass — the standard Django config DSL
 
-    # Model/data
-    model = None
-    fields = None
-    list_fields = None
+    # Model/data. These are `None`-defaulted config slots that subclasses
+    # override with concrete values; the explicit Optional annotations let the
+    # type checker accept those overrides (a bare `= None` infers type `None`).
+    model: type[Any] | None = None
+    fields: list[str] | None = None
+    list_fields: list[str] | None = None
     # UI-only override: narrower column set for list template. API/CSV still use list_fields.
-    list_columns = None
-    detail_fields = None
-    link_field = None
+    list_columns: list[str] | None = None
+    detail_fields: list[str] | None = None
+    link_field: str | None = None
 
     # View/routing
-    url_base = None
+    url_base: str | None = None
     namespace: str | None = None  # URL namespace for child ExplorerSite instances
     paginate_by = 25
     # Auth mixins wrapped around every generated view (HTML + REST). SECURE BY
@@ -1187,14 +1189,14 @@ class CRUDView:
     # (e.g. [StaffRequiredMixin], or [] for a fully public view). To make a view
     # anonymous, prefer the readable `public = True` flag below. Resolved via
     # `_resolved_mixins()`.
-    mixins = None
+    mixins: list[Any] | None = None
     public = False  # opt into anonymous access (only when `mixins` is unset)
     actions = [Action.LIST, Action.CREATE, Action.DETAIL, Action.UPDATE, Action.DELETE]
-    breadcrumb_parent = None  # Optional (label, url_name) for parent breadcrumb
+    breadcrumb_parent: Any = None  # Optional (label, url_name) for parent breadcrumb
 
     # Display
     displays = []  # List of ListDisplay classes/instances. Empty = legacy auto-detect.
-    default_display = None  # Defaults to first in displays
+    default_display: Any = None  # Defaults to first in displays
     detail_displays = []  # List of DetailDisplay classes/instances
     list_accessories = []  # ListAccessory instances rendered above the toolbar
 
@@ -1202,7 +1204,7 @@ class CRUDView:
     form_displays = []  # FormDisplay classes/instances (both create + edit)
     create_displays = []  # Create-only (overrides form_displays for create)
     edit_displays = []  # Edit-only (overrides form_displays for edit)
-    default_form_display = None  # Defaults to first in resolved list
+    default_form_display: Any = None  # Defaults to first in resolved list
 
     # Bulk operations
     bulk_actions = []  # Opt-in: [BulkAction.DELETE, BulkAction.UPDATE]
@@ -1230,7 +1232,7 @@ class CRUDView:
     ordering_fields = []  # Fields allowed for ?ordering= (defaults to sortable list_fields)
     search_fields = []  # Fields for ?q= search (reads from admin_class.search_fields)
     filter_fields = []  # Fields for query-param filtering (reads from admin_class.list_filter)
-    filter_class = None  # Optional django-filters FilterSet class
+    filter_class: Any = None  # Optional django-filters FilterSet class
     export_formats = []  # e.g. ["csv", "json"] — enables ?format= on API list
 
     # Search exposure — opt-in keyword search via FTS5 (SQLite) /
@@ -1285,17 +1287,17 @@ class CRUDView:
     webhook_events: list[str] | None = None
 
     # Related object tabs (reverse FK relations on detail page)
-    related_tabs = None  # None=auto-discover, list=explicit accessor names, False=disabled
+    related_tabs: Any = None  # None=auto-discover, list=explicit accessor names, False=disabled
     related_tabs_exclude = []  # Accessor names to exclude from auto-discovery
     related_tabs_paginate_by = 10
 
     # Legacy/direct config
-    form_class = None
-    queryset = None
-    field_formatters = {}  # Deprecated — use field_transforms
-    preview_fields = []  # Deprecated — use field_transforms
-    field_transforms = {}  # {field_name: "transform_name" | ("name", {opts}) | callable}
-    column_widths = None  # Optional {field_name: "30%"} for custom column proportions
+    form_class: type[Any] | None = None
+    queryset: Any = None
+    field_formatters: dict[str, Any] = {}  # Deprecated — use field_transforms
+    preview_fields: list[str] = []  # Deprecated — use field_transforms
+    field_transforms: dict[str, Any] = {}  # {field_name: "transform_name" | ("name", {opts}) | callable}
+    column_widths: dict[str, str] | None = None  # Optional {field_name: "30%"} for custom column proportions
 
     # -- Config resolution: admin_class → legacy attrs → defaults --
 

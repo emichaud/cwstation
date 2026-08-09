@@ -70,11 +70,14 @@ check_untyped_defs = false
 warn_redundant_casts = true
 warn_unused_ignores = false
 exclude = '(/migrations/|/tests/|test_[^/]*\.py$)'
-# Baseline scope: apps/feeds is type-clean under mypy + django-stubs. Widen one
-# app at a time (datasets/scheduler/webhooks next) as each is brought to green.
+# Type-clean under mypy + django-stubs. Widen one app at a time as each is
+# brought to green (the CRUDView-heavy admin apps — usermanager, tokenmgr,
+# explorer — are the next candidates).
 files = [
     "apps/feeds",
     "apps/datasets",
+    "apps/scheduler",
+    "apps/webhooks",
 ]
 
 [tool.django-stubs]

@@ -42,12 +42,12 @@ class Command(BaseCommand):
             return
 
         if not getattr(settings, "SMALLSTACK_WEBHOOKS_ENABLED", True):
-            report = [{
+            disabled_report: Report = [{
                 "name": "Webhooks enabled",
                 "status": "PASS",
                 "detail": "Disabled via SMALLSTACK_WEBHOOKS_ENABLED — nothing to diagnose.",
             }]
-            self._emit(report, options)
+            self._emit(disabled_report, options)
             return
 
         report: Report = []
@@ -69,7 +69,7 @@ class Command(BaseCommand):
         models = [
             v.model._meta.label
             for v in CRUDView._registry.values()
-            if getattr(v, "enable_webhooks", False)
+            if v.model is not None and getattr(v, "enable_webhooks", False)
         ]
         if not getattr(settings, "SMALLSTACK_WEBHOOKS_OUTBOUND", True):
             report.append({"name": "Outbound", "status": "PASS", "detail": "Outbound disabled via setting."})
@@ -255,10 +255,10 @@ class Command(BaseCommand):
         outbound = [
             {"model": v.model._meta.label, "events": getattr(v, "webhook_events", None) or all_events}
             for v in CRUDView._registry.values()
-            if getattr(v, "enable_webhooks", False)
+            if v.model is not None and getattr(v, "enable_webhooks", False)
         ]
         seams = hooks.registered()
-        data = {
+        data: dict[str, Any] = {
             "outbound_models": outbound,
             "inbound_handlers": registered_handlers(),
             "seams": seams,

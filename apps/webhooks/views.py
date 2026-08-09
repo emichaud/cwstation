@@ -555,7 +555,7 @@ def webhooks_tick(request: HttpRequest) -> JsonResponse:
 
 @csrf_exempt
 @require_POST
-def incoming_webhook(request: HttpRequest, slug: str) -> JsonResponse:
+def incoming_webhook(request: HttpRequest, slug: str) -> HttpResponse:
     """Receive an external POST, verify its signature, record a receipt, and queue
     the registered handler. Returns 202 fast; 401 on bad signature; 404 for an
     unknown/disabled receiver."""

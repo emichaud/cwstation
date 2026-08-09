@@ -288,7 +288,7 @@ def _run_timeline(*, hours: int) -> list[dict]:
     """
     now = timezone.now()
     start = now - timedelta(hours=hours)
-    buckets = {}
+    buckets: dict[datetime, dict[str, int]] = {}
     rows = (
         ScheduledJobRun.objects.filter(created_at__gte=start)
         .values_list("created_at", "status")
@@ -333,7 +333,7 @@ def scheduler_stat_detail(request: HttpRequest, stat_type: str) -> HttpResponse:
 
     if stat_type in {"failed", "skipped"}:
         status = ScheduledJobRun.Status.FAILED if stat_type == "failed" else ScheduledJobRun.Status.SKIPPED
-        qs = (
+        run_qs = (
             ScheduledJobRun.objects.select_related("job")
             .filter(status=status, created_at__gte=now - timedelta(hours=24))
             .order_by("-created_at")
@@ -344,7 +344,7 @@ def scheduler_stat_detail(request: HttpRequest, stat_type: str) -> HttpResponse:
                 href=reverse("scheduler/jobs-update", args=[r.job_id]),
                 meta=r.message or f"{r.created_at:%H:%M}",
             )
-            for r in qs
+            for r in run_qs
         ]
         return render_stat_list(rows, empty=f"No {stat_type} runs in the last 24h.")
 

@@ -360,7 +360,7 @@ def pair_smallstack(
     # --- outbound endpoint (A→B), idempotent among PAIRED objects only -------------------
     # Keyed on (target_url, is_paired=True): a re-pair adopts the paired endpoint it
     # created, but a hand-made endpoint to the same URL (is_paired=False) is never touched.
-    endpoint_defaults = {
+    endpoint_defaults: dict[str, Any] = {
         "name": f"{base} (out)",
         "event_filter": events,
         "transform": "smallstack",
@@ -397,7 +397,7 @@ def pair_smallstack(
             receiver_slug = f"{receiver_slug}-p"
         # Keyed on (slug, is_paired=True): same strictness — a hand-made receiver on the
         # same slug is not adopted.
-        receiver_defaults = {
+        receiver_defaults: dict[str, Any] = {
             "name": f"{base} (in)",
             "verifier": "hmac",
             "require_signature": True,

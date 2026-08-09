@@ -91,6 +91,8 @@ def run_due_jobs(*, now: datetime | None = None) -> TickResult:
 
 def _process_job(job: ScheduledJob, *, now: datetime, result: TickResult) -> None:
     observed = job.next_run_at  # the value we must still see to win the claim
+    if observed is None:
+        return  # only reachable if the row changed under us; nothing to claim
 
     # Compute the cursor's next position (None => 'once' job retires).
     try:
