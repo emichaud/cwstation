@@ -1,22 +1,20 @@
 {% load theme_tags %}
-<div class="cw-session-card cw-qso-card">
-    <a href="{{ card.edit_url }}" class="cw-sc-link" aria-label="Edit contact with {{ card.call }}">
-        <span class="cw-sc-rail" aria-hidden="true"></span>
-        <span class="cw-sc-body">
-            <span class="cw-sc-head">
-                <span class="cw-qso-call cw-mono">{{ card.call }}</span>
+<div class="cw-qso-tile">
+    <a href="{{ card.edit_url }}" class="cw-qtile-link" aria-label="Edit contact with {{ card.call }}">
+        <span class="cw-qtile-top">
+            <span class="cw-qtile-call cw-mono">{{ card.call }}</span>
+            <span class="cw-qtile-badges">
                 {% if card.band %}<span class="cw-badge cw-badge-call">{{ card.band }}</span>{% endif %}
                 <span class="cw-badge cw-badge-mode">{{ card.mode }}</span>
-                {% if card.confirmed %}<span class="cw-qso-qsl" title="Confirmed / uploaded">✓ QSL</span>{% endif %}
-                <time class="cw-sc-time">{{ card.when_date }} · {{ card.when_time }}z</time>
-            </span>
-            <span class="cw-sc-meta">
-                <span class="cw-sc-chip">RST {{ card.rst }}</span>
-                {% if card.freq %}<span class="cw-sc-chip">{{ card.freq }} MHz</span>{% endif %}
-                {% if card.station %}<span class="cw-qso-station">{{ card.station }}</span>{% endif %}
-                <span class="cw-sc-replay">Edit <span aria-hidden="true">→</span></span>
+                {% if card.confirmed %}<span class="cw-qtile-qsl" title="Confirmed / uploaded">✓</span>{% endif %}
             </span>
         </span>
+        <time class="cw-qtile-time">{{ card.when_date }} · {{ card.when_time }}z</time>
+        <span class="cw-qtile-meta">
+            <span class="cw-qtile-rst cw-mono">RST {{ card.rst }}</span>
+            {% if card.freq %}<span class="cw-qtile-freq cw-mono">{{ card.freq }} MHz</span>{% endif %}
+        </span>
+        {% if card.station %}<span class="cw-qtile-station">{{ card.station }}</span>{% endif %}
     </a>
     <div class="cw-qso-actions">
         {% if card.qrz_url %}<a href="{{ card.qrz_url }}" target="_blank" rel="noopener" class="cw-qso-act" title="Look up on QRZ.com">QRZ&nbsp;↗</a>{% endif %}

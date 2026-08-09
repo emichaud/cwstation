@@ -1058,28 +1058,52 @@ body.cw-console .crud-table td:first-child {
     padding-right: 28px;
 }
 
-/* ── Logbook: QSO card specifics (built on the session-card frame) ── */
-.cw-qso-card .cw-sc-rail { background: var(--primary); }
-.cw-qso-call { font-size: 1.3rem; font-weight: 700; color: var(--body-fg); letter-spacing: 0.03em; }
+/* ── Logbook: clean iOS-style QSO tiles ── */
 .cw-badge-mode {
     background: var(--accent-band-bg); color: var(--primary);
     border: 1px solid color-mix(in srgb, var(--primary) 40%, var(--card-border));
 }
-.cw-qso-station { color: var(--body-quiet-color); font-size: 0.9rem; }
-.cw-qso-qsl {
-    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
-    color: var(--success-fg); border: 1px solid color-mix(in srgb, var(--success-fg) 40%, var(--card-border));
-    border-radius: 6px; padding: 1px 7px;
+.cw-qso-tile {
+    position: relative; border: 1px solid var(--card-border); border-radius: 14px;
+    background: var(--card-bg); transition: border-color 0.15s, box-shadow 0.15s, transform 0.05s;
 }
+.cw-qso-tile:hover { border-color: var(--primary); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28); }
+.cw-qso-tile:active { transform: translateY(1px); }
+.cw-qtile-link {
+    display: flex; flex-direction: column; gap: 7px;
+    padding: 15px 16px 14px; text-decoration: none; color: inherit;
+}
+.cw-qtile-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.cw-qtile-call {
+    font-size: 1.3rem; font-weight: 700; letter-spacing: 0.05em; color: var(--body-fg);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cw-qtile-badges { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+.cw-qtile-qsl {
+    display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
+    font-size: 0.7rem; font-weight: 700; color: var(--button-fg); background: var(--success-fg);
+}
+.cw-qtile-time { font-size: 0.78rem; color: var(--body-quiet-color); font-variant-numeric: tabular-nums; }
+.cw-qtile-meta {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-top: 2px; padding-top: 9px; border-top: 1px solid var(--card-border); font-size: 0.85rem;
+}
+.cw-qtile-rst { color: var(--body-fg); font-weight: 600; }
+.cw-qtile-freq { color: var(--body-quiet-color); }
+.cw-qtile-station {
+    font-size: 0.82rem; color: var(--body-quiet-color);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* hover action cluster — QRZ / tape / delete, top-right */
 .cw-qso-actions { position: absolute; top: 12px; right: 12px; display: flex; align-items: center; gap: 6px; }
 .cw-qso-act {
-    display: inline-grid; place-items: center; min-height: 30px; padding: 0 10px;
-    font-size: 0.78rem; font-weight: 700; text-decoration: none; white-space: nowrap;
-    color: var(--body-quiet-color); background: var(--card-bg);
+    display: inline-grid; place-items: center; min-height: 28px; padding: 0 9px;
+    font-size: 0.74rem; font-weight: 700; text-decoration: none; white-space: nowrap;
+    color: var(--body-quiet-color); background: var(--body-bg);
     border: 1px solid var(--card-border); border-radius: 8px; cursor: pointer;
     opacity: 0; transition: opacity 0.15s, color 0.15s, border-color 0.15s;
 }
-.cw-session-card:hover .cw-qso-act { opacity: 1; }
+.cw-qso-tile:hover .cw-qso-act { opacity: 1; }
 .cw-qso-act:hover { color: var(--primary); border-color: var(--primary); }
 .cw-qso-act-del:hover { color: var(--error-fg); border-color: color-mix(in srgb, var(--error-fg) 45%, var(--card-border)); }
 @media (hover: none) { .cw-qso-act { opacity: 1; } }
@@ -1096,22 +1120,13 @@ body.cw-sessions .cw-sc-copy { -webkit-line-clamp: 3; }  /* a touch more copy in
 body.cw-sessions .cw-sc-meta { flex-wrap: wrap; gap: 6px 8px; }
 body.cw-sessions .cw-sc-replay { display: none; }  /* whole tile links to the replay */
 
-/* ── Logbook: an Apple-style collection — smaller cards flowing into columns ── */
-body.cw-logbook .card-grid {
-    grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
-    gap: 12px;
+/* ── Logbook: iOS-style collection grid (denser tiles; wins over the base
+   cw-console session grid via the two-class selector) ── */
+body.cw-console.cw-logbook .card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(264px, 1fr));
+    gap: 14px;
     align-items: stretch;
 }
-.cw-logbook .cw-qso-card .cw-sc-body { padding: 14px 14px 12px; gap: 8px; }
-.cw-logbook .cw-qso-card .cw-sc-head { flex-wrap: wrap; gap: 8px 10px; }
-.cw-logbook .cw-qso-call { font-size: 1.25rem; }
-.cw-logbook .cw-qso-card .cw-sc-time { margin-left: auto; font-size: 0.76rem; }
-.cw-logbook .cw-qso-card .cw-sc-meta { flex-wrap: wrap; gap: 6px 8px; }
-.cw-logbook .cw-qso-station {
-    flex-basis: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.cw-logbook .cw-qso-card .cw-sc-replay { display: none; }  /* whole card links to edit */
-.cw-logbook .cw-qso-actions { top: 10px; right: 10px; }
 .cw-session-card {
     position: relative;
     border: 1px solid var(--card-border);
