@@ -158,6 +158,13 @@ EXPLORER_DISCOVER_ALL = True
 # EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend (+ EMAIL_HOST etc.)
 # in your .env — build_mailers() reads them into MAILERS automatically.
 
+# Django 6.1's `manage.py check --deploy` raises mail.E001 for a dev-only email
+# backend. Dev intentionally uses the console backend and is NOT a deploy target,
+# so that deploy-readiness check doesn't apply here — silence just it, keeping
+# `check --deploy` clean on a fresh clone. Production (SMTP) is unaffected and
+# still validated. (The security.W0xx dev warnings remain; they don't fail.)
+SILENCED_SYSTEM_CHECKS = ["mail.E001"]
+
 # Background Tasks - uses DatabaseBackend from base settings by default
 # The worker auto-reloads in DEBUG mode: python manage.py db_worker
 # Uncomment below to run tasks immediately without a worker (for simple testing):
