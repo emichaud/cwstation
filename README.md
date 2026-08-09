@@ -3,23 +3,21 @@
 *Django that doesn't get in your way. Focus on your idea, not the stack.*
 
 ![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue)
-![Django 6.0](https://img.shields.io/badge/django-6.0-green)
+![Django 6.1](https://img.shields.io/badge/django-6.1-green)
 ![License MIT](https://img.shields.io/badge/license-MIT-brightgreen)
-![Version 0.13.4](https://img.shields.io/badge/version-0.13.4-blue)
-[![Quality A−](https://img.shields.io/badge/quality-A%E2%88%92-2ea44f)](docs/report-cards/)
-![Coverage 80%](https://img.shields.io/badge/coverage-80%25-9acd32)
+![Version 0.14.1](https://img.shields.io/badge/version-0.14.1-blue)
 
-A small-footprint Django foundation for shipping **web apps, REST APIs, MCP servers, search interfaces, and CLI tools** — with a model-to-five-surfaces pipeline already wired. One model definition. Five production surfaces. No boilerplate.
+**One small backend. Many roles.** A small-footprint Django foundation that drops into your stack and plays whatever role you need — often several at once. From a single model definition, SmallStack is an **admin app**, a **REST backend** for your React/Svelte/Solid frontend, an **MCP server** for AI agents, a fast **search engine**, an **integration hub** (webhooks, feeds, OpenAPI), and a **task runner**.
 
-SQLite by default (scales further than you'd think), no external services required, everything runs on a single machine or container.
+SQLite by default (scales further than you'd think), no external services required — everything runs on a single machine or container.
 
-📖 **Full docs & guides → [www.smallstack.site](https://www.smallstack.site/)**
+📖 **Full docs, guides & the full story → [www.smallstack.site](https://www.smallstack.site/)**
 
 ---
 
 ## Five surfaces from one declaration
 
-A `CRUDView` bound to a model derives CRUD tools automatically, then exposes them on the surfaces you opt into. One model. One view. Five independent outputs.
+The mechanism behind the roles: a `CRUDView` bound to a model derives CRUD tools automatically, then exposes them on the surfaces you opt into. One model. One view. Five independent outputs.
 
 ```python
 # apps/tickets/views.py
@@ -33,22 +31,39 @@ class TicketCRUDView(CRUDView):
 
 This generates:
 
-**→ HTML** (`/tickets/`)  
+**→ HTML** (`/tickets/`)
 CRUD pages with htmx tabs, filters, sorting, pagination. Dark/light themes (5 color palettes).
 
-**→ REST API** (`/api/tickets/`)  
+**→ REST API** (`/api/tickets/`)
 REST endpoints with bearer-token auth, OpenAPI 3.0 spec, automatic pagination and filtering.
 
-**→ MCP Server** (`/mcp`)  
+**→ MCP Server** (`/mcp`)
 JSON-RPC tools `tickets_list`, `tickets_get`, `tickets_create`, etc. — ready for Claude Desktop and agent frameworks.
 
-**→ Search Interface** (`/search/`)  
+**→ Search Interface** (`/search/`)
 Full-text search page + `search_tickets` MCP tool for retrieval (RAG pipelines).
 
-**→ CLI** (`sc tickets`)  
+**→ CLI** (`sc tickets`)
 Terminal CRUD: `sc ls`, `sc get`, `sc search`, staff-gated `sc new/set/rm`. `--json` on everything.
 
 Same form validation, same permission logic, all five surfaces. You change the model once; all five update automatically. No "keep the API in sync with the UI" drudgery.
+
+---
+
+## Many roles, one backend
+
+SmallStack isn't one kind of app — it's a small backend that plays whatever role your architecture needs, usually several at once:
+
+| Role | What it means |
+|------|---------------|
+| **Admin app** | Auth, profiles, five-palette light/dark, tables, modal editors, filters, breadcrumbs — the internal tool you'd build anyway. |
+| **Headless API backend** | REST with token auth and OpenAPI 3.0, plus bundled typed clients for React, Svelte, Solid & Streamlit (`clients/`). Point your SPA at it. |
+| **MCP server** | OAuth + JSON-RPC tools derived from your models — Claude Desktop and the Connectors UI work with no setup. |
+| **Search engine** | Real full-text search — FTS5/BM25 on SQLite, `tsvector` + GIN on Postgres — ranked, with a Ctrl-K omnibar, an MCP tool, and custom variants (SearchBuilder). |
+| **Integration hub** | Signed webhooks (inbound + outbound), RSS/Atom publish + consume, and Swagger + ReDoc for every endpoint. The seam between your systems. |
+| **Task runner** | One-shot jobs plus recurring `@scheduled` work (cron/interval/once) on a DB-backed worker — no Redis or Celery to operate. |
+
+*Not ideal for:* microservices (SmallStack is monolithic by design) or very high-traffic platforms (single-machine focused, >1000 req/s).
 
 ---
 
@@ -57,10 +72,12 @@ Same form validation, same permission logic, all five surfaces. You change the m
 **The things you don't have to build:**
 
 - **Web CRUD UI** — HTML pages with htmx interactions, filters, sorting, pagination, dark/light themes (5 color palettes)
-- **REST API** — Bearer-token auth, OpenAPI 3.0 with Swagger UI, automatic pagination, filtering
+- **REST API + live docs** — Bearer-token auth, OpenAPI 3.0 with Swagger UI (`/api/docs/`) and ReDoc (`/api/redoc/`), automatic pagination, filtering
+- **Bundled API clients** — Typed TypeScript/JS SDK and a single-file Python client, always the same version as your API (`clients/`)
 - **MCP server** — JSON-RPC + OAuth + PKCE, works with Claude Desktop and agent frameworks
-- **Full-text search** — SQLite FTS or Postgres SearchVector, with custom ranking and variants (SearchBuilder)
-- **CLI tool** — Terminal CRUD operations with `--json` output, staff-gated writes
+- **Full-text search** — SQLite FTS5 or Postgres SearchVector, with custom ranking and variants (SearchBuilder)
+- **Webhooks** — Signed outbound delivery on model change + verified inbound receivers, with four seams for Zapier/n8n/Stripe/Slack
+- **RSS / Atom feeds** — Publish any model as a feed with one flag, or consume external feeds on a schedule
 - **Background tasks & scheduler** — DB-backed queue (no Redis/Celery to operate) plus a `@scheduled` recurring-job scheduler with a themed UI, REST + MCP surfaces, and cron/interval/once cadences
 - **Activity & audit logs** — Request logging with auto-pruning and breakdown stats
 - **Auth** — Custom User model, photo, timezone, theme preference, token management
@@ -82,6 +99,7 @@ SmallStack is built around the vibe-coding workflow. When you open Claude Code o
 - CRUDView patterns and configuration
 - SearchBuilder (custom variants, computed fields, ranking)
 - MCP tool authoring
+- Webhooks & feeds (integration seams)
 - API conventions and client generation
 - CLI patterns
 - Deployment playbooks
@@ -137,39 +155,9 @@ make mcp-test      # MCP server smoke test
 
 ---
 
-## What SmallStack is for
-
-| Use Case | Fit |
-|----------|-----|
-| Full web applications | ✓ Sweet spot |
-| Internal business tools | ✓ Sweet spot |
-| Automation & background jobs | ✓ Sweet spot |
-| Data-driven business apps | ✓ Sweet spot |
-| Backend API servers | ✓ Capable |
-| Content management systems | ✓ Capable |
-| ML & data science workflows | ✓ Capable |
-| SaaS platforms | ✗ Not the best fit |
-| E-commerce | ✗ Not the best fit |
-| High-traffic platforms (>1000 req/s) | ✗ Not the best fit |
-
-**In short:** SmallStack shines for solo developers and small teams building web apps, internal tools, and APIs. It's not designed for microservices (monolithic by nature) or high-scale platforms (single-machine focused).
-
----
-
-## Quality & transparency
-
-Every release includes a **quality report card** — a graded scorecard (security, code quality, testing, docs, accessibility) with evidence behind each grade. See **[docs/report-cards/](docs/report-cards/)** for the latest.
-
-Why this matters:
-- **Independent** — Produced by a separate testing harness, not self-graded
-- **Reproducible** — The rubric and data are public; anyone can re-run it
-- **Honest** — Open security issues cap the whole card at F; grades improve over time
-
----
-
 ## Learn more
 
-**[www.smallstack.site](https://www.smallstack.site/)** has setup guides, palette details, CRUDView patterns, SearchBuilder examples, MCP setup, and deployment recipes.
+**[www.smallstack.site](https://www.smallstack.site/)** tells the full story — the many roles, setup guides, palette details, CRUDView patterns, SearchBuilder examples, webhooks & feeds, MCP setup, and deployment recipes.
 
 Your local `/help/` section (available once running) mirrors the essentials.
 
