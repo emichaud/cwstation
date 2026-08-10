@@ -18,6 +18,28 @@ from .events import CharEvent
 # Rough amateur callsign shape: 1-2 char prefix, a digit, 1-4 char suffix.
 CALLSIGN_RE = re.compile(r"\b([A-Z]{1,2}\d[A-Z]{1,4})\b")
 RST_RE = re.compile(r"\b([1-5][1-9][1-9])\b")
+DE_CALL_RE = re.compile(r"\bDE\s+([A-Z]{1,2}\d[A-Z]{1,4})\b")
+
+# The shape test alone is too generous on noisy copy: band noise that survives
+# the squelch spells short tokens like "O1E", which matches the pattern and then
+# reaches the operator as a one-click "+log" chip. Two cheap, offline checks cut
+# that without a callsign database.
+#
+# 1. Prefix plausibility. ITU allocates most prefix blocks two characters wide
+#    (O is only ever OA-OZ, S only SA-SZ, and so on). Only these letters are
+#    allocated as *standalone* single-character prefixes, so "O1E" is not a
+#    callsign anyone can hold, while W1AW and N0CALL are fine. Two-character
+#    prefixes are accepted as-is — validating those needs the full ITU table and
+#    wrongly dropping real DX is worse than the odd false positive.
+# 2. Corroboration for 3-character tokens. Those are the ones noise produces; a
+#    real short call still passes if it is sent the way operators actually send
+#    a call — after "DE", or repeated.
+#
+# Note: character *confidence* is useless here. A clean-sounding noise burst
+# decodes at confidence 1.0, identical to a real signal (measured on the off-air
+# fixtures), so it cannot separate O1E from W1AW.
+SINGLE_LETTER_PREFIXES = frozenset("BFGIKMNRW")
+MIN_UNCORROBORATED_LEN = 4
 
 
 @dataclass
@@ -36,12 +58,31 @@ class QSODraft:
         }
 
 
+def has_plausible_prefix(call: str) -> bool:
+    """False for callsign-shaped tokens whose prefix no country is allocated —
+    the common shape of a callsign invented by band noise."""
+    prefix = call[: call.index(next(c for c in call if c.isdigit()))]
+    return len(prefix) > 1 or prefix in SINGLE_LETTER_PREFIXES
+
+
 def extract_callsigns(text: str) -> list[str]:
-    """All callsign-shaped words in decoded copy, in order, deduplicated."""
+    """Callsigns in decoded copy, in order, deduplicated.
+
+    Filters tokens that match the shape but can't be real (see the notes on
+    `SINGLE_LETTER_PREFIXES`), so noise-born junk never reaches the operator as
+    a loggable chip.
+    """
+    upper = text.upper()
+    tokens = CALLSIGN_RE.findall(upper)
+    after_de = set(DE_CALL_RE.findall(upper))
     seen: list[str] = []
-    for m in CALLSIGN_RE.findall(text.upper()):
-        if m not in seen:
-            seen.append(m)
+    for m in tokens:
+        if m in seen or not has_plausible_prefix(m):
+            continue
+        corroborated = m in after_de or tokens.count(m) > 1
+        if len(m) < MIN_UNCORROBORATED_LEN and not corroborated:
+            continue
+        seen.append(m)
     return seen
 
 
@@ -51,6 +92,7 @@ class CWLogBridge:
         self._word = ""
         self._space_run = 0
         self._gap_close = gap_close_words
+        self._prev_word = ""  # so a call sent as "DE <call>" is corroborated
 
     def on_char(self, ev: CharEvent) -> None:
         """Subscribe this to AudioEngineManager.subscribe(...)."""
@@ -69,8 +111,15 @@ class CWLogBridge:
         self._word = ""
         if not w:
             return
+        prev, self._prev_word = self._prev_word, w
         if CALLSIGN_RE.fullmatch(w):
-            self.draft.callsigns.append(w)
+            # Same admission rule as extract_callsigns, applied to the streaming
+            # word feed: corroboration here is "followed DE" or "heard before".
+            corroborated = prev == "DE" or w in self.draft.callsigns
+            if has_plausible_prefix(w) and (
+                len(w) >= MIN_UNCORROBORATED_LEN or corroborated
+            ):
+                self.draft.callsigns.append(w)
         elif RST_RE.fullmatch(w):
             self.draft.rst.append(w)
 

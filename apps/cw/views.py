@@ -476,6 +476,7 @@ class DecodeView(_StationCallMixin, LoginRequiredMixin, TemplateView):
                     request.user,
                     stream=form.cleaned_data["recording"],
                     tone_hz=tone,
+                    squelch_db=form.cleaned_data["squelch_db"],
                 )
             except ValueError as exc:
                 messages.error(request, f"Couldn't decode that file: {exc}")

@@ -54,6 +54,17 @@
                 </div>
                 {% if recording_form.tone_hz.errors %}<div class="cw-errors">{{ recording_form.tone_hz.errors|join:" " }}</div>{% endif %}
             </div>
+            <div class="cw-field">
+                <label>Squelch <span class="cw-slider-val" id="rec-sq-val">{{ recording_form.squelch_db.initial|floatformat:1 }} dB</span></label>
+                <div class="cw-slider-row">
+                    <input type="range" id="rec-sq" name="squelch_db" min="0" max="12" step="0.5"
+                           value="{{ recording_form.squelch_db.initial }}"
+                           oninput="document.getElementById('rec-sq-val').textContent = (this.value === '0' ? 'off' : this.value + ' dB')">
+                </div>
+                <p class="cw-setup-note">Holds the key shut between marks so band noise can't
+                    spell letters. Lower it if a weak signal is being clipped; 0 turns it off.</p>
+                {% if recording_form.squelch_db.errors %}<div class="cw-errors">{{ recording_form.squelch_db.errors|join:" " }}</div>{% endif %}
+            </div>
             <button type="submit" class="cw-btn-lg">Decode recording</button>
         </form>
     </section>

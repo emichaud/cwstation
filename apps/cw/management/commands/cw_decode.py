@@ -28,6 +28,7 @@ from apps.cw.engine import (
 )
 from apps.cw.engine.bridge import CWLogBridge, QSODraft
 from apps.cw.engine.export import session_from_result
+from apps.cw.services import RECORDING_SQUELCH_DB
 
 
 class Command(BaseCommand):
@@ -43,6 +44,11 @@ class Command(BaseCommand):
             help="tone frequency Hz (default: auto-detect for --wav, 600 for --text)",
         )
         parser.add_argument("--snr", type=float, default=None, help="add noise at this SNR dB for --text")
+        parser.add_argument(
+            "--squelch", type=float, default=None,
+            help=f"SNR gate in dB against band noise (0 = off; default "
+                 f"{RECORDING_SQUELCH_DB:g} for --wav, off for --text)",
+        )
         parser.add_argument("--prior", action="store_true", help="give the decoder the WPM as a prior")
         parser.add_argument("--log", action="store_true", help="run the log bridge and print QSO drafts")
         parser.add_argument("--session", help="write a monitor session JSON to this path")
@@ -67,9 +73,16 @@ class Command(BaseCommand):
             source = ArraySource(r.audio, r.sample_rate)
             fs, truth = r.sample_rate, r.text
 
+        # Recordings carry band noise between the marks; synthesized text does
+        # not, so the gate defaults on only for --wav.
+        squelch = options["squelch"]
+        if squelch is None:
+            squelch = RECORDING_SQUELCH_DB if options["wav"] else 0.0
+
         cfg = CWConfig(
             tone_hz=tone,
             expected_wpm=(options["wpm"] if options["prior"] else None),
+            squelch_db=squelch,
         )
         decoder = CWDecoder(fs, cfg)
         mgr = AudioEngineManager(fs).add_demodulator(decoder)
@@ -91,6 +104,7 @@ class Command(BaseCommand):
         self.stdout.write(f"decoded: {res.text}")
         self.stdout.write(
             f"speed  : {res.wpm_final:.1f} wpm   tone: {tone:.0f} Hz   "
+            f"squelch: {'off' if squelch <= 0 else f'{squelch:g} dB'}   "
             f"chars: {len(res.chars)}"
         )
 

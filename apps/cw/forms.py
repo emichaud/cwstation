@@ -6,6 +6,7 @@ from django import forms
 from django.utils import timezone as djtz
 
 from .models import QSO
+from .services import RECORDING_SQUELCH_DB
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024  # 30 MB — a half-hour practice MP3 fits
 
@@ -37,6 +38,17 @@ class RecordingDecodeForm(forms.Form):
         help_text="Find the CW note from the spectrum — recommended for off-air files",
     )
     tone_hz = forms.FloatField(min_value=300, max_value=1200, initial=600, label="Tone (Hz)")
+    squelch_db = forms.FloatField(
+        required=False, min_value=0, max_value=12,
+        initial=RECORDING_SQUELCH_DB, label="Squelch (dB)",
+        help_text="Gate the key against band noise; 0 is off",
+    )
+
+    def clean_squelch_db(self) -> float:
+        # An omitted slider means "use the default", not "no squelch" — only an
+        # explicit 0 turns the gate off.
+        value = self.cleaned_data.get("squelch_db")
+        return RECORDING_SQUELCH_DB if value is None else value
 
     def clean_recording(self) -> object:
         f = self.cleaned_data["recording"]

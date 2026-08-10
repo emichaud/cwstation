@@ -16,6 +16,23 @@ from .engine.export import session_from_result
 from .engine.wav import wav_bytes_from_float32
 from .models import CWSession
 
+# Squelch default for off-air recordings, in dB of estimated SNR.
+#
+# Chosen by sweeping real material rather than by taste. Against a weak 40 m
+# QSO recorded off a WebSDR and a noise-only stretch of empty band:
+#
+#     gate     noise-only chars     weak-signal copy
+#     0.0 dB          411           intact (baseline)
+#     4.5 dB           65           intact
+#     5.0 dB           19           starts losing words
+#     6.0 dB            5           badly degraded
+#
+# 4.5 dB is the knee: it drops ~84% of the noise hash while every word of the
+# real (weak) QSO still copies. Above it, real signal goes before noise does.
+# Operators can override per upload — the Decode page exposes the slider, and
+# 0 restores the old ungated behaviour.
+RECORDING_SQUELCH_DB = 4.5
+
 
 def station_callsign(user: AbstractBaseUser) -> str:
     """The operator's station callsign, upper-cased: their configured CWRig
@@ -69,17 +86,26 @@ def decode_practice(
 
 
 def decode_recording(
-    user: AbstractBaseUser, stream: BinaryIO, tone_hz: float | None
+    user: AbstractBaseUser,
+    stream: BinaryIO,
+    tone_hz: float | None,
+    squelch_db: float = RECORDING_SQUELCH_DB,
 ) -> CWSession:
     """Decode an uploaded recording (WAV/MP3/FLAC/OGG) recorded off a receiver.
 
     With `tone_hz=None` the CW note is auto-detected from the spectrum — the
     right default for off-air files where the operator doesn't know the pitch.
+
+    Off-air files carry band noise between the marks, so the squelch gate is on
+    by default here (unlike the synthesized practice paths, which are clean by
+    construction). See `RECORDING_SQUELCH_DB` for how the default was chosen.
     """
     audio, sample_rate = load_audio(stream)
     if tone_hz is None:
         tone_hz = detect_tone(audio, sample_rate)
-    result = decode_array(audio, sample_rate, CWConfig(tone_hz=tone_hz))
+    result = decode_array(
+        audio, sample_rate, CWConfig(tone_hz=tone_hz, squelch_db=squelch_db)
+    )
     return CWSession.objects.create(
         user=user,
         direction=CWSession.Direction.RECEIVED,
