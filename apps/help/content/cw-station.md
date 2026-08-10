@@ -225,6 +225,149 @@ Radio-side tips: tune the signal so its note sits at one steady pitch (the narro
 filter helps), and prefer slow AGC — the decoder rides through fading, but heavily
 pumped audio is hard for anything to copy.
 
+## Receiving CW with an RTL-SDR
+
+A cheap **RTL-SDR** dongle (Nooelec NESDR, RTL-SDR Blog V3, and the like) makes a fine
+receive-only front end for CW Station. A few things to understand first, because they
+save a lot of confusion:
+
+- **It receives, it never transmits.** You can decode and monitor CW with it, but
+  **Send** won't work through it — keying needs a real transmitter. This is a property
+  of the hardware, not a setting.
+- **It is not a CAT rig.** An RTL-SDR presents a raw USB device, not a serial port, so
+  it will **never appear in Rig Setup** — and that's correct, not a fault. Rig Setup
+  (Hamlib) is for transceivers with a CAT serial port. The SDR reaches CW Station as an
+  **audio source** instead, exactly like a sound card (see *Live monitoring* above).
+- **Mind the frequency range.** A stock dongle tunes roughly **25 MHz – 1.7 GHz**, which
+  *misses* the busy HF CW bands (40 m / 20 m, below 25 MHz). Natively you can still copy
+  CW on **10 m (28 MHz), 6 m (50 MHz), and 2 m (144.0–144.1 MHz)** when the band is open.
+  To reach the HF bands where CW actually lives, add an **upconverter** (e.g. a Ham It Up
+  / SpyVerter) or use a dongle with **direct-sampling HF** built in (the RTL-SDR Blog V3
+  has it; the NESDR SMArt does not).
+
+### A one-box alternative — skip the dongle + upconverter
+
+If you'd rather buy one thing that covers HF *and* VHF/UHF natively — no upconverter, and
+a better receiver than an RTL dongle — a **wideband SDR receiver** does exactly that. All
+of these are still receive-only and reach CW Station the same way (audio in):
+
+| Device | Coverage in one box | Notes |
+|---|---|---|
+| **SDRplay RSP1B / RSPdx** ⭐ | ~1 kHz – 2 GHz | Best all-in-one. 14-bit ADC → far more dynamic range than the RTL's 8-bit, which matters on crowded HF. RSPdx has a dedicated HF path; RSP1B is the value pick. |
+| **RTL-SDR Blog V3** | HF (direct-sampling ≤24 MHz) + 24 MHz – 1.7 GHz | Cheapest "both in one," but HF is 8-bit and unfiltered — usable, not great. |
+| **Airspy HF+ Discovery** | 0.5 kHz – 31 MHz + 60 – 260 MHz | Superb HF/CW receiver, but **no 70 cm** and a VHF gap — not truly all-band. |
+
+For most people the **SDRplay RSP1B** is the sweet spot: one box, full HF through UHF,
+and it drives GQRX/SDR Console/CubicSDR just like the dongle — so nothing below changes.
+
+### If you also want to *transmit* CW
+
+Every SDR above is receive-only. To key CW on the air you need an actual **transceiver**,
+which is a different category — and unlike an SDR, a transceiver with a CAT serial port
+**does** show up in **Rig Setup**, so CW Station can read its dial and key PTT (see *Rig
+control* below). Options, small to large:
+
+- **QRP-Labs QMX** or **(tr)uSDX** — tiny, inexpensive multi-band CW/digital transceivers;
+  great for a receive-*and*-send bench next to CW Station.
+- **A full HF rig** (e.g. Icom **IC-7300**, Yaesu, Kenwood) — connect its USB/CAT and audio
+  and you get real receive, transmit, and CAT rig control in one radio.
+
+With a transceiver you don't need the SDR at all — its own receiver feeds the decoder and
+its transmitter keys what you Send. The SDR route above is for **listening**; the rig route
+is for **working stations**.
+
+### What about a Baofeng (or any FM handheld)?
+
+A common question — and the honest answer is *not for real CW*, for two independent
+reasons, but there's one thing it can do:
+
+- **No CAT control.** This Hamlib knows 312 rigs and **zero Baofengs** — a UV-5R has no
+  live CAT interface (its cable is a **CHIRP memory-programming** cable, not rig control),
+  so it will **never appear in Rig Setup**.
+- **FM-only, wrong bands.** A Baofeng does **2 m / 70 cm FM**; real CW is an SSB/CW-mode
+  signal, almost all on HF. Point FM at CW and you get clicks, not the steady note the
+  decoder needs — so it can't copy on-air CW.
+
+The one thing that *does* work is **MCW** (Modulated CW — a CW tone sent as audio over an
+FM channel), because CW Station works on audio:
+
+- **Transmit:** feed CW Station's keyed **Send** audio into the handheld's **mic** (cable
+  or even acoustically) and key it with **VOX** or manual PTT — it goes out as an FM tone
+  on 2 m/70 cm simplex.
+- **Receive:** run the receiving radio's **speaker/audio-out into your sound card** → the
+  **Decode** page or live monitor copies the tone off the FM audio.
+
+So a $25 handheld makes a fun over-the-air **MCW** practice loop — just know it's
+audio-coupled MCW over FM, **not** CAT and **not** HF CW. For actual CW, use the SDR
+(listen) or transceiver (work stations) routes above.
+
+### Choosing a radio for CW
+
+Cutting through all of the above — three questions, in order. The first is the one that
+trips most people up, because a radio can *cover* the CW frequencies and still be useless
+for CW.
+
+1. **Can it demodulate CW at all?** It must have an **SSB or CW mode** (a BFO / product
+   detector). If the modes are only **AM / FM / WFM**, it *cannot* turn a CW signal into
+   the steady tone the decoder needs — no matter how much of the band it "receives."
+   This is what rules out the RTL-SDR-in-FM, the Baofeng, and broad-RX handhelds like the
+   Radtel whose HF reception is AM-only.
+2. **Does it cover the bands you want?** Most CW lives on **HF (40 m / 20 m)**. A stock
+   RTL-SDR (25 MHz+) and a 10 m-only rig both miss it; an all-HF radio or an SDR with HF
+   coverage reaches it.
+3. **Do you want Rig Setup (CAT) niceties?** Optional. CAT gives auto **dial-readout** and
+   **PTT** in CW Station, but decode (audio in) and send (audio + VOX) work fine without
+   it. Only transceivers with a **Hamlib backend** appear in Rig Setup — cheap handhelds
+   and export radios generally don't.
+
+| Radio | Copy CW? | Send CW? | Rig Setup (CAT)? | Catch |
+|---|---|---|---|---|
+| **RTL-SDR dongle** | ✅ in SSB/CW app mode | ❌ RX only | ❌ never | No HF without upconverter/direct-sampling |
+| **Wideband SDR** (SDRplay RSP1B) | ✅ | ❌ RX only | ❌ | Receive-only; best one-box listener |
+| **Baofeng / FM handheld** | ❌ FM-only | ⚠️ MCW-over-FM only | ❌ | Not a CW radio |
+| **Radtel RT-950-class** | ❌ if AM/FM-only¹ | ⚠️ MCW-over-FM | ❌ | Broad RX ≠ CW-capable — check for SSB |
+| **10 m rig w/ SSB+CW** (Ailunce HS4) | ✅ | ✅ | ❌ no backend | Single band; 10 m is propagation-fickle |
+| **All-HF transceiver** (IC-7300, Xiegu G90) | ✅ | ✅ | ✅ Hamlib | The do-everything pick |
+
+<sub>¹ Unless its menu actually has an **SSB/USB/LSB** mode — check before assuming.</sub>
+
+**Rule of thumb:** to *listen* to CW cheaply, an **SDR with HF coverage** (RSP1B, or a
+direct-sampling dongle). To *work* CW, a real **transceiver with SSB/CW** — and if you
+want the dial and PTT wired into CW Station, pick one with a **Hamlib CAT backend**
+(IC-7300, G90, and the like).
+
+### Getting its audio into the decoder
+
+The SDR software does the tuning and demodulation; CW Station decodes the audio it
+produces. Install an SDR app and (for the live path) a virtual audio cable:
+
+```bash
+brew install --cask gqrx     # SDR receiver app; bundles the RTL-SDR driver
+brew install blackhole-2ch   # virtual audio cable (SDR → CW Station), macOS
+```
+
+In your SDR app (GQRX shown here): select the RTL-SDR device, tune a CW signal, and set
+the mode to **CW-U / CW-L** so it produces a clean audio note. Then pick one of two
+paths:
+
+- **Record → Decode.** Record a clip in the SDR app and drop the file on the **Decode**
+  page, or run it headless:
+
+  ```bash
+  uv run python manage.py cw_decode --wav clip.wav
+  ```
+
+- **Live tape.** Set the SDR app's audio output to **BlackHole 2ch**, then point CW
+  Station's live capture at that same device and open **CW Monitor → Live**:
+
+  ```bash
+  uv run python manage.py cw_monitor_live --list-devices    # find BlackHole's index
+  uv run python manage.py cw_monitor_live --device N --stream yourusername
+  ```
+
+Either way the same radio-side tips apply: park the signal at one steady pitch with a
+narrow filter, prefer slow AGC, and let the tone auto-detect (or pin it with `--tone`).
+
 ## The logbook
 
 The station logs contacts the way it does everything else — quietly, from the flow:
