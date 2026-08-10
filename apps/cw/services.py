@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import BinaryIO
 
+from django.conf import settings
 from django.contrib.auth.base_user import AbstractBaseUser
 
 from .engine import CWConfig, decode_array, detect_tone, load_audio, synthesize_cw  # noqa: F401
@@ -32,6 +33,24 @@ from .models import CWSession
 # Operators can override per upload — the Decode page exposes the slider, and
 # 0 restores the old ungated behaviour.
 RECORDING_SQUELCH_DB = 4.5
+
+# Last-resort stream target. Only reached when no SITE_URL-style setting is
+# configured; development.py sets one from PORT so this rarely applies.
+FALLBACK_STREAM_SERVER = "http://127.0.0.1:8005"
+
+
+def default_stream_server() -> str:
+    """Base URL the streaming commands POST live batches back to.
+
+    Resolved from settings rather than hardcoded per command, so a server on a
+    non-default port needs one change, not one per command. Same name order
+    `apps/webhooks/context.py` uses for the same question. `--server` still wins.
+    """
+    for name in ("SITE_URL", "SMALLSTACK_SITE_URL", "BASE_URL"):
+        value = str(getattr(settings, name, "") or "").strip()
+        if value.startswith(("http://", "https://")):
+            return value.rstrip("/")
+    return FALLBACK_STREAM_SERVER
 
 
 def station_callsign(user: AbstractBaseUser) -> str:

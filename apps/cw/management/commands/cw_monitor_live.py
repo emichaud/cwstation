@@ -25,6 +25,7 @@ from typing import Any
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
+from apps.cw import services
 from apps.cw.engine.events import CharEvent
 from apps.cw.engine.live import monitor_live
 from apps.cw.engine.sources import SoundDeviceSource
@@ -50,8 +51,9 @@ class Command(BaseCommand):
                             help="save the run as a CW session for this user on exit")
         parser.add_argument("--stream", metavar="USERNAME", default=None,
                             help="stream the decode to this user's live tape (/cw/live/)")
-        parser.add_argument("--server", default="http://127.0.0.1:8005",
-                            help="server base URL for --stream (default http://127.0.0.1:8005)")
+        parser.add_argument("--server", default=services.default_stream_server(),
+                            help="server base URL for --stream (default: SITE_URL, "
+                                 f"currently {services.default_stream_server()})")
 
     def handle(self, **options: Any) -> None:
         try:
@@ -151,7 +153,6 @@ class Command(BaseCommand):
         # squelch, AFC) steer this decoder live, polled from the DB.
         import time as _time
 
-        from apps.cw import services
         from apps.cw.engine.cw import CWConfig
 
         cfg = CWConfig(afc=False, squelch_db=3.0)
@@ -207,8 +208,6 @@ class Command(BaseCommand):
 
         if user is not None:
             if result.text.strip():
-                from apps.cw import services
-
                 session = services.save_live_session(user, result, result.tone_hz)
                 self.stdout.write(self.style.SUCCESS(
                     f"saved  : session #{session.pk} — replay it on the CW Monitor"

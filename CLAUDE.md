@@ -73,7 +73,7 @@ The headline pattern: **one `CRUDView` declaration produces HTML admin pages, RE
 
 ```bash
 make setup     # uv sync + migrate + create dev superuser (admin/admin)
-make run       # dev server on port 8005 (PORT= to change)
+make run       # dev server on port 8010 (PORT= to change)
 ```
 
 `make setup` is idempotent. Re-run it anytime.
@@ -136,7 +136,7 @@ All `manage.py` commands run as `uv run python manage.py <name>`. The full refer
 Most-used:
 
 ```bash
-make run                                         # dev server (port 8005)
+make run                                         # dev server (port 8010)
 make test                                        # full pytest suite
 make lint                                        # ruff check
 make lint-fix                                    # ruff check --fix
@@ -147,7 +147,7 @@ uv run python manage.py api_doctor               # health-check the REST surface
 uv run python manage.py mcp_doctor               # health-check the MCP surface
 uv run python manage.py shell                    # shell_plus with auto-imports
 uv run python manage.py screenshot_auth          # auth.json for shot-scraper
-shot-scraper http://localhost:8005/ -o out.png   # browser screenshot
+shot-scraper http://localhost:8010/ -o out.png   # browser screenshot
 uv run python manage.py sc ls                    # every CRUDView model (the framework CLI)
 uv run python manage.py sc doctor all            # api + mcp + search health in one
 ```
@@ -162,7 +162,7 @@ When you edit UI code, screenshot to verify before reporting done. Pattern (the 
 
 ```bash
 uv run python manage.py screenshot_auth > /tmp/auth.json
-shot-scraper http://localhost:8005/smallstack/your-page/ \
+shot-scraper http://localhost:8010/smallstack/your-page/ \
   -o /tmp/check.png --width 1440 --wait 1500 --auth /tmp/auth.json
 ```
 

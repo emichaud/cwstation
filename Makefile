@@ -11,6 +11,8 @@ help:
 	@echo ""
 	@echo "  make run          - Start development server on port $(PORT)"
 	@echo "  make sim          - Run the CW band simulator against the running server"
+	@echo "  make devices      - List audio input devices for the live monitor"
+	@echo "  make monitor      - Decode a real receiver onto the Live tape (DEVICE=/TONE= optional)"
 	@echo "  make services     - Run worker + heartbeat locally (utils/dev_services.sh; ARGS=... to pass flags)"
 	@echo "  make migrate      - Run database migrations"
 	@echo "  make migrations   - Create new migrations"
@@ -46,6 +48,19 @@ run:
 SIM_USER ?= admin
 sim:
 	uv run python manage.py cw_simulate --stream $(SIM_USER) --server http://localhost:$(PORT) --save $(SIM_USER)
+
+# Live sound-card monitor: decode a real receiver (or SDR audio routed through a
+# virtual cable) onto the Live tape. Needs `uv sync --extra live`.
+# Usage: make monitor                       (system default input device)
+#        DEVICE=0 make monitor              (pick a device; --list-devices to see them)
+#        DEVICE=0 TONE=700 make monitor     (pin the CW pitch instead of auto-detecting)
+MON_USER ?= admin
+monitor:
+	uv run python manage.py cw_monitor_live --stream $(MON_USER) --server http://localhost:$(PORT) \
+		$(if $(DEVICE),--device $(DEVICE)) $(if $(TONE),--tone $(TONE)) --save $(MON_USER)
+
+devices:
+	uv run python manage.py cw_monitor_live --list-devices
 
 # Simulate the production background processes (db_worker + heartbeat) locally.
 # Pass flags via ARGS, e.g.  make services ARGS="--interval 5 --smoke"

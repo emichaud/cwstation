@@ -26,6 +26,21 @@ if not config("SECRET_KEY", default=""):
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "0.0.0.0"]
 
+# Where this server is reachable, for the processes that call *back* into it.
+#
+# The dev port is not a Django setting and can't be — it's an argv of the
+# runserver process, which Django never sees. But the streaming commands
+# (cw_monitor_live / cw_simulate / cw_fldigi) run as separate processes and have
+# to POST batches back to the live-tape endpoint, so they need one declared
+# address instead of a literal baked into each command.
+#
+# PORT mirrors the Makefile's `PORT ?= 8010`; override both together, e.g.
+#     PORT=9000 make run   +   PORT=9000 make monitor
+# SITE_URL is the name apps/webhooks/context.py already resolves for the same
+# "where am I reachable" question, so there's one convention, not two.
+PORT = config("PORT", default="8010")
+SITE_URL = config("SITE_URL", default=f"http://127.0.0.1:{PORT}")
+
 # Database
 # SQLite is the default - simple, zero-config, perfect for development
 # See /help/database-sqlite/ for why SQLite works great in production too

@@ -5,7 +5,7 @@ messages, pitches, speeds, signal strengths) and decodes it live, exactly as
 `cw_monitor_live` would decode a sound card. Stream it to the Simulator page
 and use the on-page knobs (noise, input gain, squelch, AFC) while it runs:
 
-  uv run python manage.py cw_simulate --stream admin --server http://localhost:8005
+  uv run python manage.py cw_simulate --stream admin
 
 The knobs are polled from the database twice a second, so slider moves on the
 page take effect immediately. Ctrl-C stops the simulation; --save stores the
@@ -37,8 +37,9 @@ class Command(BaseCommand):
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--stream", metavar="USERNAME", default=None,
                             help="stream the decode to this user's live/simulator tape")
-        parser.add_argument("--server", default="http://127.0.0.1:8005",
-                            help="server base URL for --stream (default http://127.0.0.1:8005)")
+        parser.add_argument("--server", default=services.default_stream_server(),
+                            help="server base URL for --stream (default: SITE_URL, "
+                                 f"currently {services.default_stream_server()})")
         parser.add_argument("--save", metavar="USERNAME", default=None,
                             help="save the run (with ground truth) as a session on exit")
         parser.add_argument("--seed", type=int, default=None,

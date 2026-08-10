@@ -5,7 +5,7 @@ decoded text into the station's event stream, so the live view, heard-chip
 responder, and sessions work for any fldigi mode with no other changes.
 
   # fldigi running with its XML-RPC server on (default port 7362)
-  uv run python manage.py cw_fldigi --stream admin --server http://localhost:8005
+  uv run python manage.py cw_fldigi --stream admin
 
 Ctrl-C stops the tap; --save stores the copy as a session.
 """
@@ -21,6 +21,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.utils import timezone
 
+from apps.cw import services
 from apps.cw.engine.events import CharEvent, DecodeResult
 from apps.cw.engine.fldigi import FldigiError, FldigiTap, tap_loop
 from apps.cw.engine.stream import ResultStreamer
@@ -34,8 +35,9 @@ class Command(BaseCommand):
                             help="fldigi XML-RPC URL (default http://127.0.0.1:7362)")
         parser.add_argument("--stream", metavar="USERNAME", default=None,
                             help="stream the copy to this user's live tape")
-        parser.add_argument("--server", default="http://127.0.0.1:8005",
-                            help="server base URL for --stream")
+        parser.add_argument("--server", default=services.default_stream_server(),
+                            help="server base URL for --stream (default: SITE_URL, "
+                                 f"currently {services.default_stream_server()})")
         parser.add_argument("--save", metavar="USERNAME", default=None,
                             help="save the run as a session on exit")
         parser.add_argument("--duration", type=float, default=None,
