@@ -68,9 +68,43 @@
 
     /* Text colors */
     --text-muted: #666666;
+    /* Muted/quiet text (toolbar counts, unsorted <th> labels, help text).
+       The dark block sets #909090; this is the light counterpart.
+
+       NOTE: while admin/css/base.css is loaded (see smallstack/base.html) this
+       declaration is dormant, NOT the winner. Admin declares its variables
+       under `html[data-theme="light"], :root` — and because the theme JS always
+       writes an explicit data-theme, that first branch matches at (0,1,1) and
+       outranks this plain :root (0,1,0) no matter which file loads last. Admin
+       supplies #666, the same color, so nothing renders differently.
+       It is kept as the fallback that takes over if admin's CSS is ever
+       dropped, so the ~850 `var(--body-quiet-color)` consumers can't silently
+       degrade to inherited full-strength body text.
+       #666666 clears WCAG AA on every light surface we ship (5.7:1 on #ffffff).
+
+       The same specificity quirk makes the other admin-owned values in this
+       block dormant in light mode too (--body-bg, --body-fg, …); palettes.css
+       wins only because html[data-palette] ties at (0,1,1) and loads later. */
+    --body-quiet-color: #666666;
     --link-color: var(--primary);
     --link-hover: var(--primary-hover);
     --link-fg: var(--primary);
+
+    /* Generic aliases — the "obvious" names a developer reaches for when
+       hand-writing a border, a muted line, or a code chip. Previously these
+       were referenced by templates but defined nowhere, so `var(--border,
+       #ddd)` silently resolved to its hard-coded LIGHT fallback on every dark
+       theme (light-gray borders, and #f4f4f4 code chips whose inherited text
+       was also light — invisible). Defined here so those references resolve.
+
+       They are deliberately derived, not literal: because var() resolves at
+       computed-value time on :root (= <html>), the same element the dark block
+       and every html[data-palette] block write to, these follow the active
+       theme and palette with no dark-mode or per-palette override needed.
+       Prefer the specific token (--card-border, --text-muted) in new code. */
+    --border: var(--card-border);
+    --muted-fg: var(--text-muted);
+    --code-bg: color-mix(in srgb, var(--body-fg) 8%, var(--body-bg));
 
     /* Breadcrumb */
     --breadcrumb-fg: #666666;

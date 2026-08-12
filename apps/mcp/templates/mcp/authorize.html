@@ -10,7 +10,7 @@
   padding: 2rem;
   background: var(--card-bg, #fff);
   color: var(--body-fg, #111);
-  border: 1px solid var(--border, #ddd);
+  border: 1px solid var(--card-border);
   border-radius: 12px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.08);
   font-family: system-ui, -apple-system, sans-serif;
@@ -19,7 +19,7 @@
     Authorize MCP client
   </h1>
 
-  <p style="margin: 0 0 1.5rem 0; color: var(--muted-fg, #666);">
+  <p style="margin: 0 0 1.5rem 0; color: var(--body-quiet-color);">
     A Model Context Protocol client is requesting access to your account.
   </p>
 
@@ -27,7 +27,7 @@
     display: inline-block;
     padding: 0.25rem 0.75rem;
     margin-bottom: 1.5rem;
-    background: var(--code-bg, #f4f4f4);
+    background: color-mix(in srgb, var(--body-fg) 8%, var(--card-bg));
     border-radius: 999px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 0.85rem;
@@ -48,18 +48,18 @@
   <div style="
     padding: 0.6rem 0.85rem;
     margin-bottom: 0.5rem;
-    background: var(--code-bg, #f4f4f4);
-    border: 1px solid var(--border, #ddd);
+    background: color-mix(in srgb, var(--body-fg) 8%, var(--card-bg));
+    border: 1px solid var(--card-border);
     border-radius: 8px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 0.9rem;
     word-break: break-all;
   ">{{ redirect_host }}</div>
-  <p style="margin: 0 0 1.5rem 0; font-size: 0.8rem; color: var(--muted-fg, #666);">
+  <p style="margin: 0 0 1.5rem 0; font-size: 0.8rem; color: var(--body-quiet-color);">
     Only continue if you recognize this destination. If it's unexpected, click <strong>Deny</strong>.
   </p>
 
-  <p style="margin: 0 0 1.5rem 0; font-size: 0.85rem; color: var(--muted-fg, #666);">
+  <p style="margin: 0 0 1.5rem 0; font-size: 0.85rem; color: var(--body-quiet-color);">
     You can review or revoke this client's token at any time from your
     <a href="{{ tokens_url }}" style="color: var(--primary, #0066cc);">API tokens</a>.
   </p>
@@ -82,7 +82,7 @@
       padding: 0.7rem 1rem;
       background: transparent;
       color: var(--body-fg, #111);
-      border: 1px solid var(--border, #ccc);
+      border: 1px solid var(--card-border);
       border-radius: 8px;
       font-size: 1rem;
       cursor: pointer;
@@ -92,7 +92,7 @@
       flex: 1;
       padding: 0.7rem 1rem;
       background: var(--primary, #0066cc);
-      color: #fff;
+      color: var(--button-fg);
       border: 1px solid var(--primary, #0066cc);
       border-radius: 8px;
       font-size: 1rem;

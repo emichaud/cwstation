@@ -39,23 +39,20 @@
         margin: 0;
         padding: 14px 16px;
         background: color-mix(in srgb, var(--body-fg) 4%, var(--card-bg));
-        border: 1px solid var(--border, #ddd);
+        border: 1px solid var(--card-border);
         border-radius: 6px;
         font-family: var(--font-monospace, ui-monospace, Menlo, monospace);
         font-size: 0.85rem;
         word-break: break-all;
         white-space: pre-wrap;
       ">{{ raw_key }}</pre>
-      <button type="button" id="copy-btn"
+      <button type="button" id="copy-btn" class="btn-outline"
         onclick="(function(b){const t=document.getElementById('token-key').innerText;navigator.clipboard.writeText(t).then(()=>{b.textContent='Copied!';setTimeout(()=>b.textContent='Copy',1500)});})(this)"
         style="
           position: absolute; top: 8px; right: 8px;
           padding: 4px 10px;
           background: var(--card-bg);
-          border: 1px solid var(--border, #ccc);
-          border-radius: 5px;
           font-size: 0.75rem;
-          cursor: pointer;
         ">Copy</button>
     </div>
 
