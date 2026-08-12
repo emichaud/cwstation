@@ -9,6 +9,48 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.15.2] - 2026-08-12
+
+### Fixed
+- **Invisible "Copy" button on the token-reveal page (gold + high contrast).**
+  The button set a background but no `color`, so it inherited `--button-fg` —
+  the foreground meant to pair with a *solid* `--primary` fill. On the only two
+  palettes with a dark `--button-fg` (gold `#1a1a1a`, high-contrast `#000000`)
+  that painted dark text on a dark card and the label disappeared. It now uses
+  the existing `.btn-outline` class.
+- **Unreadable MCP consent page (`/mcp/oauth/authorize`) on dark themes.** The
+  template referenced `--border`, `--muted-fg` and `--code-bg`, none of which
+  were defined anywhere, so each always resolved to its hard-coded *light*
+  fallback: gray borders on dark cards, and `#f4f4f4` chips whose inherited text
+  was also light. That made the client id and the **redirect host** — the one
+  field a user must read before granting access — invisible. Its Allow button
+  also hard-coded `color: #fff` over `var(--primary)`, i.e. white-on-white on
+  the high-contrast palette.
+- **Links ignored the selected palette in light mode.** Every dark palette block
+  set `--link-fg`, but the gold / orange / purple / dark-blue *light* blocks set
+  only `--link-color`. SmallStack's own CSS reads `--link-color`, while Django
+  admin's `a:link, a:visited` rule reads `--link-fg` — so every plain anchor
+  stayed on admin's `#417893` teal. All light blocks now set both.
+- **The default `django` palette had no light block at all**, so light mode fell
+  through to Django admin's colors (`--primary: #79aec8`) instead of
+  SmallStack's. `admin/css/base.css` declares its variables under
+  `html[data-theme="light"], :root`; that first branch scores (0,1,1) and the
+  theme JS always writes an explicit `data-theme`, so it outranks theme.css's
+  plain `:root` (0,1,0) no matter which file loads last. Adds a django light
+  block built on emerald-700 `#047857` (5.5:1 on white — the dark palette's
+  `#10b981` is only 2.5:1 and unusable for accent text).
+
+### Added
+- **`--border`, `--muted-fg` and `--code-bg`** are now defined in `theme.css`.
+  They were referenced by templates but declared nowhere, which is what let the
+  bugs above degrade silently. Defined as derived aliases (`var(--card-border)`,
+  `var(--text-muted)`, and a `color-mix` recipe) so they track the active theme
+  and palette with no per-palette overrides. Prefer the specific token in new
+  code.
+- **`apps/smallstack/test_palette_css.py`** — parses `palettes.css` against
+  `UserProfile.COLOR_PALETTE_CHOICES` and fails if any palette is missing a
+  light or dark block, or omits `--link-fg` / `--link-color`.
+
 ## [0.15.1] - 2026-08-09
 
 ### Internal
@@ -603,6 +645,7 @@ See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full 
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
 [Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.15.1...HEAD
+[0.15.2]: https://github.com/emichaud/django-smallstack/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/emichaud/django-smallstack/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/emichaud/django-smallstack/compare/v0.14.3...v0.15.0
 [0.14.3]: https://github.com/emichaud/django-smallstack/compare/v0.14.2...v0.14.3
