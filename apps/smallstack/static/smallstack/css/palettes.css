@@ -1,15 +1,56 @@
 /**
  * Palette CSS Overrides - SmallStack
  *
- * Each non-default palette overrides color variables for light and dark modes.
- * The "django" palette is the default defined in theme.css — no overrides needed.
+ * Each palette overrides color variables for light and dark modes.
  *
  * To add a new palette:
  *   1. Add html[data-palette="your-id"] block for light mode
  *   2. Add html[data-palette="your-id"][data-theme="dark"] block for dark mode
+ *   3. Set --link-fg as well as --link-color (see below)
  *
  * Note: The html prefix is required to beat :root specificity from theme.css.
+ *
+ * It is ALSO required to beat Django admin. admin/css/base.css declares its
+ * variables under `html[data-theme="light"], :root` — that first branch scores
+ * (0,1,1) and the theme JS always writes an explicit data-theme, so it outranks
+ * theme.css's plain :root (0,1,0) no matter which file loads last. That is why
+ * django needs a light block below even though it is the default palette: with
+ * no block, light mode fell through to ADMIN's values, not theme.css's.
+ *
+ * Same trap for --link-fg: SmallStack's own CSS consumes --link-color, but
+ * admin's `a:link, a:visited` rule reads --link-fg. A palette that sets only
+ * --link-color leaves every plain anchor on admin's #417893 teal. Set both.
  */
+
+/* ============================================
+   Django (default) Palette — light mode
+   ============================================ */
+
+html[data-palette="django"] {
+    /* Django's emerald, darkened for light mode. The dark palette's #10b981
+       is only 2.5:1 on white — unusable for link/accent TEXT — so light mode
+       steps down to emerald-700, mirroring how gold/orange/purple/dark-blue
+       darken their accents for light. #047857 is 5.5:1 on white (AA for body
+       text), and white-on-#047857 is the same 5.5:1, so the solid CTA keeps
+       white text and needs no --btn-primary-fg override. */
+    --primary: #047857;
+    --primary-hover: #065f46;
+    /* Lighter tint of the accent, matching the orange/purple/dark-blue
+       light-mode pattern (secondary = a lift of primary, not a neutral). */
+    --secondary: #34d399;
+    --header-bg: #047857;
+    --sidebar-active-bg: #047857;
+    --sidebar-active-fg: #ffffff;
+    --input-focus-border: #047857;
+    --button-bg: #047857;
+    --button-fg: #ffffff;
+    --button-hover-bg: #065f46;
+    --link-color: #047857;
+    /* --link-fg is what admin's a:link/a:visited actually reads. */
+    --link-fg: #047857;
+    --link-hover: #065f46;
+    --breadcrumb-link: #047857;
+}
 
 /* ============================================
    Django (default) Palette — dark mode override
@@ -254,6 +295,8 @@ html[data-palette="dark-blue"] {
     --button-fg: #ffffff;
     --button-hover-bg: #0d47a1;
     --link-color: #1565c0;
+    /* admin's a:link reads --link-fg, not --link-color. */
+    --link-fg: #1565c0;
     --link-hover: #0d47a1;
     --breadcrumb-link: #1565c0;
 }
@@ -348,6 +391,8 @@ html[data-palette="orange"] {
     --btn-primary-fg: #1a0d00;
     --button-hover-bg: #bf360c;
     --link-color: #e65100;
+    /* admin's a:link reads --link-fg, not --link-color. */
+    --link-fg: #e65100;
     --link-hover: #bf360c;
     --breadcrumb-link: #e65100;
 }
@@ -447,6 +492,8 @@ html[data-palette="gold"] {
     --btn-primary-fg: #14100a;
     --button-hover-bg: #856616;
     --link-color: #a17c1a;
+    /* admin's a:link reads --link-fg, not --link-color. */
+    --link-fg: #a17c1a;
     --link-hover: #856616;
     --breadcrumb-link: #a17c1a;
 }
@@ -518,6 +565,8 @@ html[data-palette="purple"] {
     --button-fg: #ffffff;
     --button-hover-bg: #5e35b1;
     --link-color: #7e57c2;
+    /* admin's a:link reads --link-fg, not --link-color. */
+    --link-fg: #7e57c2;
     --link-hover: #5e35b1;
     --breadcrumb-link: #7e57c2;
 }
