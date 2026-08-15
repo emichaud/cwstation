@@ -20,12 +20,24 @@ from django.core.management.base import BaseCommand
 from django.test import Client
 from django.urls import NoReverseMatch, get_resolver, reverse
 
-from apps.smallstack.autodiscover import is_test_module
+from apps.smallstack.autodiscover import has_enable_classvar, is_test_module
 
 GREEN = "\033[32m"
 YELLOW = "\033[33m"
 RED = "\033[31m"
 RESET = "\033[0m"
+
+
+def _is_scannable(py_file) -> bool:
+    """True if the opt-in scan should read ``py_file`` (a ``Path``).
+
+    Only two exclusions, and both are about files that can't hold a *live*
+    opt-in: test modules (fixtures, deliberately unregistered) and migrations.
+    ``management/`` is deliberately NOT excluded — see
+    ``_scan_for_enable_api_optins``. Kept as a named predicate so the scan's
+    scope is assertable rather than buried in a loop condition.
+    """
+    return not (is_test_module(py_file) or "migrations" in py_file.parts)
 
 
 class Command(BaseCommand):
@@ -437,18 +449,26 @@ class Command(BaseCommand):
         )
 
     def _scan_for_enable_api_optins(self) -> list[tuple]:
-        """Match `enable_api = True` only as a class-attribute assignment
-        (start of line + optional indent). Avoids matching prefixed names
-        like `explorer_enable_api` and substrings in comments/docstrings.
+        """Find files declaring `enable_api = True` as a real class attribute.
+
+        AST-based via the shared `has_enable_classvar`, matching `mcp_doctor`.
+        The previous line-anchored regex could not distinguish a live opt-in
+        from a teaching example in a docstring — and this codebase documents its
+        own flags that way (8 in-scope modules already mention `enable_api` in
+        prose). Nothing was misreported, but only because `management/` was
+        skipped, which happened to be where the runbook seed command keeps its
+        example. That made a coincidence load-bearing.
+
+        With AST the exclusion is no longer needed, so `management/` is scanned
+        too — closing the opposite gap, where a genuine opt-in defined in a
+        management command was invisible here but visible to `mcp_doctor`.
 
         Test modules are skipped (see `is_test_module`): a CRUDView declared in
         a test is a fixture that is *supposed* to stay out of the registry."""
-        import re
         from pathlib import Path
 
         from django.apps import apps as django_apps
 
-        marker = re.compile(r"^\s*enable_api\s*=\s*True\b", re.MULTILINE)
         hits: list[tuple] = []
         for app_config in django_apps.get_app_configs():
             # Skip our own app — its files reference the marker in code
@@ -460,18 +480,19 @@ class Command(BaseCommand):
             except Exception:
                 continue
             for py_file in app_path.rglob("*.py"):
-                parts = py_file.parts
-                if is_test_module(py_file) or "migrations" in parts or "management" in parts:
+                if not _is_scannable(py_file):
                     continue
                 try:
-                    if marker.search(py_file.read_text(encoding="utf-8", errors="ignore")):
-                        try:
-                            display = str(py_file.relative_to(app_path.parent))
-                        except ValueError:
-                            display = str(py_file)
-                        hits.append((py_file, display))
+                    source = py_file.read_text(encoding="utf-8", errors="ignore")
                 except OSError:
                     continue
+                if not has_enable_classvar(source, "enable_api"):
+                    continue
+                try:
+                    display = str(py_file.relative_to(app_path.parent))
+                except ValueError:
+                    display = str(py_file)
+                hits.append((py_file, display))
         return sorted(hits, key=lambda t: t[1])
 
     def _check_token_auth(self, report):

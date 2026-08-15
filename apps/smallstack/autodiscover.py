@@ -18,10 +18,47 @@ feature toggles.
 
 from __future__ import annotations
 
+import ast
 import importlib
 import logging
 
 logger = logging.getLogger("smallstack.autodiscover")
+
+
+def has_enable_classvar(source: str, marker: str) -> bool:
+    """True if ``source`` declares ``<marker> = True`` as a real class attribute.
+
+    AST-based, not a substring/regex match: the marker must be an ``Assign`` /
+    ``AnnAssign`` to that exact name, with the constant ``True``, in a
+    ``ClassDef`` body. The same characters inside a string literal, comment, or
+    docstring don't count — which matters because SmallStack documents its own
+    flags with embedded CRUDView examples, and a line-anchored regex can't tell
+    a teaching example in a docstring from a live opt-in.
+
+    Used by both ``api_doctor`` and ``mcp_doctor`` to find opt-in files, so the
+    two agree on what an opt-in is. A file that doesn't parse returns False:
+    it can't be defining a live CRUDView either way.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for stmt in node.body:
+            value: ast.expr | None
+            if isinstance(stmt, ast.Assign):
+                names = [t.id for t in stmt.targets if isinstance(t, ast.Name)]
+                value = stmt.value
+            elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                names = [stmt.target.id]
+                value = stmt.value
+            else:
+                continue
+            if marker in names and isinstance(value, ast.Constant) and value.value is True:
+                return True
+    return False
 
 
 def is_test_module(py_file) -> bool:

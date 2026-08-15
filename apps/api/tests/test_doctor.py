@@ -7,6 +7,8 @@ import json
 import pytest
 from django.core.management import call_command
 
+from apps.smallstack.autodiscover import has_enable_classvar
+
 pytestmark = pytest.mark.django_db
 
 
@@ -121,6 +123,70 @@ def test_doctor_orphan_detection_ignores_test_modules():
     listed = str(orphans.get("orphans", []))
     assert "test_bulk_ops" not in listed
     assert orphans["status"] == "PASS"
+
+
+def test_doctor_optin_scan_ignores_docstring_examples():
+    """A teaching example in a docstring is not an opt-in.
+
+    The old line-anchored regex matched `enable_api = True` anywhere a line held
+    only whitespace before it — i.e. exactly how a code example is indented
+    inside a docstring. This codebase documents its own flags that way, so the
+    regex was one idiomatic docstring away from a false orphan.
+    """
+    from apps.api.management.commands.api_doctor import Command
+
+    source = '''
+class Docs:
+    """Expose a model over REST:
+
+        class TicketView(CRUDView):
+            enable_api = True
+    """
+    pass
+'''
+    assert has_enable_classvar(source, "enable_api") is False
+    # …and the real thing still registers
+    assert has_enable_classvar("class V(CRUDView):\n    enable_api = True\n", "enable_api") is True
+    assert Command  # scan wiring exercised by the orphan tests below
+
+
+def test_doctor_scans_management_commands_without_flagging_the_seed_example():
+    """AST removed the need to skip `management/`, so it is scanned again.
+
+    The exclusion existed only to dodge the runbook seed command, which embeds
+    an `enable_api = True` example in its markdown content. Skipping the whole
+    directory also hid genuine opt-ins defined there — a gap `mcp_doctor` never
+    had. Both halves are asserted: the directory is in scope, and the seed
+    command is still not reported.
+    """
+    from pathlib import Path
+
+    from apps.api.management.commands.api_doctor import _is_scannable
+
+    seed = (
+        Path(__file__).resolve().parents[3]
+        / "apps/runbook/management/commands/seed_platform_runbook.py"
+    )
+
+    # Half 1 — management/ is genuinely in scope now (this fails if the
+    # directory exclusion is reinstated).
+    assert _is_scannable(seed) is True
+    assert _is_scannable(Path("apps/foo/management/commands/anything.py")) is True
+    # …while the exclusions that remain are the ones that can't hold a live opt-in.
+    assert _is_scannable(Path("apps/foo/migrations/0001_initial.py")) is False
+    assert _is_scannable(Path("apps/smallstack/test_bulk_ops.py")) is False
+
+    # Half 2 — and being in scope, the seed command is still not reported,
+    # because AST can tell its markdown example from a class attribute.
+    if seed.exists():
+        source = seed.read_text(encoding="utf-8")
+        assert "enable_api = True" in source  # the substring IS there…
+        assert has_enable_classvar(source, "enable_api") is False  # …but not as a class attr
+
+    from apps.api.management.commands.api_doctor import Command
+
+    scanned = [str(p) for p, _display in Command()._scan_for_enable_api_optins()]
+    assert not any("seed_platform_runbook" in p for p in scanned)
 
 
 def test_doctor_check_only_exits_zero_when_all_pass():

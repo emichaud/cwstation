@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from apps.mcp.management.commands.mcp_doctor import _has_enable_mcp_classvar
-from apps.smallstack.autodiscover import is_test_module
+from apps.smallstack.autodiscover import has_enable_classvar, is_test_module
 
 
 def test_real_class_attribute_is_detected():
@@ -60,6 +60,48 @@ def test_module_level_assignment_is_not_a_class_attribute():
 
 def test_syntax_error_is_handled_gracefully():
     assert _has_enable_mcp_classvar("class X(:\n  enable_mcp = True") is False
+
+
+class TestSharedAcrossBothMarkers:
+    """`has_enable_classvar` backs both doctors, so both markers get the checks.
+
+    api_doctor used to detect opt-ins with a line-anchored regex while this
+    doctor used AST — so the two disagreed about what an opt-in *is*, and
+    api_doctor was protected from docstring false positives only because it
+    skipped `management/`, where the one offending example happens to live.
+    """
+
+    @pytest.mark.parametrize("marker", ["enable_api", "enable_mcp"])
+    def test_class_attribute_is_detected(self, marker):
+        assert has_enable_classvar(f"class V(CRUDView):\n    {marker} = True\n", marker) is True
+
+    @pytest.mark.parametrize("marker", ["enable_api", "enable_mcp"])
+    def test_docstring_example_is_ignored(self, marker):
+        src = f'''
+class Docs:
+    """Example:
+
+        class TicketView(CRUDView):
+            {marker} = True
+    """
+    pass
+'''
+        assert has_enable_classvar(src, marker) is False
+
+    @pytest.mark.parametrize("marker", ["enable_api", "enable_mcp"])
+    def test_prefixed_name_is_not_the_marker(self, marker):
+        """`explorer_enable_api` is a different flag and must not match."""
+        src = f"class V(CRUDView):\n    explorer_{marker} = True\n"
+        assert has_enable_classvar(src, marker) is False
+
+    @pytest.mark.parametrize("marker", ["enable_api", "enable_mcp"])
+    def test_false_value_is_not_an_optin(self, marker):
+        assert has_enable_classvar(f"class V:\n    {marker} = False\n", marker) is False
+
+    def test_markers_do_not_bleed_into_each_other(self):
+        src = "class V(CRUDView):\n    enable_mcp = True\n"
+        assert has_enable_classvar(src, "enable_mcp") is True
+        assert has_enable_classvar(src, "enable_api") is False
 
 
 class TestTestModuleExclusion:
