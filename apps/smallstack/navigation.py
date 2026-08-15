@@ -37,6 +37,32 @@ from django.urls import NoReverseMatch, reverse
 # "topbar" is not rendered in the sidebar — it overrides "main" in the topbar only.
 SECTION_ORDER = ["main", "topbar", "app", "page", "resources", "admin"]
 
+# Sections whose items are listed A–Z by label instead of by ``order``.
+#
+# The admin section is a tool drawer: a dozen unrelated utilities contributed by
+# whichever apps happen to be installed, with no workflow sequence to preserve.
+# Hand-numbering it meant every new app picked a number, the numbers collided
+# (Status and Explorer both sat at 20, so their relative order came down to
+# INSTALLED_APPS ordering), and the list drifted out of alphabetical as soon as
+# anything was added or relabelled. Sorting here keeps it A–Z permanently,
+# including for apps a downstream project adds.
+#
+# ``order`` is ignored for these sections — see ``register``.
+ALPHABETICAL_SECTIONS = {"admin"}
+
+
+def _sort_key(item: "_NavItem") -> tuple:
+    """Alphabetical for tool-drawer sections, explicit ``order`` everywhere else.
+
+    Case-insensitive so "API Health" files under A next to "Activity" rather
+    than ahead of every lowercase label, which is what a reader scanning the
+    menu expects. Falls back to the raw label so the sort stays stable when two
+    labels differ only in case.
+    """
+    if item.section in ALPHABETICAL_SECTIONS:
+        return (0, item.label.casefold(), item.label)
+    return (item.order, "", "")
+
 
 class _NavItem:
     __slots__ = (
@@ -108,6 +134,13 @@ class NavRegistry:
         zone: str = "smallstack",
         active_prefix: str | None = None,
     ) -> None:
+        """Register a nav item.
+
+        ``order`` sorts items within a section — EXCEPT for the sections in
+        ``ALPHABETICAL_SECTIONS`` (currently ``admin``), which are always listed
+        A–Z by label. Passing ``order`` for one of those is harmless but has no
+        effect; drop it rather than tuning a number that does nothing.
+        """
         self._items.append(
             _NavItem(
                 section=section,
@@ -149,7 +182,7 @@ class NavRegistry:
 
         # First pass: resolve URLs and collect candidates
         resolved: list[tuple[dict, str, str | None]] = []  # (item_dict, url, parent)
-        for item in sorted(self._items, key=lambda i: i.order):
+        for item in sorted(self._items, key=_sort_key):
             if zone is not None and item.zone != zone:
                 continue
             if item.auth_required and not is_authenticated:
