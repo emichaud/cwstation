@@ -9,6 +9,52 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.16.2] - 2026-08-15
+
+### Fixed
+- **Empty states rendered raw template source into the page.** Django's
+  tokenizer matches tags with `{%.*?%}` and **no `DOTALL`**, so a `{% %}` tag
+  split across lines is never parsed — it is emitted as literal text. Four
+  empty-state includes were wrapped for readability and shipped that way, so a
+  visitor saw:
+
+  ```
+  {% include "smallstack/includes/empty_state.html" with
+     no_card=True
+     title="No matches"
+     body="No "|add:object_verbose_name_plural|add:" matched your search…" %}
+  ```
+
+  This hit **every CRUDView on the default templates whenever its list was
+  empty** — a no-match search or a fresh install with nothing added yet — on
+  both the plain page load and the HTMX toolbar swap, plus the dashboard
+  "no widgets available" state and the MCP tools admin.
+
+  The pattern spread because `empty_state.html`'s own usage example was written
+  wrapped and every caller copied it; that example is now a single line carrying
+  an explicit warning. A whole-tree sweep test now fails the build on any
+  multi-line tag — the defect is invisible in review, since the template reads
+  perfectly well.
+- **A missing `object_verbose_name_plural` raised instead of degrading.** With
+  the tag parsing again, `body="No "|add:object_verbose_name_plural` makes that
+  variable a filter *argument*, and an unresolved filter argument raises
+  `VariableDoesNotExist` rather than rendering empty the way `{{ missing }}`
+  does. `_CRUDContextMixin` always supplies it, but this partial is also
+  included by hand-written list templates (`usermanager` does, and downstream
+  projects do) — it now resolves through `{% with %}` with a default noun.
+
+### Added
+- **The related-tab partial is overridable like every other CRUD surface.**
+  `_CRUDRelatedTabBase` hardcoded its template while every sibling — including
+  `_CRUDFieldPreviewBase` directly above it — resolves through
+  `_get_template_names(suffix)`, so it was the one CRUD surface a project could
+  not override per model or per app. It now offers the same instance → app →
+  default chain. The shipped partial lives at
+  `crud/includes/related_tab_content.html`, which doesn't fit the
+  `crud/object_{suffix}` default convention, so that path is appended as the
+  final fallback — the loader takes the first template that exists, so behavior
+  is unchanged when no override is present.
+
 ## [0.16.1] - 2026-08-14
 
 ### Fixed
@@ -725,6 +771,7 @@ See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full 
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
 [Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.15.1...HEAD
+[0.16.2]: https://github.com/emichaud/django-smallstack/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/emichaud/django-smallstack/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/emichaud/django-smallstack/compare/v0.15.2...v0.16.0
 [0.15.2]: https://github.com/emichaud/django-smallstack/compare/v0.15.1...v0.15.2
