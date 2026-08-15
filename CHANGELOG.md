@@ -9,6 +9,40 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-08-14
+
+### Fixed
+- **`CalendarDisplay` compared `DateTimeField`s against naive month boundaries.**
+  Filtering used plain `date` bounds, so under `USE_TZ` Django built a naive
+  midnight, emitted "received a naive datetime while time zone support is
+  active", then coerced it with the **default** timezone — while the bucketing
+  side used `localtime()`, the **current** one. Two halves of the same display
+  deciding "is this in the month?" through different clocks. Boundaries are now
+  coerced to the type each field expects (aware midnight for datetimes, the
+  plain date for `DateField`s), resolved independently for the start and end
+  fields.
+
+  **No events move.** Verified against rows straddling both month edges,
+  including exact midnights: old and new code select identically. The two
+  timezones coincide because nothing activates a per-request timezone (the
+  profile timezone is applied by a template filter), so the drift this prevents
+  is latent — it would only appear if timezone-activating middleware were added.
+  Removes 24 warnings from the test suite.
+- **`api_doctor` detected opt-ins by regex while `mcp_doctor` used AST.** The
+  line-anchored regex matched `enable_api = True` on any line with only
+  whitespace before it — i.e. exactly how a code example is indented inside a
+  docstring, which is how this codebase documents its own flags (8 in-scope
+  modules already mention `enable_api` in prose). Nothing was misreported: of
+  two regex/AST disagreements repo-wide, both sat outside the scan's scope. That
+  was the problem — the check was correct only because a directory exclusion
+  happened to cover the one offending file.
+
+  Both doctors now share `has_enable_classvar(source, marker)` in
+  `apps/smallstack/autodiscover.py`, so they agree on what an opt-in is. With
+  AST the `management/` exclusion is unnecessary, so `api_doctor` scans that
+  directory again — closing the opposite gap, where a genuine opt-in defined in
+  a management command was invisible to it but visible to `mcp_doctor`.
+
 ## [0.16.0] - 2026-08-14
 
 ### Changed
@@ -691,6 +725,7 @@ See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full 
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
 [Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.15.1...HEAD
+[0.16.1]: https://github.com/emichaud/django-smallstack/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/emichaud/django-smallstack/compare/v0.15.2...v0.16.0
 [0.15.2]: https://github.com/emichaud/django-smallstack/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/emichaud/django-smallstack/compare/v0.15.0...v0.15.1
