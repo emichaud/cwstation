@@ -20,6 +20,30 @@
         </div>
     </div>
 
+    {% if selected_day %}
+    <div class="calendar-day-panel">
+        <div class="calendar-day-panel-header">
+            <h4 class="calendar-day-panel-title">
+                {{ selected_day_label }}
+                <span class="calendar-day-panel-count">{{ selected_day_events|length }}</span>
+            </h4>
+            <a href="?display=calendar&amp;{{ month_param }}={{ month_start|date:'Y-m' }}"
+               class="calendar-day-panel-close"
+               aria-label="Close day view">&times;</a>
+        </div>
+        <div class="calendar-day-panel-events">
+            {% for event in selected_day_events %}
+            <{% if event.detail_url %}a href="{{ event.detail_url }}"{% else %}div{% endif %}
+                class="calendar-event{% if event.status %} calendar-event--{{ event.status }}{% endif %}">
+                <span class="calendar-event-label">{{ event.title }}</span>
+            </{% if event.detail_url %}a{% else %}div{% endif %}>
+            {% empty %}
+            <div class="calendar-day-panel-empty">Nothing scheduled on this day.</div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     <div class="calendar-weekdays">
         {% for name in weekday_headers %}
         <div class="calendar-weekday">{{ name }}</div>
@@ -30,7 +54,7 @@
         {% for week in weeks %}
         {% for cell in week %}
         {% if cell %}
-        <div class="calendar-cell{% if cell.is_today %} calendar-cell--today{% endif %}">
+        <div class="calendar-cell{% if cell.is_today %} calendar-cell--today{% endif %}{% if cell.is_selected %} calendar-cell--selected{% endif %}">
             <div class="calendar-cell-day">{{ cell.day }}</div>
             {% for event in cell.events %}
             <{% if event.detail_url %}a href="{{ event.detail_url }}"{% else %}div{% endif %}
@@ -51,6 +75,11 @@
                 </div>
             </{% if event.detail_url %}a{% else %}div{% endif %}>
             {% endfor %}
+            {% if cell.overflow_count %}
+            <a href="?display=calendar&amp;{{ month_param }}={{ month_start|date:'Y-m' }}&amp;{{ day_param }}={{ cell.date_iso }}"
+               class="calendar-more"
+               aria-label="Show all {{ cell.total_count }} on {{ cell.date }}">+{{ cell.overflow_count }} more</a>
+            {% endif %}
         </div>
         {% else %}
         <div class="calendar-cell calendar-cell--blank"></div>

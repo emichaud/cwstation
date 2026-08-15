@@ -507,10 +507,21 @@ class CalendarDisplay(ListDisplay):
 
     URL navigation:
         ?display=calendar&month=YYYY-MM
+        ?display=calendar&month=YYYY-MM&day=YYYY-MM-DD   # one day, expanded
 
     The display filters the queryset to the visible month, so very large
     datasets don't blow up. Bulk-select is disabled (doesn't fit the
     calendar cell layout).
+
+    Volume guard — `max_per_day` (default 5):
+        A busy month used to render every record as its own chip, each with a
+        hover-tooltip subtree. A few thousand records meant tens of thousands of
+        DOM nodes and a page that took seconds to paint (or never usefully did).
+        Each cell now renders at most `max_per_day` chips followed by a
+        "+N more" link that drills into a single-day panel listing that day in
+        full. Counts stay exact — only the rendering is capped.
+
+        Pass `max_per_day=None` to render every event (the old behavior).
     """
 
     name = "calendar"
@@ -532,6 +543,8 @@ class CalendarDisplay(ListDisplay):
         status_field: FieldRef = None,
         variant: str = "chip",
         month_param: str = "month",
+        max_per_day: int | None = 5,
+        day_param: str = "day",
     ) -> None:
         self.date_field = date_field
         self.end_field = end_field
@@ -539,6 +552,8 @@ class CalendarDisplay(ListDisplay):
         self.status_field = status_field
         self.variant = variant
         self.month_param = month_param
+        self.max_per_day = max_per_day
+        self.day_param = day_param
 
     def get_context(self, queryset: Any, crud_config: Any, request: HttpRequest) -> dict[str, Any]:
         import calendar as pycal
@@ -576,9 +591,28 @@ class CalendarDisplay(ListDisplay):
                 **{f"{self.date_field}__lt": next_day_after},
             )
 
-        # Bucket events onto each day they touch
+        # The expanded single day (?day=YYYY-MM-DD), if it falls in this month.
+        selected_day = None
+        day_str = request.GET.get(self.day_param, "")
+        if day_str:
+            try:
+                sel_year, sel_month, sel_dom = (int(x) for x in day_str.split("-"))
+                candidate = date_cls(sel_year, sel_month, sel_dom)
+            except (ValueError, TypeError):
+                candidate = None
+            if candidate and month_start <= candidate <= month_end:
+                selected_day = candidate
+
+        # Bucket events onto each day they touch.
+        #
+        # Cells hold at most `max_per_day` events; the rest are counted, not
+        # materialised, so a pathological month costs a counter instead of
+        # thousands of chip+tooltip subtrees. The expanded day (if any) keeps an
+        # uncapped list, which is what the "+N more" drill-down renders.
         has_detail = Action.DETAIL in crud_config.actions
         events_by_day: dict[Any, list[dict[str, Any]]] = {}
+        overflow_by_day: dict[Any, int] = {}
+        selected_day_events: list[dict[str, Any]] = []
         for obj in filtered:
             start = _to_local_date(_resolve_field(obj, self.date_field))
             end = (
@@ -615,7 +649,13 @@ class CalendarDisplay(ListDisplay):
             day = max(start, month_start)
             last = min(end, month_end)
             while day <= last:
-                events_by_day.setdefault(day, []).append(event)
+                bucket = events_by_day.setdefault(day, [])
+                if self.max_per_day is None or len(bucket) < self.max_per_day:
+                    bucket.append(event)
+                else:
+                    overflow_by_day[day] = overflow_by_day.get(day, 0) + 1
+                if day == selected_day:
+                    selected_day_events.append(event)
                 day += timedelta(days=1)
 
         # Build Monday-start 7-column week grid
@@ -628,8 +668,12 @@ class CalendarDisplay(ListDisplay):
                 {
                     "day": day_num,
                     "date": d,
+                    "date_iso": d.isoformat(),
                     "is_today": d == today,
+                    "is_selected": d == selected_day,
                     "events": events_by_day.get(d, []),
+                    "overflow_count": overflow_by_day.get(d, 0),
+                    "total_count": len(events_by_day.get(d, [])) + overflow_by_day.get(d, 0),
                 }
             )
             if len(current_week) == 7:
@@ -653,8 +697,16 @@ class CalendarDisplay(ListDisplay):
             "today_month": f"{today.year}-{today.month:02d}",
             "is_current_month": month_start.year == today.year and month_start.month == today.month,
             "month_param": self.month_param,
-            "event_count": sum(len(v) for v in events_by_day.values()),
+            # Exact totals — the per-day render cap must never distort the count.
+            "event_count": sum(len(v) for v in events_by_day.values())
+            + sum(overflow_by_day.values()),
             "variant": self.variant,
+            "max_per_day": self.max_per_day,
+            "day_param": self.day_param,
+            "selected_day": selected_day,
+            "selected_day_iso": selected_day.isoformat() if selected_day else "",
+            "selected_day_label": selected_day.strftime("%A, %B %-d") if selected_day else "",
+            "selected_day_events": selected_day_events,
         }
 
 
