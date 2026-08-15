@@ -4,30 +4,20 @@ Custom schedule editor for ScheduledJob. Renders the real Django form fields
 builders: a segmented schedule-type picker with progressive disclosure, an
 interval builder, and a cron builder — all narrated by a live plain-English
 summary. Theme-variable-only, palette-correct across all 10 combos.
+
+Job identity (name / task / queue / args) is NOT rendered here — the page
+template (scheduledjob_edit.html) shows it in the identity strip, together with
+Run now as the page's primary action. This template is the two-rail editor:
+cadence on the left, behavior + next-runs feedback in the right rail so the
+preview is visible while the cadence is being edited.
 {% endcomment %}
 
 <form method="POST" class="crud-form sjf" {% if form.is_multipart %}enctype="multipart/form-data"{% endif %}>
     {% csrf_token %}
     {% if form.non_field_errors %}<div class="sjf-formerror">{{ form.non_field_errors }}</div>{% endif %}
 
-    {# ── Definition (read-only — owned by code) ─────────────────── #}
-    <div class="sjf-section">
-        <div class="sjf-section-header">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
-            What it runs
-            <span class="sjf-code-badge">{{ form.instance.get_source_display }}</span>
-        </div>
-        <div class="sjf-section-body">
-            <dl class="sjf-def">
-                <div class="sjf-def-row"><dt>Name</dt><dd>{{ form.instance.name }}</dd></div>
-                <div class="sjf-def-row"><dt>Task</dt><dd><code>{{ form.instance.task_path }}</code></dd></div>
-                {% if form.instance.description %}<div class="sjf-def-row"><dt>Description</dt><dd>{{ form.instance.description }}</dd></div>{% endif %}
-                <div class="sjf-def-row"><dt>Arguments</dt><dd><code>{{ form.instance.kwargs|default:"{}" }}</code></dd></div>
-                <div class="sjf-def-row"><dt>Queue</dt><dd>{{ form.instance.queue_name }}</dd></div>
-            </dl>
-            <p class="crud-help">Defined in code. <strong>What</strong> it runs, its arguments and queue are managed by a developer — you can override its <strong>schedule</strong> and <strong>pause</strong> it below.</p>
-        </div>
-    </div>
+    <div class="sjf-grid">
+    <div class="sjf-col-main">
 
     {# ── Schedule ──────────────────────────────────────────────── #}
     <div class="sjf-section" id="sjf-schedule">
@@ -181,22 +171,17 @@ summary. Theme-variable-only, palette-correct across all 10 combos.
                 {% if form.timezone.errors %}<p class="crud-error">{{ form.timezone.errors.0 }}</p>{% endif %}
             </div>
 
-            {# ── live "next 5 runs" preview (htmx) ── #}
-            <div class="sjf-preview-wrap">
-                <div class="sjf-preview-head">
-                    <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M15 1H9v2h6V1zm-4 13h2V8h-2v6zm8.03-6.61 1.42-1.42c-.43-.51-.9-.99-1.41-1.41l-1.42 1.42A8.962 8.962 0 0 0 12 4c-4.97 0-9 4.03-9 9s4.02 9 9 9 9-4.03 9-9c0-2.12-.74-4.07-1.97-5.61zM12 20c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>
-                    Next 5 runs
-                </div>
-                <div id="sjf-preview"
-                     hx-post="{% url 'scheduler_preview' %}"
-                     hx-include="#sjf-schedule, [name=csrfmiddlewaretoken]"
-                     hx-trigger="load, sjf:cadence from:body delay:450ms"
-                     hx-target="#sjf-preview" hx-swap="innerHTML">
-                    <div class="sjf-preview-empty">Configure a cadence to preview…</div>
-                </div>
-            </div>
         </div>
     </div>
+
+    <div class="crud-actions sjf-actions">
+        <button type="submit" class="btn-save">Save changes</button>
+        <a href="{{ list_view_url }}" class="btn-cancel">Cancel</a>
+    </div>
+
+    </div>{# /sjf-col-main #}
+
+    <aside class="sjf-col-rail">
 
     {# ── Behaviour ─────────────────────────────────────────────── #}
     <div class="sjf-section">
@@ -204,7 +189,7 @@ summary. Theme-variable-only, palette-correct across all 10 combos.
             <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
             How it behaves
         </div>
-        <div class="sjf-section-body sjf-two">
+        <div class="sjf-section-body sjf-stack">
             <div class="crud-field sjf-field sjf-toggle-field">
                 <label class="sjf-switch">
                     {{ form.enabled }}
@@ -233,16 +218,38 @@ summary. Theme-variable-only, palette-correct across all 10 combos.
         </div>
     </div>
 
-    <div class="crud-actions" style="margin-top: 1.25rem;">
-        <button type="submit" class="btn-save">Save changes</button>
-        <button type="submit" class="btn-outline" formaction="{% url 'scheduler_run_now' form.instance.pk %}" formnovalidate>Run now</button>
-        <a href="{{ list_view_url }}" class="btn-cancel">Cancel</a>
+    {# ── live "next 5 runs" preview (htmx) — feedback beside the editor ── #}
+    <div class="sjf-preview-wrap">
+        <div class="sjf-preview-head">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M15 1H9v2h6V1zm-4 13h2V8h-2v6zm8.03-6.61 1.42-1.42c-.43-.51-.9-.99-1.41-1.41l-1.42 1.42A8.962 8.962 0 0 0 12 4c-4.97 0-9 4.03-9 9s4.02 9 9 9 9-4.03 9-9c0-2.12-.74-4.07-1.97-5.61zM12 20c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>
+            Next 5 runs
+        </div>
+        <div id="sjf-preview"
+             hx-post="{% url 'scheduler_preview' %}"
+             hx-include="#sjf-schedule, [name=csrfmiddlewaretoken]"
+             hx-trigger="load, sjf:cadence from:body delay:450ms"
+             hx-target="#sjf-preview" hx-swap="innerHTML">
+            <div class="sjf-preview-empty">Configure a cadence to preview…</div>
+        </div>
     </div>
+
+    </aside>{# /sjf-col-rail #}
+    </div>{# /sjf-grid #}
 </form>
 
 <style>
 /* ── layout ─────────────────────────────────────────────────── */
-.sjf { display: flex; flex-direction: column; gap: 1.1rem; }
+.sjf { display: flex; flex-direction: column; gap: 1rem; }
+
+/* Two rails: cadence editor left, behavior + next-runs feedback right.
+   The rail holds exactly the short controls that wasted full-width rows in
+   the single-column layout, and keeps the fire-time preview visible while
+   the cadence is being edited. */
+.sjf-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(16rem, 1fr); gap: 1rem; align-items: start; }
+.sjf-col-main, .sjf-col-rail { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+@media (max-width: 940px) { .sjf-grid { grid-template-columns: 1fr; } }
+.sjf-actions { margin-top: 0.25rem; }
+.sjf-stack { display: flex; flex-direction: column; gap: 0.9rem; }
 .sjf-section {
     background: var(--card-bg, var(--body-bg));
     border: 1px solid var(--card-border, color-mix(in srgb, var(--body-fg) 10%, var(--body-bg)));
@@ -258,25 +265,6 @@ summary. Theme-variable-only, palette-correct across all 10 combos.
     color: var(--body-fg);
 }
 .sjf-section-header svg { color: var(--primary); flex-shrink: 0; }
-.sjf-code-badge {
-    margin-left: auto; padding: 2px 9px; border-radius: 999px;
-    font-size: 0.66rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
-    color: var(--primary); background: color-mix(in srgb, var(--primary) 15%, var(--body-bg));
-    border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent);
-}
-
-/* ── read-only definition ───────────────────────────────────── */
-.sjf-def { margin: 0; display: flex; flex-direction: column; gap: 0.55rem; }
-.sjf-def-row { display: grid; grid-template-columns: 7rem 1fr; gap: 0.75rem; align-items: baseline; }
-.sjf-def dt { color: var(--body-quiet-color); font-size: 0.8rem; font-weight: 600; margin: 0; }
-.sjf-def dd { color: var(--body-fg); font-size: 0.92rem; margin: 0; word-break: break-word; }
-.sjf-def code {
-    font-family: ui-monospace, "Cascadia Code", Menlo, monospace; font-size: 0.85rem;
-    background: color-mix(in srgb, var(--body-fg) 7%, var(--body-bg));
-    padding: 2px 7px; border-radius: 4px;
-}
-@media (max-width: 560px) { .sjf-def-row { grid-template-columns: 1fr; gap: 0.15rem; } }
-
 /* ── schedule-override banner ───────────────────────────────── */
 .sjf-override-note {
     display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
@@ -294,10 +282,8 @@ summary. Theme-variable-only, palette-correct across all 10 combos.
     font-size: 0.8rem; font-weight: 600; font-family: inherit; cursor: pointer; transition: all 0.13s;
 }
 .sjf-reset-btn:hover { border-color: var(--primary); color: var(--primary); }
-.sjf-section-body { padding: 1.1rem; display: flex; flex-direction: column; gap: 1rem; }
-.sjf-two { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.sjf-section-body { padding: 0.95rem; display: flex; flex-direction: column; gap: 0.85rem; }
 .sjf-span { grid-column: 1 / -1; }
-@media (max-width: 720px) { .sjf-two { grid-template-columns: 1fr; } }
 .sjf-field { display: flex; flex-direction: column; gap: 0.35rem; }
 .sjf-field .crud-label { font-size: 0.8rem; font-weight: 600; color: var(--body-fg); }
 .sjf-hidden-native { display: none; }
@@ -399,14 +385,11 @@ summary. Theme-variable-only, palette-correct across all 10 combos.
 .sjf-switch input:focus-visible + .sjf-switch-track { outline: 2px solid var(--primary); outline-offset: 2px; }
 .sjf-switch-label { font-size: 0.88rem; font-weight: 600; color: var(--body-fg); }
 
-/* ── queue + timezone + run-at helpers ──────────────────────── */
-.sjf-queue-input input { max-width: 13rem; }
-.sjf-tz select { max-width: 24rem; }
+/* ── timezone + datetime helpers ────────────────────────────── */
+.sjf-tz select { max-width: 20rem; }
 .sjf-runat-row { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
-.sjf-runat-row .crud-date-wrapper { flex: 0 0 auto; width: 15rem; }
-/* compact the two identity textareas (override the global 120px min-height) */
-.sjf #id_description, .sjf #id_kwargs { min-height: 0; }
-.sjf #id_kwargs { font-family: ui-monospace, "Cascadia Code", Menlo, monospace; }
+/* datetime inputs (run-at, anchor) never need full column width */
+.sjf .crud-date-wrapper { flex: 0 0 auto; width: 15rem; max-width: 100%; }
 
 /* ── next-5-runs preview ────────────────────────────────────── */
 .sjf-preview-wrap {

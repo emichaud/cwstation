@@ -69,3 +69,34 @@ def test_run_now_requires_staff(client, job):
     assert resp.status_code in (302, 403)
     job.refresh_from_db()
     assert job.total_runs == 0
+
+
+def test_run_now_returns_to_next_url(client, staff, job):
+    """The job's control page posts its own path so the operator stays there."""
+    edit_url = reverse("scheduler/jobs-update", args=[job.pk])
+    resp = client.post(reverse("scheduler_run_now", args=[job.pk]), {"next": edit_url})
+    assert resp.status_code == 302
+    assert resp.url == edit_url
+
+
+def test_run_now_rejects_offsite_next(client, staff, job):
+    """`next` must not become an open redirect — offsite falls back to the dashboard."""
+    resp = client.post(
+        reverse("scheduler_run_now", args=[job.pk]), {"next": "https://evil.example/phish"}
+    )
+    assert resp.status_code == 302
+    assert resp.url == reverse("scheduler_dashboard")
+
+
+def test_edit_page_shows_identity_strip_with_run_now(client, staff, job):
+    """The control page leads with the job's identity and Run now at the top."""
+    resp = client.get(reverse("scheduler/jobs-update", args=[job.pk]))
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert "sje-strip" in body
+    assert "Nightly" in body
+    assert "Run now" in body
+    # the strip's form posts back to this page
+    assert f'name="next" value="{reverse("scheduler/jobs-update", args=[job.pk])}"' in body
+    # identity is no longer duplicated by the old read-only section
+    assert "What it runs" not in body
