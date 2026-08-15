@@ -9,6 +9,34 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-08-15
+
+### Changed
+- **The admin sidebar section is listed A–Z instead of by hand-assigned
+  `order`.** It reads: Activity, API Health, API Tokens, Backups, Dashboard,
+  Explorer, MCP, Scheduler, Search, Status, Users, Webhooks.
+
+  That section is a tool drawer — a dozen unrelated utilities contributed by
+  whichever apps are installed, with no workflow sequence to preserve. It was
+  hand-numbered across twelve `apps.py` files, so every new app had to pick a
+  number, the numbers collided (`Status` and `Explorer` both sat at `20`, making
+  their relative position a function of `INSTALLED_APPS` ordering rather than
+  intent), and the list drifted out of alphabetical whenever anything was added
+  or relabelled. Sorting in the registry keeps it A–Z permanently, including for
+  apps a downstream project adds — which renumbering upstream could never fix.
+
+  Sorting is case-insensitive, so "API Health" files next to "Activity" rather
+  than ahead of every lowercase label.
+
+  **`order` is now inert for the admin section** (documented on `register()`).
+  A downstream project that deliberately ordered its own admin nav items will
+  see them alphabetised instead. Existing `order=` values are harmless and were
+  left in place. Every other section still honours `order` exactly as before.
+
+  **"Admin Panel" is unaffected** — it isn't a registry item, but a hardcoded
+  link at the end of `sidebar.html` out to Django's own admin, so it stays
+  pinned last rather than filing under A.
+
 ## [0.16.2] - 2026-08-15
 
 ### Fixed
@@ -771,6 +799,7 @@ See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full 
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
 [Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.15.1...HEAD
+[0.17.0]: https://github.com/emichaud/django-smallstack/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/emichaud/django-smallstack/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/emichaud/django-smallstack/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/emichaud/django-smallstack/compare/v0.15.2...v0.16.0
