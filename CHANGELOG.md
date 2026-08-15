@@ -9,6 +9,52 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-08-14
+
+### Changed
+- **`CalendarDisplay` caps events rendered per day (`max_per_day`, default 5).**
+  The calendar rendered one chip — plus a hover-tooltip subtree — for every
+  record in the visible month, so a high-volume site produced tens of thousands
+  of DOM nodes and a calendar that took seconds to paint, or never usefully did.
+  Cells now render at most 5 events followed by a **"+N more"** link that
+  expands that single day in full (`?day=YYYY-MM-DD`). Overflow events are
+  counted, not materialised.
+
+  The point isn't the constant factor — it's that rendered chips are now bounded
+  by `max_per_day × days_in_month` **regardless of record count**. Measured on
+  200 seeded records: 201 chips / 171 KB before, 26 chips / 73 KB after.
+
+  Capping is a *rendering* limit only: the header total and every "+N more"
+  badge still report exact counts. **This changes what existing calendars
+  display** — pass `max_per_day=None` to restore the previous behavior.
+
+### Fixed
+- **Related tabs 500'd when the related view had no DETAIL action.**
+  `_CRUDRelatedTabBase` hardcoded `crud_actions = [Action.DETAIL]`, so
+  `{% crud_table %}` reversed `<url_base>-detail` for a view that never
+  generates that route (`get_urls` only registers it when `actions` include
+  DETAIL). Because related tabs load lazily over HTMX, the NoReverseMatch
+  surfaced as a tab with a count badge and an empty body rather than a visible
+  error. The tab now forwards what the related view actually routes — DETAIL,
+  else UPDATE, else unlinked — matching `crud_table`'s documented fallback.
+  DELETE is never forwarded, and exactly one action is passed so a tab whose
+  target routes both doesn't grow an Edit column it never had.
+- **Related tabs rendered child rows through the parent's hooks.**
+  `crud_config` stayed the parent CRUDView's, and `{% crud_table %}` reads
+  `row_link_url()`, `row_actions()` and `column_widths` off it — so a parent
+  that redirects its row links silently pointed a child row at an unrelated
+  record that happened to share its pk. Fails silently, so worth re-checking any
+  related tab under a CRUDView that overrides those hooks.
+- **`api_doctor` / `mcp_doctor` reported test fixtures as unregistered opt-ins.**
+  Both excluded test code by directory (`tests/`), missing the flat `test_*.py`
+  convention `apps/smallstack` uses — so `smallstack/test_bulk_ops.py` was
+  flagged as an orphan on every run and on the `/smallstack/api/` and
+  `/smallstack/mcp/` pages. A CRUDView declared in a test is meant to stay out
+  of the registry; the advertised fix (importing it from `AppConfig.ready()`)
+  would have published a test view as a live REST endpoint and MCP tool. The
+  shared `is_test_module()` helper now lives in
+  `apps/smallstack/autodiscover.py` and covers both layouts.
+
 ## [0.15.2] - 2026-08-12
 
 ### Fixed
@@ -645,6 +691,7 @@ See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full 
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
 [Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.15.1...HEAD
+[0.16.0]: https://github.com/emichaud/django-smallstack/compare/v0.15.2...v0.16.0
 [0.15.2]: https://github.com/emichaud/django-smallstack/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/emichaud/django-smallstack/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/emichaud/django-smallstack/compare/v0.14.3...v0.15.0
