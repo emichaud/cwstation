@@ -579,16 +579,26 @@ class CalendarDisplay(ListDisplay):
         month_end = cursor.replace(day=last_day)
         next_day_after = month_end + timedelta(days=1)
 
-        # Filter queryset to events overlapping the visible month
+        # Filter queryset to events overlapping the visible month.
+        #
+        # Boundaries are coerced to the bound type each field expects — an aware
+        # midnight for DateTimeFields, the plain date for DateFields — so a
+        # DateTimeField is never compared against a naive datetime (see
+        # _day_boundary). The two fields are resolved independently: a model may
+        # pair a DateTimeField start with a DateField end.
+        model = queryset.model
+        start_is_dt = _is_datetime_field(model, self.date_field)
+        upper_bound = _day_boundary(next_day_after, start_is_dt)
         if self.end_field:
+            end_is_dt = _is_datetime_field(model, self.end_field)
             filtered = queryset.filter(
-                **{f"{self.date_field}__lt": next_day_after},
-                **{f"{self.end_field}__gte": month_start},
+                **{f"{self.date_field}__lt": upper_bound},
+                **{f"{self.end_field}__gte": _day_boundary(month_start, end_is_dt)},
             )
         else:
             filtered = queryset.filter(
-                **{f"{self.date_field}__gte": month_start},
-                **{f"{self.date_field}__lt": next_day_after},
+                **{f"{self.date_field}__gte": _day_boundary(month_start, start_is_dt)},
+                **{f"{self.date_field}__lt": upper_bound},
             )
 
         # The expanded single day (?day=YYYY-MM-DD), if it falls in this month.
@@ -708,6 +718,58 @@ class CalendarDisplay(ListDisplay):
             "selected_day_label": selected_day.strftime("%A, %B %-d") if selected_day else "",
             "selected_day_events": selected_day_events,
         }
+
+
+def _is_datetime_field(model: Any, path: str) -> bool:
+    """True if ``path`` (an ORM lookup, possibly spanning relations) ends at a
+    DateTimeField. Unresolvable paths return False, which keeps the caller on
+    its previous behavior rather than guessing."""
+    from django.core.exceptions import FieldDoesNotExist
+    from django.db import models as dj_models
+
+    field = None
+    for part in path.split("__"):
+        try:
+            field = model._meta.get_field(part)
+        except (FieldDoesNotExist, AttributeError):
+            return False
+        if field.is_relation and field.related_model is not None:
+            model = field.related_model
+    # DateTimeField subclasses DateField, so test the narrower type.
+    return isinstance(field, dj_models.DateTimeField)
+
+
+def _day_boundary(day: Any, is_datetime: bool) -> Any:
+    """Coerce a calendar day into the bound type its field expects.
+
+    A DateTimeField compared against a plain ``date`` makes Django build a NAIVE
+    datetime at midnight, which under ``USE_TZ`` emits "received a naive
+    datetime while time zone support is active" and is then silently coerced
+    using the *default* timezone. The bucketing side uses ``localtime()`` — the
+    *current* timezone — so the two halves of this display were reasoning about
+    boundaries through different clocks. They coincide today (nothing activates
+    a per-request timezone; the profile's timezone is applied by a template
+    filter), so this removes the warning without moving any event. It also keeps
+    filtering aligned with display if a timezone-activating middleware is ever
+    added.
+
+    DateFields are left as dates — that comparison is already exact.
+    """
+    if not is_datetime:
+        return day
+
+    from datetime import datetime, time
+
+    from django.conf import settings
+    from django.utils import timezone
+
+    naive = datetime.combine(day, time.min)
+    if not getattr(settings, "USE_TZ", False):
+        return naive
+    try:
+        return timezone.make_aware(naive, timezone.get_current_timezone())
+    except Exception:  # pragma: no cover — imaginary local midnight (DST edge)
+        return day
 
 
 def _to_local_date(value: Any) -> Any:

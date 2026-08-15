@@ -132,3 +132,58 @@ def test_unparseable_or_out_of_month_day_is_ignored(busy_day, bad):
     context = _ctx(_display(max_per_day=5), month=MONTH, day=bad)
     assert context["selected_day"] is None
     assert context["selected_day_events"] == []
+
+
+# --------------------------------------------------------------------------
+# Timezone-correct month boundaries
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.filterwarnings("error::RuntimeWarning")
+def test_datetime_field_is_not_filtered_with_a_naive_boundary(busy_day):
+    """Django warns when a DateTimeField is compared against a naive datetime.
+
+    Passing a plain `date` did exactly that, and Django then coerced it with the
+    *default* timezone while the bucketing side used `localtime()` (the
+    *current* one) — two clocks deciding what "in this month" means. Raising on
+    the warning is the assertion: it fires during queryset evaluation.
+    """
+    context = _ctx(_display(max_per_day=5), month=MONTH)
+    assert context["event_count"] == 40
+
+
+@pytest.mark.filterwarnings("error::RuntimeWarning")
+def test_ranged_calendar_is_also_naive_free(busy_day):
+    """The end_field branch builds its own boundary and must be converted too."""
+    display = CalendarDisplay(
+        date_field="created_at", end_field="expires_at", title_field="name"
+    )
+    _ctx(display, month=MONTH)  # evaluation happens inside get_context
+
+
+def test_boundary_is_aware_for_datetime_fields_and_a_date_for_date_fields():
+    from apps.smallstack.displays import _day_boundary, _is_datetime_field
+
+    assert _is_datetime_field(APIToken, "created_at") is True
+    bound = _day_boundary(DAY, True)
+    assert bound.tzinfo is not None, "DateTimeField bound must be aware"
+    assert (bound.year, bound.month, bound.day) == (DAY.year, DAY.month, DAY.day)
+    assert (bound.hour, bound.minute) == (0, 0)
+    # A non-datetime target keeps the plain date — that comparison is exact.
+    assert _day_boundary(DAY, False) == DAY
+
+
+def test_unresolvable_field_path_does_not_raise():
+    """An annotation or property target falls back instead of guessing."""
+    from apps.smallstack.displays import _is_datetime_field
+
+    assert _is_datetime_field(APIToken, "no_such_field") is False
+    assert _is_datetime_field(APIToken, "user__also__missing") is False
+
+
+def test_related_datetime_path_is_detected():
+    """Lookups may span relations — resolve to the field at the end of the path."""
+    from apps.smallstack.displays import _is_datetime_field
+
+    assert _is_datetime_field(APIToken, "user__date_joined") is True
+    assert _is_datetime_field(APIToken, "user__username") is False
