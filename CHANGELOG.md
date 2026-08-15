@@ -9,6 +9,36 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-08-15
+
+### Changed
+- **The scheduler job edit page is redesigned as a control console.** It was a
+  1,830px single-column form with **Run now** buried at the bottom as a
+  tertiary outline button; it is now 1,040px with Run now leading the page.
+
+  An **identity strip** replaces both the generic "Edit Scheduled job" card
+  header and the read-only "What it runs" section: status dot, job name as the
+  title, task path / queue / args in the monospace ops voice, a status line,
+  and Run now as a solid-accent button top right. The body becomes two rails —
+  cadence editor left, behavior toggles + the Next-5-runs preview right — so
+  the fire-time feedback is visible *while* the cadence is edited. Collapses
+  to one column under 940px; on mobile Run now stays above the fold.
+
+  The strip also surfaces a state the old page hid: a `next_run_at` in the
+  past (stalled worker) used to display as a future-looking "next fire" — it
+  now reads **"fire overdue since <date> — is the worker running?"** in
+  warning color.
+
+  Delivered as `scheduler/crud/scheduledjob_edit.html` via the CRUDView
+  template chain — no framework changes, all cadence-builder JS and htmx
+  endpoints untouched. Theme-variable-only, verified across palettes.
+
+### Fixed
+- **"Run now" returns to the job page.** `scheduler_run_now` honors a
+  same-origin-validated `next` param (the control page posts its own path);
+  offsite values fall back to the dashboard, so it cannot become an open
+  redirect. Callers that don't pass `next` see the old behavior.
+
 ## [0.17.0] - 2026-08-15
 
 ### Changed
@@ -799,6 +829,7 @@ See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full 
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
 [Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.15.1...HEAD
+[0.18.0]: https://github.com/emichaud/django-smallstack/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/emichaud/django-smallstack/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/emichaud/django-smallstack/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/emichaud/django-smallstack/compare/v0.16.0...v0.16.1
