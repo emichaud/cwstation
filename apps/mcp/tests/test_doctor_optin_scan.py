@@ -7,7 +7,12 @@ an unregistered CRUDView opt-in.
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 from apps.mcp.management.commands.mcp_doctor import _has_enable_mcp_classvar
+from apps.smallstack.autodiscover import is_test_module
 
 
 def test_real_class_attribute_is_detected():
@@ -55,6 +60,55 @@ def test_module_level_assignment_is_not_a_class_attribute():
 
 def test_syntax_error_is_handled_gracefully():
     assert _has_enable_mcp_classvar("class X(:\n  enable_mcp = True") is False
+
+
+class TestTestModuleExclusion:
+    """A CRUDView defined in a test is a fixture, never a deployed surface.
+
+    The scan excluded a ``tests/`` package but not the flat ``test_*.py``
+    convention `apps/smallstack` uses, so `smallstack/test_bulk_ops.py` was
+    reported as an orphan on every run — a permanent WARN with no action behind
+    it, which is how a health check stops being read.
+    """
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "apps/smallstack/test_bulk_ops.py",  # the file that tripped it
+            "apps/foo/test_views.py",
+            "apps/foo/views_test.py",
+            "apps/foo/conftest.py",
+            "apps/foo/tests/test_x.py",
+            "apps/foo/tests/fake_app/views.py",
+        ],
+    )
+    def test_test_modules_are_excluded(self, path):
+        assert is_test_module(Path(path)) is True
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "apps/scheduler/views.py",
+            "apps/webhooks/views.py",
+            "apps/foo/mcp_tools.py",
+            "apps/foo/latest_test_results.py",  # 'test' inside the name, not a test module
+            "apps/protests/views.py",  # 'test' as a substring of a dir name
+        ],
+    )
+    def test_real_modules_are_not_excluded(self, path):
+        assert is_test_module(Path(path)) is False
+
+    def test_bulk_ops_fixture_is_a_real_optin_but_still_skipped(self):
+        """Both halves matter: it genuinely declares the flag, and is still skipped.
+
+        If it were skipped only because the AST check missed it, the exclusion
+        would be masking a detection bug rather than filtering a fixture.
+        """
+        target = Path(__file__).resolve().parents[3] / "apps/smallstack/test_bulk_ops.py"
+        if not target.exists():
+            pytest.skip("bulk-ops test module not present")
+        assert _has_enable_mcp_classvar(target.read_text(encoding="utf-8")) is True
+        assert is_test_module(target) is True
 
 
 def test_seed_runbook_command_is_not_flagged():

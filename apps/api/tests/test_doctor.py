@@ -106,6 +106,23 @@ def test_doctor_orphan_detection_ignores_explorer_enable_api():
     assert "heartbeat/admin.py" not in str(orphans.get("orphans", []))
 
 
+def test_doctor_orphan_detection_ignores_test_modules():
+    """A CRUDView declared in a test module is a fixture, not an orphan.
+
+    `apps/smallstack/test_bulk_ops.py` declares `enable_api = True` on a
+    throwaway view. The scanner excluded a `tests/` package but not the flat
+    `test_*.py` layout that app uses, so it was reported as an orphan on every
+    run — and the advertised fix (import it from `AppConfig.ready()`) would have
+    published a test view as a live API surface.
+    """
+    output = _run(["--no-self-test", "--json"])
+    parsed = json.loads(output)
+    orphans = next(r for r in parsed if r["name"] == "Orphan files")
+    listed = str(orphans.get("orphans", []))
+    assert "test_bulk_ops" not in listed
+    assert orphans["status"] == "PASS"
+
+
 def test_doctor_check_only_exits_zero_when_all_pass():
     """--check-only does NOT exit when every check passes."""
     _run(["--no-self-test", "--check-only"])  # no SystemExit raised

@@ -24,6 +24,31 @@ import logging
 logger = logging.getLogger("smallstack.autodiscover")
 
 
+def is_test_module(py_file) -> bool:
+    """True if ``py_file`` is a test module (a ``Path``).
+
+    The counterpart to this module's job: autodiscovery imports ``views.py`` /
+    ``mcp_tools.py``, never test code. So a CRUDView declared in a test is a
+    fixture that is *supposed* to stay out of the registry, and the health
+    checks (``api_doctor`` / ``mcp_doctor`` "orphan files") must not report it
+    as an unregistered opt-in — their suggested fix, importing the module from
+    ``AppConfig.ready()``, would publish a test view as a live API/MCP surface.
+
+    Both layouts count. Excluding only a ``tests/`` package missed the flat
+    ``test_*.py`` convention that ``apps/smallstack`` itself uses, so
+    ``smallstack/test_bulk_ops.py`` was reported as an orphan by both doctors
+    on every run — a permanent WARN with no action behind it, which is how a
+    health check stops being read.
+    """
+    name = py_file.name
+    return (
+        "tests" in py_file.parts
+        or name.startswith("test_")
+        or name.endswith("_test.py")
+        or name == "conftest.py"
+    )
+
+
 def autodiscover_app_modules(module_names: tuple[str, ...], *, skip_label: str | None = None) -> list[str]:
     """Import ``<app>.<module>`` for every installed app × every name in ``module_names``.
 

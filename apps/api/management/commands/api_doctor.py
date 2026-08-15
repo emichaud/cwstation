@@ -20,6 +20,8 @@ from django.core.management.base import BaseCommand
 from django.test import Client
 from django.urls import NoReverseMatch, get_resolver, reverse
 
+from apps.smallstack.autodiscover import is_test_module
+
 GREEN = "\033[32m"
 YELLOW = "\033[33m"
 RED = "\033[31m"
@@ -437,7 +439,10 @@ class Command(BaseCommand):
     def _scan_for_enable_api_optins(self) -> list[tuple]:
         """Match `enable_api = True` only as a class-attribute assignment
         (start of line + optional indent). Avoids matching prefixed names
-        like `explorer_enable_api` and substrings in comments/docstrings."""
+        like `explorer_enable_api` and substrings in comments/docstrings.
+
+        Test modules are skipped (see `is_test_module`): a CRUDView declared in
+        a test is a fixture that is *supposed* to stay out of the registry."""
         import re
         from pathlib import Path
 
@@ -456,7 +461,7 @@ class Command(BaseCommand):
                 continue
             for py_file in app_path.rglob("*.py"):
                 parts = py_file.parts
-                if "tests" in parts or "migrations" in parts or "management" in parts:
+                if is_test_module(py_file) or "migrations" in parts or "management" in parts:
                     continue
                 try:
                     if marker.search(py_file.read_text(encoding="utf-8", errors="ignore")):
