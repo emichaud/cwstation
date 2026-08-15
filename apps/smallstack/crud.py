@@ -1007,7 +1007,23 @@ class _CRUDRelatedTabBase(_CRUDContextMixin, DetailView):
         return self.crud_config._get_queryset()
 
     def get_template_names(self) -> list[str]:
-        return ["smallstack/crud/includes/related_tab_content.html"]
+        """Instance → app → default chain, like every sibling view.
+
+        This alone hardcoded its template, so a project could override every
+        other CRUD surface per model but not the related-tab partial — an
+        inconsistency rather than a decision (`_CRUDFieldPreviewBase`, directly
+        above, resolves the same way).
+
+        The shipped partial lives at ``crud/includes/related_tab_content.html``,
+        which does not fit ``_get_template_names``'s ``crud/object_{suffix}``
+        default, so it is appended as the final fallback instead of being moved:
+        the loader takes the first template that exists, so behavior is
+        unchanged when no override is present.
+        """
+        return [
+            *self.crud_config._get_template_names("related_tab"),
+            "smallstack/crud/includes/related_tab_content.html",
+        ]
 
     def get(self, request, *args, **kwargs) -> HttpResponse:
         self.object = self.get_object()

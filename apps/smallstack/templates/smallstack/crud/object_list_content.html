@@ -6,19 +6,28 @@
 {% elif object_list %}
     {% crud_table %}
 {% else %}
+    {% comment %}
+      Each {% include %} below MUST stay on one line. Django's tokenizer matches
+      tags with `{%.*?%}` and no DOTALL, so a tag broken across lines is never
+      recognised — it is emitted as literal template source into the page. Both
+      of these were wrapped for readability and rendered raw `{% include ... %}`
+      text on every empty CRUD list.
+
+      The `noun` indirection is the second half: `add` takes its argument as a
+      bare Variable, and a filter ARGUMENT that fails to resolve raises
+      VariableDoesNotExist rather than falling back to string_if_invalid the way
+      {{ missing }} does. _CRUDContextMixin always supplies
+      object_verbose_name_plural, but this partial is also included by
+      hand-written list templates (usermanager does, and downstream projects do),
+      which is where it can be absent — so resolve it with a default first.
+    {% endcomment %}
+    {% with noun=object_verbose_name_plural|default:"records" %}
     {% if toolbar_search_query or toolbar_has_active_filter %}
-        {% include "smallstack/includes/empty_state.html" with
-           no_card=True
-           title="No matches"
-           body="No "|add:object_verbose_name_plural|add:" matched your search and filters. Try adjusting them or clearing them to see everything." %}
+        {% include "smallstack/includes/empty_state.html" with no_card=True title="No matches" body="No "|add:noun|add:" matched your search and filters. Try adjusting them or clearing them to see everything." %}
     {% else %}
-        {% include "smallstack/includes/empty_state.html" with
-           no_card=True
-           title="Nothing here yet"
-           body="No "|add:object_verbose_name_plural|add:" have been added."
-           cta_url=create_view_url
-           cta_label="Create the first one" %}
+        {% include "smallstack/includes/empty_state.html" with no_card=True title="Nothing here yet" body="No "|add:noun|add:" have been added." cta_url=create_view_url cta_label="Create the first one" %}
     {% endif %}
+    {% endwith %}
 {% endif %}
 
 {% if not display_template and is_paginated %}
