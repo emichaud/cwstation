@@ -1047,6 +1047,24 @@ class _CRUDRelatedTabBase(_CRUDContextMixin, DetailView):
             related_qs, request, page_size=cfg.related_tabs_paginate_by
         )
 
+        # Row-link intent for {% crud_table %}, and ONLY that: exactly one action
+        # is forwarded, so a related tab renders clickable rows without growing
+        # an Edit/Delete action column.
+        #
+        # This was hardcoded to [Action.DETAIL], so crud_table reversed
+        # "<url_base>-detail" for views whose `actions` omit DETAIL — those routes
+        # are never generated (see get_urls), giving NoReverseMatch → 500. Because
+        # the tab loads lazily over HTMX, that surfaced as a tab with a count badge
+        # and an empty body rather than a visible error.
+        #
+        # Preferring DETAIL then UPDATE matches crud_table's own documented
+        # fallback ("no DETAIL ⇒ link the row to the edit view"); with neither, rows
+        # render unlinked rather than erroring. Slicing to one keeps a tab whose
+        # target routes BOTH from gaining an Edit column it never had. DELETE is
+        # never forwarded — a related tab must not become a destructive surface.
+        related_actions = list(getattr(related_crud, "actions", None) or [])
+        tab_actions = [a for a in (Action.DETAIL, Action.UPDATE) if a in related_actions][:1]
+
         related_model = tab["related_model"]
         content_url = cfg._reverse(
             f"{cfg._get_url_base()}-related-tab",
@@ -1063,7 +1081,14 @@ class _CRUDRelatedTabBase(_CRUDContextMixin, DetailView):
                 "link_field": link_field,
                 "url_base": url_base,
                 "url_namespace": related_crud.namespace,
-                "crud_actions": [Action.DETAIL],
+                "crud_actions": tab_actions,
+                # The rows in this tab belong to the RELATED model, so the table
+                # must be rendered through the related view's config. _CRUDContextMixin
+                # seeded this with the PARENT's config, and {% crud_table %} reads
+                # row_link_url(), row_actions() and column_widths off it — so parent
+                # hooks were applied to child rows, silently pointing a row at an
+                # unrelated record that merely shared its pk.
+                "crud_config": related_crud,
                 "field_transforms": related_crud._get_effective_transforms(),
                 "enable_bulk": False,
                 # Related tab metadata (for custom templates)
