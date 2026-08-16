@@ -71,7 +71,20 @@ sc new webhook --name Zapier --target_url https://hooks.zapier.com/... \
    --event_filter '["support.ticket.*", "*.created"]' --user admin
 ```
 
-`event_filter` holds fnmatch patterns (`[]` = inert). JSON fields accept native JSON on
+`event_filter` holds fnmatch patterns (`[]` = inert). Event names are
+`app.model.action` (e.g. `support.ticket.created`); `*` wildcards any part and
+crosses dots, so `*.created` matches every model's creates and `support.*`
+matches a whole app. **Patterns are shape-validated on every surface** (HTML
+form, REST, MCP, CLI — all through the same form): dot-separated tokens of word
+characters and fnmatch wildcards only. A malformed pattern (spaces, quotes, a
+pasted JSON fragment) is a validation error, not a silently-never-matching
+filter. A *well-formed* pattern matching nothing this instance currently emits
+is accepted — it may target future or custom events — but the pairing UI warns
+about it. In the web UI, `event_filter` renders as a checkbox picker built from
+`services.available_events()` (each option annotated in plain English via
+`services.describe_event_pattern()`), with custom patterns behind a collapsed
+"advanced" disclosure that auto-expands whenever patterns were set
+programmatically. JSON fields accept native JSON on
 every surface (a real array in REST/MCP payloads, a quoted JSON string on the CLI).
 Omitted fields use the model defaults — a new endpoint is **enabled** with an
 auto-generated signing secret. Pass `--secret <value>` (or `"secret"` in REST/MCP

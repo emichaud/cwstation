@@ -307,3 +307,83 @@ def test_envelope_has_new_and_old_keys(receiver_emits_webhooks):
 
     # event_id on the payload == event_id stamped on the delivery row (F-021).
     assert str(d.event_id) == p["event_id"]
+
+
+# --- the pairing panel's event picker (dashboard + view) ---------------------
+
+
+@pytest.fixture
+def staff_client(client, django_user_model):
+    u = django_user_model.objects.create_user(username="hooker", password="pw", is_staff=True)
+    client.force_login(u)
+    return client
+
+
+@override_settings(SMALLSTACK_WEBHOOK_ORIGIN="https://a.example.com")
+def test_dashboard_renders_event_picker_not_raw_json(staff_client):
+    """Operators pick events from what models emit, not by typing JSON."""
+    from django.urls import reverse
+
+    resp = staff_client.get(reverse("webhooks_dashboard"))
+    body = resp.content.decode()
+    assert "event-filter-picker" in body
+    assert 'name="events_choice"' in body
+    assert "Events (JSON)" not in body
+
+
+@override_settings(SMALLSTACK_WEBHOOK_ORIGIN="https://a.example.com")
+def test_pair_view_accepts_picker_keys(staff_client):
+    from django.urls import reverse
+
+    resp = staff_client.post(
+        reverse("webhooks_pair"),
+        {"target_url": "https://peer.example.com/webhooks/in/paired/",
+         "events_choice": ["*.created", "*.updated"], "events_extra": ""},
+    )
+    assert resp.status_code == 302
+    ep = WebhookEndpoint.objects.get(is_paired=True)
+    assert ep.event_filter == ["*.created", "*.updated"]
+
+
+@override_settings(SMALLSTACK_WEBHOOK_ORIGIN="https://a.example.com")
+def test_pair_view_still_accepts_raw_json_events(staff_client):
+    """The scripted contract (raw `events` JSON) is unchanged by the picker."""
+    from django.urls import reverse
+
+    resp = staff_client.post(
+        reverse("webhooks_pair"),
+        {"target_url": "https://peer.example.com/webhooks/in/paired/",
+         "events": '["support.ticket.*"]'},
+    )
+    assert resp.status_code == 302
+    ep = WebhookEndpoint.objects.get(is_paired=True)
+    assert ep.event_filter == ["support.ticket.*"]
+
+
+@override_settings(SMALLSTACK_WEBHOOK_ORIGIN="https://a.example.com")
+def test_pair_view_rejects_empty_selection(staff_client):
+    """Everything unchecked must not silently pair a link that forwards nothing."""
+    from django.urls import reverse
+
+    resp = staff_client.post(
+        reverse("webhooks_pair"),
+        {"target_url": "https://peer.example.com/webhooks/in/paired/", "events_extra": ""},
+    )
+    assert resp.status_code == 302
+    assert resp.url == reverse("webhooks_dashboard")
+    assert not WebhookEndpoint.objects.filter(is_paired=True).exists()
+
+
+@override_settings(SMALLSTACK_WEBHOOK_ORIGIN="https://a.example.com")
+def test_pair_view_rejects_malformed_patterns(staff_client):
+    """A hand-typed typo must error, not pair an endpoint that never fires."""
+    from django.urls import reverse
+
+    resp = staff_client.post(
+        reverse("webhooks_pair"),
+        {"target_url": "https://peer.example.com/webhooks/in/paired/",
+         "events_choice": [], "events_extra": "support ticket created"},
+    )
+    assert resp.status_code == 302
+    assert resp.url == reverse("webhooks_dashboard")
+    assert not WebhookEndpoint.objects.filter(is_paired=True).exists()

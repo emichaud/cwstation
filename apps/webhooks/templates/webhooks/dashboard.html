@@ -50,17 +50,21 @@
         We create a matching endpoint + receiver here sharing a secret, with the loop guard on.
         You'll get the shared secret and our inbound URL to mirror on the peer.
       </p>
-      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end;">
-        <label style="flex: 2 1 320px;">
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 0.9rem;">
+        <label style="flex: 1 1 320px;">
           <span style="display: block; font-size: 0.8rem;">Peer inbound URL</span>
           <input type="url" name="target_url" required class="vTextField" style="width: 100%;"
                  placeholder="https://peer.example.com/webhooks/in/paired/">
         </label>
-        <label style="flex: 1 1 160px;">
-          <span style="display: block; font-size: 0.8rem;">Events (JSON)</span>
-          <input type="text" name="events" class="vTextField" style="width: 100%;" value='["*"]'>
-        </label>
         <button type="submit" class="button button-primary">Pair</button>
+      </div>
+      <div style="max-width: 560px;">
+        <span style="display: block; font-size: 0.8rem; margin-bottom: 0.25rem;">Events to forward</span>
+        <p style="color: var(--body-quiet-color); font-size: 0.8rem; margin: 0 0 0.4rem;">
+          Leave <code>*</code> checked to forward everything. Uncheck it to pick from the
+          events this instance actually emits.
+        </p>
+        {{ pair_events_picker }}
       </div>
     </form>
   </div>

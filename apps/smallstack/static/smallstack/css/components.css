@@ -2264,6 +2264,55 @@ a.calendar-day-panel-close:visited {
     text-align: center;
 }
 
+/* --------------------------------------------------------------------------
+   Help popup — a small "?" beside a label that opens an explainer panel.
+   <details>-based: no JS, keyboard-operable (summary is focusable, Enter/Space
+   toggles), palette-correct. Usage:
+
+     <details class="help-pop">
+       <summary aria-label="Help: what patterns look like">?</summary>
+       <div class="help-pop-panel">…explainer…</div>
+     </details>
+   -------------------------------------------------------------------------- */
+.help-pop { position: relative; display: inline-block; vertical-align: middle; }
+.help-pop > summary {
+    list-style: none;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 1px solid var(--card-border);
+    color: var(--body-quiet-color);
+    font-size: 0.68rem; font-weight: 700; line-height: 1;
+    cursor: pointer; user-select: none;
+}
+.help-pop > summary::-webkit-details-marker { display: none; }
+.help-pop > summary:hover,
+.help-pop[open] > summary {
+    color: var(--primary);
+    border-color: var(--primary);
+}
+.help-pop > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.help-pop-panel {
+    position: absolute; z-index: 30;
+    top: calc(100% + 6px); left: 0;
+    width: min(330px, 80vw);
+    padding: 0.7rem 0.85rem;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-sm, 6px);
+    box-shadow: var(--shadow-md, 0 4px 8px rgba(0, 0, 0, 0.35));
+    font-size: 0.8rem; font-weight: 400; color: var(--body-fg);
+    text-transform: none; letter-spacing: normal;
+}
+.help-pop-panel p { margin: 0 0 0.5rem; }
+.help-pop-panel p:last-child { margin-bottom: 0; }
+.help-pop-examples { margin: 0; display: flex; flex-direction: column; gap: 0.3rem; }
+.help-pop-examples div { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+.help-pop-examples code {
+    background: color-mix(in srgb, var(--body-fg) 7%, var(--card-bg));
+    padding: 1px 6px; border-radius: 4px; font-size: 0.75rem;
+}
+.help-pop-examples span { color: var(--body-quiet-color); }
+
 /* Hover detail tooltip */
 .calendar-event-tooltip {
     position: absolute;
