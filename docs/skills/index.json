@@ -221,7 +221,7 @@
       "id": "logging-audit",
       "file": "logging-audit.md",
       "name": "Logging & Audit Trail",
-      "description": "Django logging configuration, log levels, audit trail patterns, and structured logging.",
+      "description": "Django logging configuration, log levels, structured JSON output with request/trace correlation IDs, the database-backed log capture that makes a deployment readable when you can't reach its log stream (time-boxed capture windows via manage.py log_capture), and audit trail patterns built on Django's LogEntry.",
       "keywords": [
         "logging",
         "audit",
@@ -230,9 +230,19 @@
         "debug",
         "info",
         "warning",
-        "error"
+        "error",
+        "telemetry",
+        "log_capture",
+        "prune_logs",
+        "request_id",
+        "trace_id",
+        "json logs",
+        "structured logging",
+        "capture window",
+        "no shell",
+        "container logs"
       ],
-      "use_when": "Configuring logging, adding audit trails, or debugging log output."
+      "use_when": "Configuring logging, adding audit trails, debugging log output, correlating an X-Request-ID to log lines, or reading logs from a deployment you cannot shell into."
     },
     {
       "id": "screenshot-workflow",

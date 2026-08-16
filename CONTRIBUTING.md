@@ -178,6 +178,7 @@ A `manage.py` command lives in **the app that owns the subsystem it operates on*
 - `apps/heartbeat/` — `heartbeat`, `maintenance` (monitoring / status).
 - `apps/search/` — `rebuild_search_index`, `search_doctor`, `sync_help_index`.
 - `apps/activity/` — `prune_activity`.
+- `apps/telemetry/` — `log_capture`, `prune_logs` (database-backed log capture).
 
 Rule of thumb: if the command reads/writes an app's models or diagnoses its feature, it ships in that app. The full catalogue with flags is [`apps/smallstack/docs/cli-reference.md`](apps/smallstack/docs/cli-reference.md).
 

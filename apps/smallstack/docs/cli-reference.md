@@ -177,6 +177,46 @@ No flags — the cap is a setting (`ACTIVITY_MAX_ROWS`). For cron / deploy hooks
 
 > *Coming soon:* schedule this with the recurring `@scheduled` primitive; until then, wire it to system cron.
 
+#### `log_capture`
+
+Control what gets written to the `LogRecord` table — the database copy of your logs that makes a deployment debuggable when you can't reach its log stream (a container with no shell, a managed platform that swallows stdout).
+
+```bash
+uv run python manage.py log_capture status
+uv run python manage.py log_capture start --level DEBUG --minutes 15 --note "checkout 500"
+uv run python manage.py log_capture stop
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--level` | `DEBUG` | Level to capture while the window is open (`start` only) |
+| `--minutes` | `15` | Window duration, clamped to `TELEMETRY_MAX_CAPTURE_MINUTES` (`start` only) |
+| `--note` | — | Why the window was opened; kept as an audit trail |
+
+The baseline is WARNING (`TELEMETRY_LOG_LEVEL`), so routine INFO chatter is not stored. A capture window raises it for a fixed period and **closes itself** — nothing is left switched on by accident.
+
+The window lives in the database, so every worker and container applies it within one poll interval (~5s). `status` also reports queue health: a non-zero `dropped` means the app logged faster than the database absorbed it — raise `TELEMETRY_LOG_QUEUE_SIZE` or capture at a higher level.
+
+Records are browsable at `/admin/telemetry/logrecord/` and through Explorer. Each carries the `request_id` that produced it, so an `X-Request-ID` from a bug report pulls every line that request emitted.
+
+> **If DEBUG shows nothing new:** the *logger*, not the handler, discarded it. A record must be created before any handler is consulted, and `apps` sits at INFO in production. `TELEMETRY_CAPTURE_LOGGERS` lists the loggers lowered during a window — add yours if it isn't under `apps`, `smallstack`, or `django.request`.
+
+#### `prune_logs`
+
+Retention for captured log records. Enforces an age window **and** a hard row cap, whichever binds first.
+
+```bash
+uv run python manage.py prune_logs
+uv run python manage.py prune_logs --keep-days 3 --max-rows 5000
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--keep-days` | `TELEMETRY_LOG_RETENTION_DAYS` (7) | Delete records older than this |
+| `--max-rows` | `TELEMETRY_LOG_MAX_ROWS` (20000) | Hard cap; oldest beyond it are deleted |
+
+Both limits exist because either alone fails somewhere: age alone won't survive an incident logging a million lines in ten minutes, and a row cap alone keeps stale records forever on a quiet deployment. Wired into `scripts/smallstack-cron` every 15 minutes.
+
 ### Monitoring
 
 #### `heartbeat`

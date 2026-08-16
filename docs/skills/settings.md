@@ -177,6 +177,29 @@ ACTIVITY_PRUNE_INTERVAL = config("ACTIVITY_PRUNE_INTERVAL", default=100, cast=in
 ACTIVITY_EXCLUDE_PATHS = ["/static/", "/media/", "/favicon.ico", "/health/", "/admin/jsi18n/", "/__debug__/"]
 ```
 
+### Telemetry / Log Capture (smallstack.py)
+
+Writes log records to the database so a deployment is readable when its log stream isn't (container with no shell, managed platform swallowing stdout). See [`logging-audit.md`](logging-audit.md).
+
+```python
+TELEMETRY_LOG_CAPTURE_ENABLED = config("TELEMETRY_LOG_CAPTURE_ENABLED", default=True, cast=bool)
+TELEMETRY_LOG_LEVEL = config("TELEMETRY_LOG_LEVEL", default="WARNING")
+TELEMETRY_CAPTURE_LOGGERS = ["apps", "smallstack", "django.request"]
+TELEMETRY_MAX_CAPTURE_MINUTES = config("TELEMETRY_MAX_CAPTURE_MINUTES", default=120, cast=int)
+TELEMETRY_LOG_RETENTION_DAYS = config("TELEMETRY_LOG_RETENTION_DAYS", default=7, cast=int)
+TELEMETRY_LOG_MAX_ROWS = config("TELEMETRY_LOG_MAX_ROWS", default=20000, cast=int)
+TELEMETRY_LOG_QUEUE_SIZE = config("TELEMETRY_LOG_QUEUE_SIZE", default=1000, cast=int)
+```
+
+| Setting | Why you'd change it |
+|---|---|
+| `TELEMETRY_LOG_CAPTURE_ENABLED` | `false` removes the handler entirely — no queue, no thread, no rows |
+| `TELEMETRY_LOG_LEVEL` | Baseline captured level. WARNING keeps the table small; raise verbosity temporarily with `manage.py log_capture` instead of lowering this |
+| `TELEMETRY_CAPTURE_LOGGERS` | Loggers whose level is lowered during a capture window. **If DEBUG capture shows nothing new, your logger isn't in this list** — the logger gates before any handler is consulted |
+| `TELEMETRY_LOG_QUEUE_SIZE` | Raise when `log_capture status` reports `dropped > 0` |
+
+`TELEMETRY_LOG_CAPTURE_ENABLED` is read in both `development.py` and `production.py` to append the `db` handler to every logger — see the block after the `LOG_FILE` handling in each.
+
 ### Background Tasks (base.py)
 
 ```python
@@ -230,7 +253,7 @@ ACTIVITY_MAX_ROWS = config("ACTIVITY_MAX_ROWS", default=10000, cast=int)
 
 ### Adding New Settings
 
-1. Add SmallStack-specific settings (BRAND_*, SMALLSTACK_*, SITE_*, ACTIVITY_*, BACKUP_*, HEARTBEAT_*, AXES_*) to `config/settings/smallstack.py` using the `config()` pattern. Add Django infrastructure settings to `config/settings/base.py`.
+1. Add SmallStack-specific settings (BRAND_*, SMALLSTACK_*, SITE_*, ACTIVITY_*, TELEMETRY_*, BACKUP_*, HEARTBEAT_*, AXES_*) to `config/settings/smallstack.py` using the `config()` pattern. Add Django infrastructure settings to `config/settings/base.py`.
 2. Document the default value
 3. Add to `.env.example` if one exists
 

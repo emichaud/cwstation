@@ -64,6 +64,7 @@ All custom apps in `apps/`, registered as `apps.<name>`:
 - `apps/accounts/` — Custom User model, auth views, login/signup
 - `apps/smallstack/` — Theme, CRUDView library, navigation, dashboard, displays, APIToken model — the framework core
 - `apps/activity/` — RequestLog middleware and admin
+- `apps/telemetry/` — DB-backed log capture (`LogRecord`) + time-boxed capture windows; `log_capture` / `prune_logs`
 - `apps/api/` — `/smallstack/api/` health + activity admin + `api_doctor` command
 - `apps/explorer/` — Generic CRUD browser at `/smallstack/explorer/`
 - `apps/heartbeat/` — Uptime monitoring + `/status/`
