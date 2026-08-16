@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     "apps.help",
     "apps.tasks",
     "apps.activity",
+    "apps.telemetry",  # Telemetry: DB-backed log capture + time-boxed capture windows
     "apps.heartbeat",
     "apps.usermanager",
     "apps.website",  # Project-specific pages (customize freely)

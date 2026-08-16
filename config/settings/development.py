@@ -138,6 +138,24 @@ LOGGING = {
     },
 }
 
+# Database log capture, same as production — on in dev so the behaviour you
+# debug locally is the behaviour you get deployed, and so the log viewer has
+# something to show. Baseline is WARNING, so routine dev INFO chatter is NOT
+# written to db.sqlite3; `manage.py log_capture start --level DEBUG` turns it
+# up when you want to exercise it.
+if TELEMETRY_LOG_CAPTURE_ENABLED:  # noqa: F405
+    LOGGING["handlers"]["db"] = {
+        "()": "apps.telemetry.handlers.DatabaseLogHandler",
+        "level": TELEMETRY_LOG_LEVEL,  # noqa: F405
+        "queue_size": TELEMETRY_LOG_QUEUE_SIZE,  # noqa: F405
+        "filters": ["request_context"],
+    }
+    # Every logger, because they all set propagate=False — a handler on root
+    # alone would only ever see records nothing else claimed.
+    LOGGING["root"]["handlers"].append("db")
+    for logger_config in LOGGING["loggers"].values():
+        logger_config["handlers"].append("db")
+
 # Auto-allow localhost CORS in development when no explicit origins are set
 if not CORS_ALLOWED_ORIGINS:  # noqa: F405
     CORS_ALLOWED_ORIGIN_REGEXES = [r"^http://localhost:\d+$", r"^http://127\.0\.0\.1:\d+$"]

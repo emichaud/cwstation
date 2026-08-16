@@ -250,6 +250,74 @@ Uncomment the `django.db.backends` DEBUG logger in `config/settings/development.
 
 This is very verbose — every SQL query will print to your console. Useful for debugging N+1 queries.
 
+## Reading Logs From Inside the App
+
+Console and file logging both assume you can *reach* the output. Sometimes you can't: a container platform with no shell, a managed host that swallows stdout, a deploy you don't control. The log is being written perfectly and you can't see a line of it.
+
+So {{ project_name }} also writes log records to the database, where the app itself can read them back.
+
+| | Console / file | Database |
+|---|---|---|
+| **Reachable from** | the host, a log collector | the app, from anywhere |
+| **Level** | INFO (production) | WARNING, raised on demand |
+| **Retention** | your collector's, or file rotation | `prune_logs` — age + row cap |
+| **Cost** | a write to stdout | queued, batched, dropped under pressure |
+
+Both run at once. The database copy isn't a replacement for a log collector — it's what you have when there isn't one.
+
+### Capture windows
+
+Storing every INFO line from a busy site would bloat the database for no benefit, so the baseline is WARNING. When you actually need detail, you open a **capture window**:
+
+```bash
+# what's being captured right now?
+uv run python manage.py log_capture status
+
+# turn it up, reproduce the bug, walk away
+uv run python manage.py log_capture start --level DEBUG --minutes 15
+
+# or close it early
+uv run python manage.py log_capture stop
+```
+
+The window expires on its own. That's the point — there's no state left switched on because someone got distracted, which is what makes it safe to hand to an operator mid-incident.
+
+Windows live in the database, not in one process's memory, so every worker and every container picks up the change within about five seconds. Each row records who opened it and why, which leaves a small audit trail of when the system was running verbose.
+
+Captured records are browsable at `/admin/telemetry/logrecord/` and through Explorer. Because each carries its `request_id`, you can take an `X-Request-ID` from a user's bug report and pull every line that request produced.
+
+### If DEBUG shows you nothing new
+
+This is the one confusing failure, and it isn't specific to {{ project_name }} — it's how Python logging works. **Two** gates sit between a `logger.debug()` call and a stored row:
+
+1. the **logger** decides whether to create the record at all, and
+2. the **handler** decides whether to store it.
+
+`apps` runs at INFO in production, so a `logger.debug()` is discarded before any handler is asked. A capture window lowers both, but it can only lower the loggers it's told about — `TELEMETRY_CAPTURE_LOGGERS`, which defaults to `apps`, `smallstack`, and `django.request`. If your logger lives outside those, add it.
+
+One logger is deliberately held back: `django.db.backends` never drops below WARNING during a capture window. At DEBUG it logs every SQL query, which floods the console and measurably slows requests.
+
+### What it costs you
+
+Logging must never be the thing that breaks a request, so the handler is built to fail quietly:
+
+- **Nothing is written on the request path.** Records go onto a bounded in-memory queue; a background thread writes them in batches.
+- **Under pressure it sheds load.** If the queue fills — an incident producing a flood of errors is exactly when the database is least able to keep up — new records are dropped rather than blocking the request that logged them. Drops are counted and reported by `log_capture status`. A non-zero `dropped` means raise `TELEMETRY_LOG_QUEUE_SIZE`, or capture at a higher level.
+- **It never raises.** A failed write costs you log lines, not a 500.
+
+### Retention
+
+`prune_logs` runs every 15 minutes in the container (see `scripts/smallstack-cron`) and enforces two limits, whichever binds first:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `TELEMETRY_LOG_RETENTION_DAYS` | 7 | Delete records older than this |
+| `TELEMETRY_LOG_MAX_ROWS` | 20000 | Hard cap; oldest beyond it are deleted |
+
+Age alone wouldn't save you from an incident that logs a million lines in ten minutes; a row cap alone would keep stale records forever on a quiet site.
+
+To switch the whole subsystem off, set `TELEMETRY_LOG_CAPTURE_ENABLED=false`. No handler is installed, so there's no queue, no thread, and no rows.
+
 ## Logging to a File
 
 By default, all logs go to the console (stdout) — which is the right choice for Docker containers and most cloud platforms, where a log collector picks up stdout automatically.

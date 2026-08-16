@@ -39,6 +39,10 @@ Two tables: a **task → tool map** (the most common lookups) and a **tool → d
 | mint a dev superuser | `make superuser` (= `manage.py create_dev_superuser`) |
 | **back up the SQLite database** | `make backup` (= `manage.py backup_db [--keep N]`) |
 | trim the activity log | `uv run python manage.py prune_activity` |
+| **read logs from a deployment you can't shell into** | `uv run python manage.py log_capture status` (then browse `/admin/telemetry/logrecord/`) |
+| **capture DEBUG from a live deployment, temporarily** | `uv run python manage.py log_capture start --level DEBUG --minutes 15` (auto-closes) |
+| close a capture window early | `uv run python manage.py log_capture stop` |
+| trim captured log records | `uv run python manage.py prune_logs [--keep-days N --max-rows N]` |
 | run a single **heartbeat / uptime** check | `uv run python manage.py heartbeat` |
 | reset the uptime epoch after a restore | `uv run python manage.py heartbeat --reset-epoch --reset-note "..."` |
 | **test the task queue + heartbeat locally** (worker + heartbeat in one process) | `make services` (= `./utils/dev_services.sh`; `ARGS="--interval 5 --smoke"` for a fast end-to-end check) |
@@ -77,7 +81,10 @@ When the user reports a problem, **start at the matching doctor**.
 | "Webhook `resource.url` is null / S2S dedupe not working" | `webhook_doctor` → `Webhook origin` row (WARN when origin unresolved — set `SITE_URL`/`SMALLSTACK_WEBHOOK_ORIGIN`) | [`webhooks.md`](webhooks.md) |
 | "Is the task queue actually draining locally?" | `make services ARGS="--smoke"` (watch the worker drain it) | [`background-tasks.md`](background-tasks.md) |
 | "Deploy downtime is counting against my SLA" | open a maintenance window (`manage.py maintenance`) or enable `MAINTENANCE_ON_DEPLOY` | [`status-monitors.md`](status-monitors.md) |
-| "DB file is huge" | `manage.py prune_activity`, then `make backup --keep 7` | — |
+| "DB file is huge" | `manage.py prune_activity` **and** `manage.py prune_logs`, then `make backup --keep 7` | — |
+| "I can't reach the logs — no shell on the container" | `log_capture status`; records are in the DB, browsable in admin | [`logging-audit.md`](logging-audit.md) |
+| "I turned on DEBUG and still see nothing" | the *logger* level gates before any handler — check `TELEMETRY_CAPTURE_LOGGERS` covers your logger | [`logging-audit.md`](logging-audit.md) |
+| "log_capture status says dropped > 0" | the queue overflowed; raise `TELEMETRY_LOG_QUEUE_SIZE` or capture at a higher level | [`logging-audit.md`](logging-audit.md) |
 
 ## Tool → docs
 
@@ -94,6 +101,7 @@ When the user names a specific tool, here's the skill (or reference doc) that ex
 | `screenshot_auth` + `shot-scraper` | [`screenshot-workflow.md`](screenshot-workflow.md) |
 | `heartbeat` | (Heartbeat doc — `apps/smallstack/docs/uptime-monitoring.md`) |
 | `prune_activity` | [`activity-tracking.md`](activity-tracking.md) |
+| `log_capture` / `prune_logs` | [`logging-audit.md`](logging-audit.md) |
 | `make run` / `make test` / `make lint` | [`development-workflow.md`](development-workflow.md) |
 | `make deploy` | [`kamal-deployment.md`](kamal-deployment.md) |
 | `make docker-up` | [`docker-deployment.md`](docker-deployment.md) |

@@ -186,6 +186,23 @@ if LOG_FILE:
     for logger_config in LOGGING["loggers"].values():
         logger_config["handlers"].append("file")
 
+# Database log capture — makes logs readable from inside the app when the log
+# stream isn't reachable (locked-down container, managed platform with no
+# shell). Baseline is WARNING; `manage.py log_capture start --level DEBUG
+# --minutes 15` turns it up temporarily. Settings live in smallstack.py.
+if TELEMETRY_LOG_CAPTURE_ENABLED:  # noqa: F405
+    LOGGING["handlers"]["db"] = {
+        "()": "apps.telemetry.handlers.DatabaseLogHandler",
+        "level": TELEMETRY_LOG_LEVEL,  # noqa: F405
+        "queue_size": TELEMETRY_LOG_QUEUE_SIZE,  # noqa: F405
+        "filters": ["request_context"],
+    }
+    # Every logger, because they all set propagate=False — a handler on root
+    # alone would only ever see records nothing else claimed.
+    LOGGING["root"]["handlers"].append("db")
+    for logger_config in LOGGING["loggers"].values():
+        logger_config["handlers"].append("db")
+
 # Email: SMTP in production, via Django 6.1's MAILERS. Same EMAIL_* env vars as
 # before (EMAIL_HOST/PORT/HOST_USER/HOST_PASSWORD/USE_TLS/USE_SSL/TIMEOUT) — they
 # feed MAILERS["default"]["OPTIONS"]. See config/settings/_email.py.

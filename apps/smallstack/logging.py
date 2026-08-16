@@ -44,8 +44,10 @@ __all__ = [
     "RequestContextFilter",
     "bind_request_id",
     "bind_trace_id",
+    "extract_extra",
     "get_request_id",
     "get_trace_id",
+    "safe_message",
 ]
 
 
@@ -161,7 +163,7 @@ _STANDARD_ATTRS = frozenset(
 _CONTEXT_ATTRS = frozenset({"request_id", "trace_id"})
 
 
-def _safe_message(record: logging.LogRecord) -> str:
+def safe_message(record: logging.LogRecord) -> str:
     """Interpolate the record's message, surviving a bad call site.
 
     ``logger.info("%d items", "seven")`` raises inside ``getMessage()``. A
@@ -172,6 +174,20 @@ def _safe_message(record: logging.LogRecord) -> str:
         return record.getMessage()
     except Exception as exc:  # pragma: no cover - defensive
         return f"<unformattable log message: {exc!r} msg={record.msg!r} args={record.args!r}>"
+
+
+def extract_extra(record: logging.LogRecord) -> dict[str, Any]:
+    """Return the ``extra={...}`` fields a call site attached to ``record``.
+
+    Anything on the record that isn't a logging built-in and isn't one of the
+    IDs :class:`RequestContextFilter` injects arrived via ``extra``. Private
+    attributes (``_foo``) are treated as internal bookkeeping and skipped.
+    """
+    return {
+        key: value
+        for key, value in record.__dict__.items()
+        if key not in _STANDARD_ATTRS and key not in _CONTEXT_ATTRS and not key.startswith("_")
+    }
 
 
 class JSONFormatter(logging.Formatter):
@@ -217,7 +233,7 @@ class JSONFormatter(logging.Formatter):
             "module": record.module,
             "func": record.funcName,
             "line": record.lineno,
-            "message": _safe_message(record),
+            "message": safe_message(record),
         }
 
         for key in ("request_id", "trace_id"):
@@ -238,11 +254,7 @@ class JSONFormatter(logging.Formatter):
         if record.stack_info:
             payload["stack"] = self.formatStack(record.stack_info)
 
-        extra = {
-            key: value
-            for key, value in record.__dict__.items()
-            if key not in _STANDARD_ATTRS and key not in _CONTEXT_ATTRS and not key.startswith("_")
-        }
+        extra = extract_extra(record)
         if extra:
             payload["extra"] = extra
 

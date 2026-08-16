@@ -100,6 +100,32 @@ LOGGING["loggers"]["apps.tickets"] = {
 }
 ```
 
+## Reading logs from a deployment you can't reach
+
+Log lines are also written to the database (`apps.telemetry`), so they're readable from inside the app. This is the answer when the log *stream* isn't reachable — a locked-down container, a managed platform with no shell.
+
+The baseline is WARNING, which keeps the table small. When you need more, open a **capture window**: it turns the level up for a fixed period and closes itself.
+
+```bash
+uv run python manage.py log_capture status
+uv run python manage.py log_capture start --level DEBUG --minutes 15
+uv run python manage.py log_capture stop
+```
+
+The window lives in the database, so every worker and every container picks it up within one poll interval (5s). Records are browsable at `/admin/telemetry/logrecord/` and through Explorer.
+
+**If you turn on DEBUG and see nothing new**, the logger — not the handler — is what discarded it. A record has to be created before any handler is consulted, and `apps` sits at INFO in production. `TELEMETRY_CAPTURE_LOGGERS` lists the loggers whose level is lowered while a window is open; add yours if it isn't covered by `apps`, `smallstack`, or `django.request`.
+
+`django.db.backends` is pinned at WARNING during capture no matter what — at DEBUG it emits one line per SQL query.
+
+### What it costs
+
+Nothing is written on the request path: records go onto a bounded queue and a background thread batches them out. If the app logs faster than the database absorbs it, records are dropped rather than blocking the request, and the drop is counted — `log_capture status` reports it. A non-zero `dropped` means raise `TELEMETRY_LOG_QUEUE_SIZE` or capture at a higher level.
+
+Retention is enforced by `manage.py prune_logs` (wired into the container's cron every 15 minutes): records older than `TELEMETRY_LOG_RETENTION_DAYS` go, and a hard `TELEMETRY_LOG_MAX_ROWS` cap catches an incident that logs a million lines in ten minutes.
+
+Set `TELEMETRY_LOG_CAPTURE_ENABLED=false` to switch the whole thing off — no handler, no queue, no thread, no rows.
+
 ## Audit with LogEntry
 
 SmallStack provides `log_action()` and `AuditMixin` in `apps.smallstack.audit` for creating Django `LogEntry` records from non-admin code. No new models or migrations required.

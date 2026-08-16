@@ -13,6 +13,11 @@
 # Prune activity log — every 15 minutes
 */15 * * * * cd /app && python3 manage.py prune_activity
 
+# Prune captured log records — every 15 minutes. Enforces both the age window
+# and the row cap; a DEBUG capture window can add rows fast, so don't stretch
+# this interval.
+*/15 * * * * cd /app && python3 manage.py prune_logs
+
 # Prune scheduler run history — daily at 3 AM (keep 30 days)
 0 3 * * * cd /app && python3 manage.py prune_job_runs --keep-days 30
 

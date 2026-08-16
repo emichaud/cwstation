@@ -9,6 +9,61 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+### Added
+- **`apps/telemetry` — log records are written to the database, so a deployment
+  is debuggable from inside the app.** Console and file logging both assume you
+  can reach the output; a container platform with no shell means the log is
+  written perfectly and you can't see a line of it. Records now also land in
+  `telemetry_logrecord`, browsable at `/admin/telemetry/logrecord/` and through
+  Explorer, each carrying the `request_id` that produced it — so an
+  `X-Request-ID` from a bug report pulls every line that request emitted.
+
+- **Time-boxed capture windows.** Baseline capture is WARNING so the table
+  stays small. `manage.py log_capture start --level DEBUG --minutes 15` turns it
+  up and it closes itself — nothing is left switched on because someone got
+  distracted. The window lives in the database, not one process's memory, so
+  every worker and container picks it up within a poll interval (5s), and each
+  row records who opened it and why.
+
+  Both the handler *and* the logger levels move. A record has to be created
+  before any handler is consulted, so lowering the handler alone would capture
+  nothing new — this is the usual reason "I turned on DEBUG and saw nothing".
+  `TELEMETRY_CAPTURE_LOGGERS` controls which loggers are lowered;
+  `django.db.backends` is pinned at WARNING regardless, because at DEBUG it
+  emits one line per SQL query.
+
+- **`DatabaseLogHandler`, built so logging can never break a request.** Four
+  guards, each for a specific failure mode of writing logs to the database you
+  are serving from:
+  - *recursion* — writing a row runs a query, the query logs, the record comes
+    back to the handler. A thread-local guard plus logger-hierarchy exclusion
+    breaks the cycle.
+  - *raising* — every path swallows; a failed write costs log lines, not a 500.
+  - *latency* — nothing is written on the request path; records go to a bounded
+    queue and a background thread batches them out.
+  - *load* — an incident floods ERROR lines exactly when the database can least
+    absorb them, so the queue drops on overflow and counts the drops instead of
+    blocking the caller. `log_capture status` reports them.
+
+- **`manage.py prune_logs`** — retention by age (`TELEMETRY_LOG_RETENTION_DAYS`,
+  default 7) *and* a hard row cap (`TELEMETRY_LOG_MAX_ROWS`, default 20000),
+  whichever binds first; wired into the container cron every 15 minutes. Age
+  alone wouldn't survive an incident logging a million lines in ten minutes; a
+  cap alone would keep stale rows forever on a quiet site.
+
+- **`manage.py log_capture start|stop|status`** — control surface for the
+  window, plus queue health (written / dropped / errors / worker liveness).
+
+- 51 tests in `apps/telemetry/tests/`. Two bugs they caught during development:
+  logger exclusion used a raw string prefix, which also swallowed unrelated apps
+  like `apps.telemetry_report`; and the row-cap prune cut on `pk`, copied from
+  `prune_activity` where pk order tracks timestamp order — it doesn't here,
+  because records are queued and batched, so concurrent workers interleave.
+  It now cuts on `ts`.
+
+- `TELEMETRY_LOG_CAPTURE_ENABLED=false` switches the whole subsystem off: no
+  handler, no queue, no thread, no rows.
+
 ### Fixed
 - **Production log output is now actually JSON.** The `json` formatter was a
   `%`-style string template (`'{"message": "%(message)s"}'`) that only looked

@@ -151,6 +151,41 @@ ACTIVITY_EXCLUDE_PATHS = [
 ]
 
 # ---------------------------------------------------------------------------
+# Telemetry — database-backed log capture
+# ---------------------------------------------------------------------------
+# Log lines are written to the telemetry_logrecord table so they can be read
+# back from inside the app. This is what makes a deployment debuggable when you
+# can't reach the log stream — a locked-down container, a managed platform with
+# no shell.
+#
+# Master switch. Off means the handler is never added to LOGGING, so there is
+# no queue, no writer thread, and no rows.
+TELEMETRY_LOG_CAPTURE_ENABLED = config("TELEMETRY_LOG_CAPTURE_ENABLED", default=True, cast=bool)
+
+# Baseline level persisted to the database. WARNING keeps the table small and
+# the write volume negligible; open a capture window when you need more:
+#   manage.py log_capture start --level DEBUG --minutes 15
+TELEMETRY_LOG_LEVEL = config("TELEMETRY_LOG_LEVEL", default="WARNING")
+
+# Loggers whose level is lowered while a capture window is open. A record has
+# to be created before any handler sees it, so lowering the handler alone would
+# capture nothing new. Kept to application code: lowering `django` wholesale
+# pulls in django.db.backends, which at DEBUG is one line per SQL query.
+TELEMETRY_CAPTURE_LOGGERS = ["apps", "smallstack", "django.request"]
+
+# Upper bound on how long a capture window may run, so an unattended DEBUG
+# window can't quietly fill the disk.
+TELEMETRY_MAX_CAPTURE_MINUTES = config("TELEMETRY_MAX_CAPTURE_MINUTES", default=120, cast=int)
+
+# Retention — enforced by `manage.py prune_logs`, whichever binds first.
+TELEMETRY_LOG_RETENTION_DAYS = config("TELEMETRY_LOG_RETENTION_DAYS", default=7, cast=int)
+TELEMETRY_LOG_MAX_ROWS = config("TELEMETRY_LOG_MAX_ROWS", default=20000, cast=int)
+
+# Buffer depth. Overflow drops records and counts the drops (visible in
+# `manage.py log_capture status`) rather than blocking the request that logged.
+TELEMETRY_LOG_QUEUE_SIZE = config("TELEMETRY_LOG_QUEUE_SIZE", default=1000, cast=int)
+
+# ---------------------------------------------------------------------------
 # Backup
 # ---------------------------------------------------------------------------
 BACKUP_DIR = config("BACKUP_DIR", default=str(BASE_DIR / "backups"))
@@ -287,21 +322,15 @@ SMALLSTACK_SCHEDULER_ENABLED = config("SMALLSTACK_SCHEDULER_ENABLED", default=Tr
 # A previous run still marked unfinished after this many seconds is treated as
 # abandoned by the overlap guard, so a dead worker can never permanently wedge
 # an allow_overlap=False schedule. Default 24h.
-SMALLSTACK_SCHEDULER_STALE_RUN_SECONDS = config(
-    "SMALLSTACK_SCHEDULER_STALE_RUN_SECONDS", default=86_400, cast=int
-)
+SMALLSTACK_SCHEDULER_STALE_RUN_SECONDS = config("SMALLSTACK_SCHEDULER_STALE_RUN_SECONDS", default=86_400, cast=int)
 
 # An enabled job overdue by more than this trips the scheduler status monitor
 # (a proxy for "the tick isn't firing"). Default 5 min.
-SMALLSTACK_SCHEDULER_OVERDUE_GRACE_SECONDS = config(
-    "SMALLSTACK_SCHEDULER_OVERDUE_GRACE_SECONDS", default=300, cast=int
-)
+SMALLSTACK_SCHEDULER_OVERDUE_GRACE_SECONDS = config("SMALLSTACK_SCHEDULER_OVERDUE_GRACE_SECONDS", default=300, cast=int)
 
 # Minimum runs in the last hour before the status monitor's failure-rate check
 # applies — so a single failed run in a quiet hour (1/1) can't trip it DOWN.
-SMALLSTACK_SCHEDULER_FAILURE_MIN_SAMPLE = config(
-    "SMALLSTACK_SCHEDULER_FAILURE_MIN_SAMPLE", default=5, cast=int
-)
+SMALLSTACK_SCHEDULER_FAILURE_MIN_SAMPLE = config("SMALLSTACK_SCHEDULER_FAILURE_MIN_SAMPLE", default=5, cast=int)
 
 # Recipients emailed when a scheduled run fails (via send_email_task). Empty ⇒
 # no failure emails. Comma-separated in env, e.g. "ops@x.com,oncall@x.com".
@@ -337,9 +366,7 @@ SMALLSTACK_WEBHOOK_TIMEOUT = config("SMALLSTACK_WEBHOOK_TIMEOUT", default=10, ca
 
 # Consecutive delivery failures before an endpoint auto-disables itself (a proxy
 # for "this URL is dead"). 0 ⇒ never auto-disable.
-SMALLSTACK_WEBHOOK_AUTO_DISABLE_AFTER = config(
-    "SMALLSTACK_WEBHOOK_AUTO_DISABLE_AFTER", default=20, cast=int
-)
+SMALLSTACK_WEBHOOK_AUTO_DISABLE_AFTER = config("SMALLSTACK_WEBHOOK_AUTO_DISABLE_AFTER", default=20, cast=int)
 
 # Backoff schedule (seconds) applied per retry attempt. Index = (attempt - 1),
 # clamped to the last entry. Comma-separated in env.
@@ -351,9 +378,7 @@ SMALLSTACK_WEBHOOK_BACKOFF = config(
 
 # Ceiling (seconds) for any single retry wait — clamps a hostile/absurd Retry-After
 # header on a 429/503 so a rate-limiter can't push a delivery weeks out.
-SMALLSTACK_WEBHOOK_MAX_BACKOFF = config(
-    "SMALLSTACK_WEBHOOK_MAX_BACKOFF", default=21600, cast=int
-)
+SMALLSTACK_WEBHOOK_MAX_BACKOFF = config("SMALLSTACK_WEBHOOK_MAX_BACKOFF", default=21600, cast=int)
 
 # This deployment's webhook origin — stamped on every outbound delivery as
 # X-SmallStack-Origin so a paired SmallStack can drop self-originated events.
@@ -369,9 +394,7 @@ SMALLSTACK_WEBHOOK_ALLOWLIST = config(
     default="",
     cast=lambda v: [a.strip().lower() for a in v.split(",") if a.strip()],
 )
-SMALLSTACK_WEBHOOK_ALLOW_PRIVATE = config(
-    "SMALLSTACK_WEBHOOK_ALLOW_PRIVATE", default=False, cast=bool
-)
+SMALLSTACK_WEBHOOK_ALLOW_PRIVATE = config("SMALLSTACK_WEBHOOK_ALLOW_PRIVATE", default=False, cast=bool)
 
 # Recipients emailed when a delivery exhausts its retries (via send_email_task).
 # Empty ⇒ no emails. Comma-separated in env.
