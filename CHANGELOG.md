@@ -9,6 +9,46 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-08-16
+
+### Changed
+- **The "Connect a SmallStack" pairing panel picks events instead of asking for
+  raw JSON.** The "Events (JSON)" text field is replaced by the same
+  `EventFilterWidget` picker the endpoint form uses — checkboxes built from
+  `available_events()`, with `*` pre-checked reproducing the old `["*"]`
+  default. Both surfaces now share one picker, upgraded together:
+
+  - **Plain-English annotations** on every option (`*.created — any record is
+    created`; model patterns resolve verbose names: *"a Ticket is created"*).
+  - **A help popup** on the custom-pattern box explaining the
+    `app.model.action` grammar with examples — built on a new reusable
+    `.help-pop` component (`<details>`-based, no JS, keyboard-operable,
+    palette-correct), documented in `admin-page-styling.md`.
+  - **Progressive disclosure**: the custom-pattern box collapses to a quiet
+    "advanced" line when empty and auto-expands with a count badge whenever
+    patterns exist — expansion is round-trip safety, since patterns usually
+    arrive via REST/MCP/CLI and a UI save with the textarea absent would
+    silently strip them.
+
+  The scripted contract is unchanged: raw `events` JSON is still accepted by
+  the pairing action, and REST/MCP/CLI post `event_filter` exactly as before.
+
+### Fixed
+- **Malformed event patterns are now rejected instead of silently matching
+  nothing.** A typo is still valid JSON, so `"support ticket created"` or a
+  pasted `["*"]` sailed through every surface and produced an endpoint that
+  simply never fires, with no error anywhere. `validate_event_patterns()`
+  shape-checks patterns on the endpoint form — HTML, REST, MCP, and CLI all
+  validate through it — and in the pairing view. Well-formed patterns that
+  match nothing this instance currently emits are still accepted (they may
+  target future events); the pairing flow warns about them, staying silent on
+  instances with no concrete events where the warning would be noise. Pairing
+  with an empty selection is rejected rather than creating a link that
+  forwards nothing.
+- **The event picker's border used the undefined `--border-color` variable**,
+  falling back to a hard-coded `#333` on light themes (the v0.15.2 bug class).
+  Now `var(--card-border)`.
+
 ## [0.18.0] - 2026-08-15
 
 ### Changed
@@ -829,6 +869,7 @@ See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full 
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
 [Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.15.1...HEAD
+[0.19.0]: https://github.com/emichaud/django-smallstack/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/emichaud/django-smallstack/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/emichaud/django-smallstack/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/emichaud/django-smallstack/compare/v0.16.1...v0.16.2
