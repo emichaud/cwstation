@@ -23,9 +23,47 @@ def close_ticket(request, pk):
 
 All `apps.*` loggers are captured by the `apps` logger configured in settings.
 
+### Attaching structured fields
+
+Pass `extra={...}` for anything you'd want to filter or group on later. These land in the `extra` object of the production JSON output — don't concatenate them into the message string:
+
+```python
+logger.warning("Blocked probe", extra={"user_agent": ua, "score": score})
+```
+
+```json
+{"time": "…", "level": "WARNING", …, "extra": {"user_agent": "curl/8.1", "score": 0.93}}
+```
+
+Keys must not collide with `LogRecord` built-ins (`name`, `module`, `message`, `args`, `levelname`, …) — Python raises `KeyError` at the call site if they do.
+
 ### Request IDs for correlation
 
-Every request gets a unique `X-Request-ID` via `RequestIDMiddleware` (first in the middleware stack). Access it as `request.id` in views and middleware. The ID is returned in the response header and stored in `RequestLog.request_id`, making it easy to correlate user-reported errors to specific log entries.
+Every request gets a unique `X-Request-ID` via `RequestIDMiddleware` (first in the middleware stack). Access it as `request.id` in views and middleware. The ID is:
+
+- returned in the `X-Request-ID` response header,
+- stored in `RequestLog.request_id`,
+- and injected into **every log line emitted while handling that request**, as the `request_id` field.
+
+So "user reported an error, here's their request ID" is a one-search answer across both the log stream and the activity log. You don't pass it anywhere — `RequestContextFilter` reads it from a `contextvar` that the middleware binds.
+
+### Trace IDs for multi-step work
+
+For work that spans many log lines and isn't a single HTTP request — a scheduled job, a webhook delivery chain, an agent run — bind a trace ID and every line emitted inside it carries `trace_id`:
+
+```python
+import uuid
+
+from apps.smallstack.logging import bind_trace_id, reset_trace_id
+
+token = bind_trace_id(f"trace_{uuid.uuid4().hex}")
+try:
+    run_the_multi_step_thing()   # every logger.* call in here is tagged
+finally:
+    reset_trace_id(token)
+```
+
+Always reset in a `finally` — worker threads are reused, and an unreset value would tag unrelated later work.
 
 ### Log levels by environment
 

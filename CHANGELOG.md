@@ -9,6 +9,57 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+### Fixed
+- **Production log output is now actually JSON.** The `json` formatter was a
+  `%`-style string template (`'{"message": "%(message)s"}'`) that only looked
+  like JSON. It emitted malformed lines in three routine cases, all of which
+  silently corrupted anything downstream that tried to parse them:
+
+  - **Any quote, backslash, or newline in a message** broke the line — nothing
+    escaped `%(message)s`. A single `logger.info('Ticket "42" closed')` was
+    enough.
+  - **`logger.exception()` was unparseable by construction.** Python appends the
+    traceback *after* the formatted string, so the JSON object was followed by
+    20-odd raw `Traceback` lines. The most important events were the ones a
+    collector could never read.
+  - **`extra={...}` was silently discarded.** The format string had no
+    placeholder for it, so existing structured call sites in `apps/api/threats.py`
+    and `apps/help/search.py` were logging fields that went nowhere.
+
+  Formatting now runs through `json.dumps` (`apps.smallstack.logging.JSONFormatter`):
+  messages are escaped, tracebacks land in an `exc` field (with `exc_type`
+  alongside) *inside* the object, `stack_info` lands in `stack`, and `extra`
+  fields are preserved under an `extra` key. Non-serializable values fall back to
+  `repr()` instead of taking the line down, and the formatter cannot raise — a
+  serialization failure degrades to a minimal object carrying the message.
+
+### Added
+- **Log lines carry the request ID that produced them.** `RequestIDMiddleware`
+  binds the request ID to a `contextvar`; a new `RequestContextFilter` on each
+  handler copies it onto every record as `request_id`. The docs already promised
+  you could correlate a user-reported `X-Request-ID` to log entries — now you
+  actually can, across both the log stream and the `RequestLog` table, with no
+  changes at any call site.
+- **`bind_trace_id()` / `reset_trace_id()`** in `apps.smallstack.logging`, for
+  stitching together work that isn't a single HTTP request — scheduled jobs,
+  webhook delivery chains, multi-step agent runs. Every log line emitted inside
+  the binding carries a shared `trace_id`.
+- **`apps/smallstack/test_logging.py`** — 33 tests pinning JSON validity
+  (quotes, backslashes, newlines, unicode, nested JSON), traceback containment,
+  `extra` preservation, context binding and reset-on-exception, and a check that
+  the `development.py` / `production.py` `LOGGING` dicts configure cleanly. The
+  test settings override `LOGGING`, so nothing else in the suite exercised them.
+
+### Changed
+- **Production log timestamps are ISO-8601 UTC** (`2026-03-04T14:23:01.123Z`)
+  instead of local-time `%(asctime)s`, so lines from different hosts sort
+  correctly. JSON output is ASCII-escaped by default so it can never raise
+  `UnicodeEncodeError` on a stream with a non-UTF-8 encoding; parsers decode the
+  escapes back to the original text. Pass `ensure_ascii=False` to `JSONFormatter`
+  if you read raw container logs by eye.
+- **Development console lines show `request_id=…`** when emitted during a
+  request, appended at the end of the line so the left edge stays scannable.
+
 ## [0.19.0] - 2026-08-16
 
 ### Changed

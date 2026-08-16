@@ -115,18 +115,27 @@ LOG_FILE = config("LOG_FILE", default="")
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "filters": {
+        # Puts request_id/trace_id on every record. Attached to handlers, not
+        # loggers, so it also sees records propagated up from child loggers.
+        "request_context": {
+            "()": "apps.smallstack.logging.RequestContextFilter",
+        },
+    },
     "formatters": {
+        # Real JSON via json.dumps — quotes, newlines and backslashes in a
+        # message are escaped, tracebacks land in an "exc" field instead of
+        # spilling raw lines after the closing brace, and extra={...} fields
+        # from call sites are preserved under "extra".
         "json": {
-            "format": (
-                '{"time": "%(asctime)s", "level": "%(levelname)s", "name": "%(name)s",'
-                ' "module": "%(module)s", "message": "%(message)s"}'
-            ),
+            "()": "apps.smallstack.logging.JSONFormatter",
         },
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": "json",
+            "filters": ["request_context"],
         },
     },
     "root": {
@@ -170,6 +179,7 @@ if LOG_FILE:
         "maxBytes": 5 * 1024 * 1024,  # 5 MB
         "backupCount": 5,
         "formatter": "json",
+        "filters": ["request_context"],
     }
     # Add file handler to all loggers
     LOGGING["root"]["handlers"].append("file")

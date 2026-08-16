@@ -58,8 +58,19 @@ DATABASES = {
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "filters": {
+        # Puts request_id/trace_id on every record. Attached to handlers, not
+        # loggers, so it also sees records propagated up from child loggers.
+        "request_context": {
+            "()": "apps.smallstack.logging.RequestContextFilter",
+        },
+    },
     "formatters": {
+        # Same layout as before, plus a trailing `request_id=...` on lines
+        # emitted while handling a request — match it against the
+        # X-Request-ID in your browser's network tab.
         "verbose": {
+            "()": "apps.smallstack.logging.TextFormatter",
             "format": "{asctime} {levelname} {name} {message}",
             "style": "{",
         },
@@ -68,6 +79,7 @@ LOGGING = {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": "verbose",
+            "filters": ["request_context"],
         },
     },
     "root": {
