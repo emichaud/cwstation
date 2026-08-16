@@ -104,6 +104,8 @@ LOGGING["loggers"]["apps.tickets"] = {
 
 Log lines are also written to the database (`apps.telemetry`), so they're readable from inside the app. This is the answer when the log *stream* isn't reachable — a locked-down container, a managed platform with no shell.
 
+The viewer is **`/smallstack/logs/`** (staff only). Level / logger / time-range filters, search across messages *and* tracebacks, expandable rows for the traceback and `extra` fields, a live-poll mode, and the capture control in the header. Filter to one request with `?request_id=<id>`; `/smallstack/activity/requests/` links straight there per request.
+
 The baseline is WARNING, which keeps the table small. When you need more, open a **capture window**: it turns the level up for a fixed period and closes itself.
 
 ```bash
@@ -112,7 +114,7 @@ uv run python manage.py log_capture start --level DEBUG --minutes 15
 uv run python manage.py log_capture stop
 ```
 
-The window lives in the database, so every worker and every container picks it up within one poll interval (5s). Records are browsable at `/admin/telemetry/logrecord/` and through Explorer.
+The window can also be opened from the log viewer itself — the header shows what's being captured and has the control next to it, so you never need shell access. It lives in the database, so every worker and every container picks it up within one poll interval (5s).
 
 **If you turn on DEBUG and see nothing new**, the logger — not the handler — is what discarded it. A record has to be created before any handler is consulted, and `apps` sits at INFO in production. `TELEMETRY_CAPTURE_LOGGERS` lists the loggers whose level is lowered while a window is open; add yours if it isn't covered by `apps`, `smallstack`, or `django.request`.
 

@@ -46,6 +46,8 @@ urlpatterns = [
     path("help/", include("apps.help.urls")),
     # Activity tracking
     path("activity/", include("apps.activity.urls")),
+    # Logs — captured log records + capture-window controls (staff-only)
+    path("logs/", include("apps.telemetry.urls")),
     # Heartbeat / Status
     path("", include("apps.heartbeat.urls")),
     # Backups (staff-only)

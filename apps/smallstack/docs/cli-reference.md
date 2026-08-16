@@ -197,7 +197,7 @@ The baseline is WARNING (`TELEMETRY_LOG_LEVEL`), so routine INFO chatter is not 
 
 The window lives in the database, so every worker and container applies it within one poll interval (~5s). `status` also reports queue health: a non-zero `dropped` means the app logged faster than the database absorbed it — raise `TELEMETRY_LOG_QUEUE_SIZE` or capture at a higher level.
 
-Records are browsable at `/admin/telemetry/logrecord/` and through Explorer. Each carries the `request_id` that produced it, so an `X-Request-ID` from a bug report pulls every line that request emitted.
+Records are readable at **`/smallstack/logs/`**, which also has the capture control — so the whole loop works without shell access. Each carries the `request_id` that produced it, so an `X-Request-ID` from a bug report pulls every line that request emitted.
 
 > **If DEBUG shows nothing new:** the *logger*, not the handler, discarded it. A record must be created before any handler is consulted, and `apps` sits at INFO in production. `TELEMETRY_CAPTURE_LOGGERS` lists the loggers lowered during a window — add yours if it isn't under `apps`, `smallstack`, or `django.request`.
 

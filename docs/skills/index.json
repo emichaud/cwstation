@@ -240,7 +240,10 @@
         "structured logging",
         "capture window",
         "no shell",
-        "container logs"
+        "container logs",
+        "log viewer",
+        "/smallstack/logs/",
+        "capture window UI"
       ],
       "use_when": "Configuring logging, adding audit trails, debugging log output, correlating an X-Request-ID to log lines, or reading logs from a deployment you cannot shell into."
     },

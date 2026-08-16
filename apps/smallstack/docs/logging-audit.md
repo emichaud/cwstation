@@ -265,6 +265,21 @@ So {{ project_name }} also writes log records to the database, where the app its
 
 Both run at once. The database copy isn't a replacement for a log collector — it's what you have when there isn't one.
 
+### The log viewer
+
+**`/smallstack/logs/`** (staff only, "Logs" in the admin sidebar) is where you read them.
+
+It's built for one job: finding the lines that explain what just went wrong. Newest first, one line per record, with a colour rail down the left edge so severity is visible without reading. Filters across the top narrow by level (each showing how many records you'd get), by logger, by time range, and by a search that covers tracebacks as well as messages — the exception class is usually what you remember, and it lives in the traceback.
+
+Expanding a row loads its full message, traceback, `extra` fields, and source location. Tracebacks are fetched on demand: a single one can be 20 KB, and fifty inlined would make the page unusable.
+
+Two things worth knowing:
+
+- **Every record links to its request.** Expanding a row shows its `request_id`; clicking it filters to every line that request produced, in order. The same link runs the other way — `/smallstack/activity/requests/` has a `logs` link on each request.
+- **Live mode** polls every five seconds, for watching a problem as you reproduce it.
+
+If capture is dropping records under load, the page says so at the top rather than quietly showing you an incomplete picture.
+
 ### Capture windows
 
 Storing every INFO line from a busy site would bloat the database for no benefit, so the baseline is WARNING. When you actually need detail, you open a **capture window**:
@@ -284,7 +299,7 @@ The window expires on its own. That's the point — there's no state left switch
 
 Windows live in the database, not in one process's memory, so every worker and every container picks up the change within about five seconds. Each row records who opened it and why, which leaves a small audit trail of when the system was running verbose.
 
-Captured records are browsable at `/admin/telemetry/logrecord/` and through Explorer. Because each carries its `request_id`, you can take an `X-Request-ID` from a user's bug report and pull every line that request produced.
+Captured records are readable at **`/smallstack/logs/`** — see below. Because each carries its `request_id`, you can take an `X-Request-ID` from a user's bug report and pull every line that request produced.
 
 ### If DEBUG shows you nothing new
 

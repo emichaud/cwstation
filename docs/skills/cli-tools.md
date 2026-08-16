@@ -39,7 +39,8 @@ Two tables: a **task → tool map** (the most common lookups) and a **tool → d
 | mint a dev superuser | `make superuser` (= `manage.py create_dev_superuser`) |
 | **back up the SQLite database** | `make backup` (= `manage.py backup_db [--keep N]`) |
 | trim the activity log | `uv run python manage.py prune_activity` |
-| **read logs from a deployment you can't shell into** | `uv run python manage.py log_capture status` (then browse `/admin/telemetry/logrecord/`) |
+| **read logs from a deployment you can't shell into** | Open **`/smallstack/logs/`** (staff-only viewer: level/logger/search filters, expandable tracebacks) |
+| **see every log line from one request** | `/smallstack/logs/?request_id=<X-Request-ID>` — or click the `logs` link on the request in `/smallstack/activity/requests/` |
 | **capture DEBUG from a live deployment, temporarily** | `uv run python manage.py log_capture start --level DEBUG --minutes 15` (auto-closes) |
 | close a capture window early | `uv run python manage.py log_capture stop` |
 | trim captured log records | `uv run python manage.py prune_logs [--keep-days N --max-rows N]` |

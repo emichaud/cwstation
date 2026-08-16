@@ -10,6 +10,31 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 ## [Unreleased]
 
 ### Added
+- **`/smallstack/logs/` — a staff log viewer, so the whole loop works without
+  shell access.** Newest-first, one line per record, with a colour rail down the
+  left edge carrying severity: level is the attribute you scan for, and a rail
+  finds it without reading while costing no row height (a badge would have made
+  every row taller for information the rail already carries). Filters for level
+  (each showing the count you'd get), logger, time range, and a search that
+  covers tracebacks as well as messages — the exception class is what you
+  remember, and it lives in the traceback.
+
+  Rows expand in place for the full message, traceback, `extra` fields and
+  source location; tracebacks load on demand, since one can be 20 KB and fifty
+  inlined would dominate the page. A live mode polls every five seconds.
+
+  **The capture control sits in the page header**, because "nothing here, turn
+  it up" is the first move when the baseline level missed your bug. Opening a
+  window from the UI is audited via `log_action`.
+
+  **Request correlation is now round-trip**: expanding a record links to every
+  line its request produced, and `/smallstack/activity/requests/` gained a
+  `logs` link per request going the other way.
+
+  Verified across the django / orange / dark-blue / high-contrast palettes, in
+  light and dark, and down to a 420px viewport (the logger column drops, the
+  rails hold).
+
 - **`apps/telemetry` — log records are written to the database, so a deployment
   is debuggable from inside the app.** Console and file logging both assume you
   can reach the output; a container platform with no shell means the log is
