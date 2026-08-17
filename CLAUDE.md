@@ -90,6 +90,14 @@ Settings split in `config/settings/`:
 - **Signals**: separate `signals.py`, imported in `apps.py:ready()`.
 - **Tests**: `apps/<name>/tests/test_*.py`. `pytest.mark.django_db` when DB is touched.
 - **Templates**: extend `smallstack/base.html`. Use `{% load theme_tags %}` for breadcrumbs / nav_active.
+- **Types**: prefer strongly typed code where practical — annotate function
+  signatures (params + return) on new and edited code; reach for `Any` only
+  when the type genuinely can't be expressed. The project typechecks with
+  **mypy + django-stubs** over every app (`[tool.mypy]` in `pyproject.toml`;
+  migrations/tests excluded, untyped bodies not checked — so annotating a
+  function is what opts its body into checking). `make lint` runs ruff **and
+  mypy**; both must be green before reporting work done, and the pre-commit
+  hook enforces the same gate.
 
 ## Theming — the single biggest thing to get right
 
@@ -118,8 +126,9 @@ Most-used:
 ```bash
 make run                                         # dev server (port 8005)
 make test                                        # full pytest suite
-make lint                                        # ruff check
+make lint                                        # ruff check + mypy (the full static gate)
 make lint-fix                                    # ruff check --fix
+make typecheck                                   # mypy alone
 make migrate                                     # apply migrations
 make migrations                                  # create new ones
 make backup                                      # SQLite snapshot with retention

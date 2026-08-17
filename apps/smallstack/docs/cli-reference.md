@@ -11,7 +11,7 @@ Every command-line tool SmallStack provides — `manage.py` commands, Make targe
 | Setup | `make setup` | Install deps + migrate + create dev superuser |
 | Dev | `make run` | Start dev server on port 8005 |
 | Test | `make test` | Run pytest with coverage |
-| Lint | `make lint` / `make lint-fix` | Ruff check / autofix |
+| Lint | `make lint` / `make lint-fix` | Ruff + mypy / ruff autofix |
 | Diagnose | `make mcp-doctor` / `manage.py api_doctor` | In-process health checks |
 | Smoke | `make mcp-test` / `make api-test` | HTTP smoke tests against a running server |
 | Auth | `manage.py create_api_token` | Mint a token for a user |
@@ -414,8 +414,8 @@ Every target in the `Makefile`, grouped by purpose. Run `make help` (or just `ma
 |---|---|
 | `make test` | Run pytest with coverage |
 | `make coverage` | Run tests + open `htmlcov/index.html` |
-| `make lint` | Run ruff |
-| `make lint-fix` | Run ruff with `--fix` |
+| `make lint` | Run ruff, then mypy (the full static gate) |
+| `make lint-fix` | Run ruff with `--fix` (mypy has no autofix) |
 
 ### Diagnostics
 

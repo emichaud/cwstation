@@ -24,8 +24,8 @@ help:
 	@echo "  make mcp-doctor   - Diagnose the MCP server (settings, URLs, registry, self-test)"
 	@echo "  make mcp-test     - End-to-end MCP smoke test (requires \`make run\` in another shell)"
 	@echo "  make api-test     - End-to-end REST API smoke test (requires \`make run\` in another shell)"
-	@echo "  make lint         - Run ruff linter"
-	@echo "  make typecheck    - Run mypy (scoped to typed apps; see [tool.mypy])"
+	@echo "  make lint         - Run ruff + mypy (the full static gate)"
+	@echo "  make typecheck    - Run mypy alone (lint already includes it)"
 	@echo "  make install-hooks - Install the git pre-commit hook (ruff + mypy)"
 	@echo "  make screenshot-auth - Generate shot-scraper auth JSON"
 	@echo "  make optimize-images - Optimize PNG images with pngquant"
@@ -95,6 +95,7 @@ screenshot-auth:
 
 lint:
 	uv run ruff check .
+	uv run mypy
 
 lint-fix:
 	uv run ruff check --fix .

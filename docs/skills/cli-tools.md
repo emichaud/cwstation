@@ -20,7 +20,7 @@ Two tables: a **task → tool map** (the most common lookups) and a **tool → d
 | **health-check the whole framework** at once | `sc doctor all` (api + mcp + search + webhook) |
 | start the dev server | `make run` (port 8005; `PORT=N make run` to change) |
 | run tests | `make test` (full) or `uv run pytest -k <name>` (one) |
-| lint | `make lint` (check) / `make lint-fix` (autofix) |
+| lint | `make lint` (ruff + mypy) / `make lint-fix` (ruff autofix) |
 | check that the **REST API is healthy** | `uv run python manage.py api_doctor` |
 | understand **what API endpoints exist** | `uv run python manage.py api_doctor --explain` |
 | validate **OpenAPI spec is still 3.0.3-compliant** | `uv run python manage.py api_doctor` → look at `OpenAPI validity` row |
