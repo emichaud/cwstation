@@ -119,6 +119,22 @@ def test_log_capture_start_records_the_reason():
     assert capture.active_window().note == "chasing the checkout 500"
 
 
+def test_log_capture_start_does_not_claim_clamping_when_there_was_none():
+    """Regression: the clamp message used to fire unconditionally because it
+    compared two independently-generated timezone.now() values (expires_at
+    vs. auto_now_add started_at) instead of the requested duration against
+    the actual cap."""
+    output = run("log_capture", "start", "--level", "DEBUG", "--minutes", "5")
+    assert "clamped" not in output
+
+
+@override_settings(TELEMETRY_MAX_CAPTURE_MINUTES=30)
+def test_log_capture_start_reports_clamping_when_it_actually_happened():
+    output = run("log_capture", "start", "--minutes", "10000")
+    assert "clamped" in output
+    assert capture.active_window().expires_at is not None
+
+
 def test_log_capture_stop_closes_the_window():
     capture.start(minutes=15)
 

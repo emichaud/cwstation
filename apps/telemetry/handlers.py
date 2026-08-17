@@ -33,11 +33,23 @@ from datetime import datetime
 from datetime import timezone as dt_timezone
 from typing import Any
 
-from apps.smallstack.logging import extract_extra, safe_message
+from apps.smallstack.logging import extract_extra, json_default, safe_message
+
+from .logger_match import matches_prefix
 
 # Loggers never captured to the database. django.db.backends would recurse
 # (see guard 1); apps.telemetry is this subsystem reporting on itself.
-DEFAULT_EXCLUDE_LOGGERS = ("django.db.backends", "apps.telemetry")
+#
+# django.server is the *development* server's per-request access log. Excluded
+# for three reasons: it does not exist in production (gunicorn/uvicorn write
+# their own access logs, not through Django's logging), its content — method,
+# path, status, size — is already stored properly by apps.activity's RequestLog
+# with a user and a request_id attached, and capturing it makes any tail of
+# this table mostly self-traffic. Anything polling the log — the viewer's live
+# mode every 5s, or a client polling /api/logger/records/ — otherwise writes
+# one INFO record per poll into the very table it is reading. Measured: 10
+# polls of the logger API produced 11 new records, all django.server.
+DEFAULT_EXCLUDE_LOGGERS = ("django.db.backends", "apps.telemetry", "django.server")
 
 MAX_MESSAGE_CHARS = 10_000
 MAX_EXC_CHARS = 20_000
@@ -74,9 +86,12 @@ def _is_excluded(logger_name: str, excluded: tuple[str, ...]) -> bool:
 
     Matching the logger hierarchy, not a raw string prefix: a plain
     ``startswith`` would also swallow ``apps.telemetry_report``, which is a
-    different app that happens to share leading characters.
+    different app that happens to share leading characters. See
+    ``logger_match.matches_prefix`` — the log viewer's own logger filter
+    (``views.py::LogListView.filtered_queryset``) reuses the same predicate so
+    the two can't drift apart.
     """
-    return any(logger_name == prefix or logger_name.startswith(prefix + ".") for prefix in excluded)
+    return any(matches_prefix(logger_name, prefix) for prefix in excluded)
 
 
 def _is_missing_table(exc: Exception) -> bool:
@@ -94,13 +109,25 @@ def _is_missing_table(exc: Exception) -> bool:
 def _jsonable(value: dict[str, Any]) -> dict[str, Any]:
     """Coerce ``extra`` into something a JSONField will accept.
 
-    ``default=str`` means an unserializable value becomes its ``repr`` instead
-    of costing us the whole record.
+    ``default=json_default`` means an unserializable value becomes its
+    (bounded) ``repr()`` instead of costing us the whole record — see
+    ``apps.smallstack.logging.json_default`` for why ``repr()`` and not
+    ``str()``. ``json_default`` is itself defensive against a ``__repr__``
+    that raises, so in practice this outer ``except`` is a last-resort net,
+    not the primary defense.
+
+    That outer net must never re-touch ``value``: the original bug here was
+    calling ``repr(value)`` on the very dict whose member's ``__repr__`` just
+    raised inside ``json_default`` — which raises *again*, uncaught, and
+    drops the whole record (not just the poisoned field). Build a fixed,
+    self-contained string instead, the same shape ``JSONFormatter.format()``'s
+    outer fallback already uses (build fresh, don't re-touch the poisoned
+    value).
     """
     try:
-        return json.loads(json.dumps(value, default=str))
+        return json.loads(json.dumps(value, default=json_default))
     except Exception:  # pragma: no cover - defensive
-        return {"unserializable": repr(value)[:500]}
+        return {"unserializable": "<extra could not be rendered>"}
 
 
 class DatabaseLogHandler(logging.Handler):
@@ -165,6 +192,25 @@ class DatabaseLogHandler(logging.Handler):
         try:
             if getattr(_guard, "active", False):
                 return
+
+            # Belt-and-suspenders start of the writer/poller thread. The
+            # primary start point is now TelemetryConfig.ready() (see
+            # apps.py), which starts it eagerly for every process — that's
+            # what actually satisfies "a fresh process picks up an
+            # already-open capture window within one poll interval", since
+            # this call site is gated by the same level check as everything
+            # else in emit() and so cannot help a below-baseline record.
+            # This call still matters for one case ready() can't cover: a
+            # gunicorn deployment with preload_app = True forks workers
+            # *after* the app (and this handler) is already loaded in the
+            # master, so the thread ready() started there does not survive
+            # into the forked workers. Calling _ensure_worker() here starts
+            # it in each worker on that worker's first record instead —
+            # still no-ops until django_apps.models_ready, so it doesn't
+            # touch the database or spin up a thread at dictConfig/import
+            # time.
+            self._ensure_worker()
+
             # Logger.callHandlers already applies this, but checking here too
             # makes the handler correct however it is driven — including the
             # capture window, which changes self.level out from under it.
@@ -179,8 +225,6 @@ class DatabaseLogHandler(logging.Handler):
             except queue.Full:
                 self.dropped += 1
                 return
-
-            self._ensure_worker()
         except Exception:  # pragma: no cover - defensive
             self.errors += 1
 
@@ -268,9 +312,24 @@ class DatabaseLogHandler(logging.Handler):
 
         # Records logged during django.setup() arrive before models are usable.
         # Leave them queued; a later record starts the worker and they flush then.
+        #
+        # Gate on models_ready, not the coarser ready flag. Apps.populate()
+        # sets ready = True only *after* every app's AppConfig.ready() has
+        # returned (see django.apps.registry.Apps.populate: Phase 3 runs
+        # ready() for each app, then sets self.ready = True once the whole
+        # loop is done) — so a check against `ready` is never true while
+        # still inside any app's own ready(), including this handler's own
+        # TelemetryConfig.ready() -> _start_log_writers() call in apps.py,
+        # which would otherwise silently no-op every time (this was caught
+        # by the two-process end-to-end proof, not by a unit test — the
+        # thread never started, worker_alive stayed False). models_ready is
+        # what actually matters here: it flips at the end of Phase 2, before
+        # any app's ready() runs, and is exactly "model imports (LogRecord,
+        # LogCaptureWindow) are safe" — the thing this guard exists to wait
+        # for in the first place.
         from django.apps import apps as django_apps
 
-        if not django_apps.ready:
+        if not django_apps.models_ready:
             return
 
         with self._start_lock:

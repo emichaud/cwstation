@@ -141,6 +141,19 @@ def test_logger_filter_includes_children(client, staff, logs_url):
     assert "other line" not in body
 
 
+def test_logger_filter_excludes_a_sibling_that_shares_a_string_prefix(client, staff, logs_url):
+    """Regression: logger__startswith is a raw string prefix at the DB level —
+    filtering to "apps.webhooks" must not also match "apps.webhooks_admin",
+    which is an unrelated logger, not a child in the "." hierarchy."""
+    make_record(logger="apps.webhooks", message="parent line")
+    make_record(logger="apps.webhooks_admin", message="sibling line")
+
+    body = client.get(logs_url, {"logger": "apps.webhooks"}).content.decode()
+
+    assert "parent line" in body
+    assert "sibling line" not in body
+
+
 def test_search_covers_the_traceback_not_just_the_message(client, staff, logs_url):
     """The exception class is what you remember, and it lives in exc_text."""
     make_record(message="payment failed", exc_type="GatewayTimeout", exc_text="…raise GatewayTimeout(...)")

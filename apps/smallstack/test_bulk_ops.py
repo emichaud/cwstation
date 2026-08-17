@@ -196,6 +196,121 @@ def test_html_bulk_no_ids_is_400(staff):
     assert resp.status_code == 400
 
 
+def test_html_bulk_delete_logs_one_summary_line(staff, caplog):
+    """Bulk delete must be visible in the log viewer — one structured line,
+    not one per row (that would be the unbounded-growth-under-load failure
+    mode DatabaseLogHandler itself exists to avoid)."""
+    import logging
+
+    toks = _tokens(staff, 3)
+    with caplog.at_level(logging.INFO, logger="apps.smallstack.crud"):
+        _bulk_action_view(_TokenBulkView)(
+            _bulk_post(staff, {"action": "delete", "ids": [t.pk for t in toks]})
+        )
+
+    bulk_records = [r for r in caplog.records if r.name == "apps.smallstack.crud"]
+    assert len(bulk_records) == 1
+    record = bulk_records[0]
+    assert "Bulk delete" in record.message
+    assert "3/3" in record.message
+    assert staff.get_username() in record.message
+    assert sorted(record.ids) == sorted(t.pk for t in toks)
+    assert record.errors == {}
+
+
+def test_html_bulk_update_logs_one_summary_line_with_field_names(staff, caplog):
+    import logging
+
+    toks = _tokens(staff, 2)
+    with caplog.at_level(logging.INFO, logger="apps.smallstack.crud"):
+        _bulk_action_view(_TokenBulkView)(
+            _bulk_post(staff, {"action": "update", "ids": [t.pk for t in toks], "fields": {"name": "bulklog"}})
+        )
+
+    bulk_records = [r for r in caplog.records if r.name == "apps.smallstack.crud"]
+    assert len(bulk_records) == 1
+    record = bulk_records[0]
+    assert "Bulk update" in record.message
+    assert record.fields == ["name"]
+
+
+def test_html_bulk_delete_writes_one_log_entry_per_deleted_row(staff):
+    """Audit trail parity with single-object writes: 'who deleted which
+    specific row' must still be answerable per-row, via the same batch
+    LogEntry.objects.log_actions() helper Django admin's own bulk delete
+    action uses — one bulk_create query, not N individual ones."""
+    from django.contrib.admin.models import DELETION, LogEntry
+    from django.contrib.contenttypes.models import ContentType
+
+    toks = _tokens(staff, 3)
+    ct = ContentType.objects.get_for_model(APIToken)
+    _bulk_action_view(_TokenBulkView)(
+        _bulk_post(staff, {"action": "delete", "ids": [t.pk for t in toks]})
+    )
+
+    entries = LogEntry.objects.filter(content_type=ct, action_flag=DELETION, user=staff)
+    assert entries.count() == 3
+    assert sorted(int(e.object_id) for e in entries) == sorted(t.pk for t in toks)
+
+
+def test_html_bulk_update_writes_one_log_entry_per_updated_row(staff):
+    from django.contrib.admin.models import CHANGE, LogEntry
+    from django.contrib.contenttypes.models import ContentType
+
+    toks = _tokens(staff, 2)
+    ct = ContentType.objects.get_for_model(APIToken)
+    _bulk_action_view(_TokenBulkView)(
+        _bulk_post(staff, {"action": "update", "ids": [t.pk for t in toks], "fields": {"name": "audited"}})
+    )
+
+    entries = LogEntry.objects.filter(content_type=ct, action_flag=CHANGE, user=staff)
+    assert entries.count() == 2
+    assert sorted(int(e.object_id) for e in entries) == sorted(t.pk for t in toks)
+
+
+def test_bulk_delete_audit_excludes_rows_that_failed_permission_or_not_found(staff):
+    """Only the rows actually deleted get an audit entry — a 'Not found' or
+    'Permission denied' row was never touched, so it shouldn't show up as
+    deleted in the audit trail."""
+    from django.contrib.admin.models import DELETION, LogEntry
+    from django.contrib.contenttypes.models import ContentType
+
+    toks = _tokens(staff, 1)
+    ct = ContentType.objects.get_for_model(APIToken)
+    resp = _bulk_action_view(_TokenBulkView)(
+        _bulk_post(staff, {"action": "delete", "ids": [toks[0].pk, 999999]})
+    )
+    body = json.loads(resp.content)
+    assert body["deleted"] == [toks[0].pk]
+    assert "999999" in body["errors"]
+
+    entries = LogEntry.objects.filter(content_type=ct, action_flag=DELETION, user=staff)
+    assert entries.count() == 1
+
+
+def test_audit_bulk_action_skips_an_actor_with_no_pk(staff):
+    """LogEntry.user is a required FK — log_actions() would raise outright for
+    an actor with no pk. Unit-tested directly against the helper (rather than
+    through the full bulk view) because StaffRequiredMixin already rejects an
+    AnonymousUser before _bulk_delete/_bulk_update would ever run it for
+    real — this pins the guard itself, matching
+    apps.smallstack.audit.log_write's identical guard for the same case."""
+    from django.contrib.admin.models import DELETION, LogEntry
+    from django.contrib.auth.models import AnonymousUser
+
+    from apps.smallstack.crud import _audit_bulk_action
+
+    toks = _tokens(staff, 1)
+
+    class _Req:
+        user = AnonymousUser()
+
+    snapshots = [(t.pk, str(t)) for t in toks]
+    _audit_bulk_action(_Req(), APIToken, snapshots, DELETION, "should not be written")  # must not raise
+
+    assert LogEntry.objects.count() == 0
+
+
 def test_bulk_update_form_view_renders_fields(staff):
     from apps.smallstack.crud import _make_bulk_update_form_view
 

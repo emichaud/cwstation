@@ -174,6 +174,64 @@ def test_unserializable_extra_falls_back_to_repr():
     assert "object object at" in payload["extra"]["thing"]
 
 
+def test_unserializable_extra_uses_repr_not_str_for_a_datetime():
+    """repr() and str() only diverge for types with a non-identity __str__ —
+    a bare object() (the test above) can't tell them apart. A datetime can:
+    str() gives '2026-08-16 12:00:00' (looks like a plain string), repr()
+    gives 'datetime.datetime(2026, 8, 16, 12, 0, 0)' (unambiguous)."""
+    import datetime
+
+    payload = emit(make_record("odd", when=datetime.datetime(2026, 8, 16, 12, 30, 5)))
+    assert payload["extra"]["when"] == "datetime.datetime(2026, 8, 16, 12, 30, 5)"
+
+
+def test_json_default_survives_a_repr_that_raises():
+    """json_default's own first attempt must degrade gracefully — see
+    apps.telemetry.tests.test_handlers for the DB-row-level regression this
+    protects (a poisoned field must not cost the whole log line)."""
+    from apps.smallstack.logging import json_default
+
+    class BadRepr:
+        def __repr__(self):
+            raise ValueError("nope")
+
+    rendered = json_default(BadRepr())
+    assert "repr() raised" in rendered
+    assert "BadRepr" in rendered
+
+
+def test_json_default_survives_a_recursive_repr():
+    """A hand-written recursive __repr__ raises RecursionError — not caught
+    by Python's built-in container-cycle detection, since it isn't a
+    container cycle."""
+    from apps.smallstack.logging import json_default
+
+    class RecursiveRepr:
+        def __repr__(self):
+            return repr(self)
+
+    rendered = json_default(RecursiveRepr())
+    assert "repr() raised" in rendered
+    assert "RecursiveRepr" in rendered
+
+
+def test_json_default_still_works_for_a_normal_value():
+    from apps.smallstack.logging import json_default
+
+    assert json_default(object()).startswith("<object object at")
+
+
+def test_unserializable_extra_is_truncated_when_huge():
+    """A set isn't natively JSON-serializable (unlike a list), so its repr()
+    goes through json_default — and repr() of a big one is easily oversized."""
+    from apps.smallstack.logging import MAX_UNSERIALIZABLE_REPR_CHARS
+
+    payload = emit(make_record("odd", huge=set(range(10_000))))
+    rendered = payload["extra"]["huge"]
+    assert len(rendered) <= MAX_UNSERIALIZABLE_REPR_CHARS + len("...(truncated)")
+    assert rendered.endswith("...(truncated)")
+
+
 def test_context_ids_are_not_duplicated_into_extra(clean_context):
     token = bind_request_id("req_abc")
     try:
@@ -239,6 +297,146 @@ def test_explicit_extra_request_id_wins_over_context(clean_context):
         reset_request_id(token)
 
     assert emit(record)["request_id"] == "req_explicit"
+
+
+# ---------------------------------------------------------------------------
+# record.request fallback — Django's own 4xx/5xx access-log lines
+#
+# BaseHandler.get_response() calls log_response(..., request=request) *after*
+# _middleware_chain(request) returns, i.e. after RequestIDMiddleware's
+# `finally: reset_request_id(token)` has already fired — so the contextvar is
+# empty by the time django.request's auto-logged 4xx/5xx line is built. The
+# request object itself (still referenced via record.request, which
+# log_response's request= kwarg lands on) is untouched by that reset.
+# ---------------------------------------------------------------------------
+
+
+class _FakeRequest:
+    def __init__(self, request_id):
+        self.id = request_id
+
+
+def test_filter_falls_back_to_record_request_id_when_context_is_unbound(clean_context):
+    record = make_record(request=_FakeRequest("req_from_response"))
+    assert RequestContextFilter().filter(record) is True
+    assert record.request_id == "req_from_response"
+
+
+def test_filter_prefers_contextvar_over_record_request(clean_context):
+    """The common case (an app-level logger.*() call during view processing,
+    or any line logged before the middleware's `finally` fires) should keep
+    using the contextvar — the record.request fallback only matters once it's
+    already empty."""
+    token = bind_request_id("req_context")
+    try:
+        record = make_record(request=_FakeRequest("req_from_response"))
+        RequestContextFilter().filter(record)
+    finally:
+        reset_request_id(token)
+
+    assert record.request_id == "req_context"
+
+
+def test_filter_fallback_is_empty_when_record_has_no_request(clean_context):
+    record = make_record()
+    assert RequestContextFilter().filter(record) is True
+    assert record.request_id == ""
+
+
+def test_filter_fallback_is_empty_when_record_request_is_none(clean_context):
+    record = make_record(request=None)
+    assert RequestContextFilter().filter(record) is True
+    assert record.request_id == ""
+
+
+def test_filter_fallback_ignores_a_non_string_request_id(clean_context):
+    """Defensive: whatever set .id on the request-like object may not have
+    put a string there — don't propagate a non-string into a CharField."""
+    record = make_record(request=_FakeRequest(12345))
+    assert RequestContextFilter().filter(record) is True
+    assert record.request_id == ""
+
+
+def test_filter_fallback_survives_a_request_object_that_raises(clean_context):
+    """A filter must never raise — that would drop the record it's enriching,
+    which is precisely the failure mode this whole fallback exists to avoid."""
+
+    class ExplodingRequest:
+        @property
+        def id(self):
+            raise RuntimeError("boom")
+
+    record = make_record(request=ExplodingRequest())
+    assert RequestContextFilter().filter(record) is True
+    assert record.request_id == ""
+
+
+def test_filter_fallback_survives_record_request_itself_raising_on_access(clean_context):
+    """Belt-and-suspenders: even a record whose `request` attribute access
+    itself explodes (not just `.id` on it) must not crash the filter."""
+
+    class WeirdRecord:
+        name = "apps.weird"
+
+        @property
+        def request(self):
+            raise RuntimeError("no request for you")
+
+        def __getattr__(self, item):
+            if item in ("request_id", "trace_id"):
+                return ""
+            raise AttributeError(item)
+
+    record = WeirdRecord()
+    assert RequestContextFilter().filter(record) is True
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: Django's own auto-logged 4xx access log line
+# ---------------------------------------------------------------------------
+
+
+def test_django_auto_logged_404_carries_request_id_matching_the_response_header(clean_context):
+    """Regression for the blocker finding: exercised through the real Django
+    request/response cycle (test Client -> BaseHandler.get_response ->
+    log_response), not a hand-built LogRecord, so it actually pins the bug —
+    a hand-built record could pass even if RequestIDMiddleware/BaseHandler's
+    real interaction were still broken.
+    """
+    from django.test import Client
+
+    records: list[logging.LogRecord] = []
+
+    class _Collect(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    collector = _Collect()
+    collector.addFilter(RequestContextFilter())
+    django_request_logger = logging.getLogger("django.request")
+    original_level = django_request_logger.level
+    original_disabled = django_request_logger.disabled
+    # Test settings ship `LOGGING = {"disable_existing_loggers": True, ...}` to
+    # keep the suite quiet — which, as a side effect, disables the
+    # already-created "django.request" logger outright. Undo that just for
+    # this test, or the record never reaches any handler regardless of level.
+    django_request_logger.disabled = False
+    django_request_logger.addHandler(collector)
+    django_request_logger.setLevel(logging.WARNING)
+    try:
+        response = Client().get("/this-path-does-not-exist-anywhere-in-the-urlconf/")
+    finally:
+        django_request_logger.removeHandler(collector)
+        django_request_logger.setLevel(original_level)
+        django_request_logger.disabled = original_disabled
+
+    assert response.status_code == 404
+    response_request_id = response["X-Request-ID"]
+    assert response_request_id
+
+    matching = [r for r in records if r.name == "django.request"]
+    assert matching, "django.request should have auto-logged the 404"
+    assert matching[-1].request_id == response_request_id
 
 
 # ---------------------------------------------------------------------------

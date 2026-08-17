@@ -53,6 +53,19 @@ def capture_loggers() -> list[str]:
     return list(getattr(settings, "TELEMETRY_CAPTURE_LOGGERS", DEFAULT_CAPTURE_LOGGERS))
 
 
+def max_capture_minutes() -> int:
+    """The clamp ceiling ``start()`` enforces — the single source of truth for it.
+
+    Exists so callers that need to know *whether* a requested duration will be
+    clamped (e.g. the ``log_capture`` command deciding whether to print a
+    warning) can compare against the same value ``start()`` uses, instead of
+    re-deriving "was it clamped?" from two independently-generated timestamps
+    after the fact — which is never exactly reproducible and used to make the
+    warning fire unconditionally.
+    """
+    return getattr(settings, "TELEMETRY_MAX_CAPTURE_MINUTES", 120)
+
+
 def _level_number(name: str | int) -> int:
     """Resolve a level name to its number, falling back to WARNING.
 
@@ -84,7 +97,7 @@ def start(level: str = "DEBUG", minutes: int = 15, actor: str = "", note: str = 
     """
     from .models import LogCaptureWindow
 
-    cap = getattr(settings, "TELEMETRY_MAX_CAPTURE_MINUTES", 120)
+    cap = max_capture_minutes()
     minutes = max(1, min(int(minutes), cap))
     return LogCaptureWindow.objects.create(
         level=str(level).upper(),

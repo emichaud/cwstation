@@ -65,6 +65,8 @@ finally:
 
 Always reset in a `finally` — worker threads are reused, and an unreset value would tag unrelated later work.
 
+**`apps.tasks` and `apps.scheduler` already do this for you.** Every background task gets a `trace_task_<id>` bound around its execution automatically (`apps/tasks/tracing.py`, hooked into the task-running signals every task funnels through, regardless of which app enqueued it), and the scheduler's own tick binds a `trace_schedjob_<job pk>_<tick>` around each job's tick-time processing. Reach for `bind_trace_id()` yourself for work these two don't cover — a webhook delivery chain, a multi-step pipeline outside the task/scheduler system.
+
 ### Log levels by environment
 
 | Logger | Development | Production |
@@ -104,7 +106,7 @@ LOGGING["loggers"]["apps.tickets"] = {
 
 Log lines are also written to the database (`apps.telemetry`), so they're readable from inside the app. This is the answer when the log *stream* isn't reachable — a locked-down container, a managed platform with no shell.
 
-The viewer is **`/smallstack/logs/`** (staff only). Level / logger / time-range filters, search across messages *and* tracebacks, expandable rows for the traceback and `extra` fields, a live-poll mode, and the capture control in the header. Filter to one request with `?request_id=<id>`; `/smallstack/activity/requests/` links straight there per request.
+The viewer is **`/smallstack/logs/`** (staff only). Level / logger / time-range filters, search across messages *and* tracebacks, expandable rows for the traceback and `extra` fields, a live-poll mode, and the capture control in the header. Filter to one request with `?request_id=<id>` (a text box in the filter bar, or `/smallstack/activity/requests/` links straight there per request) or to one background job/pipeline with `?trace_id=<id>` (same text-box affordance — see "Tracing work that isn't a request" above; `apps.tasks` binds one automatically around every background task's execution, so this works for task log lines with zero setup).
 
 The baseline is WARNING, which keeps the table small. When you need more, open a **capture window**: it turns the level up for a fixed period and closes itself.
 
@@ -114,11 +116,115 @@ uv run python manage.py log_capture start --level DEBUG --minutes 15
 uv run python manage.py log_capture stop
 ```
 
-The window can also be opened from the log viewer itself — the header shows what's being captured and has the control next to it, so you never need shell access. It lives in the database, so every worker and every container picks it up within one poll interval (5s).
+The window can also be opened from the log viewer itself — the header shows what's being captured and has the control next to it, so you never need shell access. It lives in the database, so every worker and every container picks it up within one poll interval (5s) — including a process that starts *after* the window opened and hasn't logged anything at all. `TelemetryConfig.ready()` starts each handler's poller thread eagerly, before the process has done any work of its own, rather than waiting for a log call to trigger it — so this holds even for a freshly-started worker whose first lines are all below the baseline level (INFO/DEBUG while the baseline is WARNING). One caveat: if a deployment sets gunicorn's `preload_app = True` (the shipped `smallstack/gunicorn.conf` leaves it at the default `False`), the app loads once in the master before workers fork, and a thread started in the master doesn't survive `fork()` — under that specific config, each forked worker instead starts its poller lazily on its own first log line (of any level, not gated behind the level check), which still works but adds a small delay until that worker's first log line.
 
 **If you turn on DEBUG and see nothing new**, the logger — not the handler — is what discarded it. A record has to be created before any handler is consulted, and `apps` sits at INFO in production. `TELEMETRY_CAPTURE_LOGGERS` lists the loggers whose level is lowered while a window is open; add yours if it isn't covered by `apps`, `smallstack`, or `django.request`.
 
 `django.db.backends` is pinned at WARNING during capture no matter what — at DEBUG it emits one line per SQL query.
+
+### Reading logs from a script or an agent — `/api/logger/`
+
+The viewer is the human surface. For a CI job, a dev-tooling panel, or an AI agent driving a
+debugging session, there's a read-only REST surface under `/api/logger/`, staff-only, Bearer or
+session auth:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/logger/` | Capability document — filters, limits, capture state |
+| `GET /api/logger/records/` | Search records |
+| `GET /api/logger/records/<id>/` | One record, full untruncated traceback |
+| `GET /api/logger/capture/` | Capture-window status + this process's handler stats |
+
+Filters match the viewer's exactly (same code path, so they can't drift): `level` (this level and
+above), `logger` (hierarchy-aware prefix), `request_id`, `trace_id`, `search` (message **and**
+traceback), `since`/`until` (ISO-8601), `after_id`, `limit`.
+
+The payoff — resolving a user's request ID to the lines that explain it, without a browser:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://example.com/api/logger/records/?request_id=req_d09627b8-…"
+```
+
+Three behaviours worth knowing:
+
+- **Unknown query parameters are a 400**, not silently ignored. A typo like `?sevrity=ERROR` would
+  otherwise return the whole unfiltered table, which reads as a successful query.
+- **Use `after_id` to tail**, not page numbers. It returns records strictly newer than a known id,
+  oldest-first, with `next_after_id` to feed the next poll. Page numbers double-count when new
+  rows arrive between polls.
+- **List responses truncate tracebacks** and set `exc_truncated`; fetch the record's `url` for the
+  full text.
+
+Two more read endpoints round out discovery:
+
+- `GET /api/logger/config/` — effective settings (`capture_enabled`, `baseline_level`,
+  `capture_loggers`, retention, queue size) plus live handler stats. This is the provisioning
+  check: *is capture even on, is my logger covered, am I dropping records?* A non-zero `dropped`
+  means lines were lost under load rather than never logged. Read-only by design — persistent
+  config belongs in settings/env.
+- `GET /api/logger/loggers/` — logger names that have produced records, with counts, so a caller
+  knows what to put in `?logger=` instead of guessing.
+
+### Turning capture up over HTTP
+
+```bash
+# Open a window. `note` is required here (unlike the CLI) — an unattended client
+# that turns production logging up should say why; operators read it in the viewer.
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+     -d '{"level":"DEBUG","minutes":15,"note":"agent: reproducing the 401"}' \
+     https://example.com/api/logger/capture/
+# 201 → {"open": true, "level": "DEBUG", "expires_at": "…", "clamped": false,
+#         "poll_after_seconds": 5}
+
+# Wait poll_after_seconds so other workers pick it up, reproduce, read, then:
+curl -X DELETE -H "Authorization: Bearer $TOKEN" https://example.com/api/logger/capture/
+```
+
+`minutes` is clamped to `TELEMETRY_MAX_CAPTURE_MINUTES` and the response says `clamped: true`
+when it was, rather than silently running for a different duration than you asked for. `DELETE`
+is idempotent, so a cleanup step in a `finally` is safe even if the window already expired.
+Opening and closing are audited via `LogEntry`, attributable to the token's user.
+
+**A read-only token can read everything here but cannot open a window** (403). That's the right
+credential for CI: it can assert an error was logged without being able to turn DEBUG on in
+production.
+
+### From an AI agent — MCP tools
+
+Five tools, auto-registered with the MCP server (`apps/telemetry/mcp_tools.py`):
+
+| Tool | Does |
+|---|---|
+| `logs_status` | Orientation: is capture on, at what level, is a window open, which loggers exist, are records being dropped. The first call to make. |
+| `logs_search` | Same filters as `/api/logger/records/` — `request_id`, `trace_id`, `level`, `logger`, `search`, `since`/`until`, `after_id`. |
+| `logs_get` | One record with the full traceback. |
+| `logs_capture_start` | Turn capture up for a bounded window. `note` required. |
+| `logs_capture_stop` | Back to baseline. Safe when nothing is open. |
+
+Access matches the REST surface exactly: the **user** must be staff (the tools are hidden from
+non-staff and refuse them at call time), and the two capture tools are `write=True`, so a
+read-only token can investigate but cannot turn DEBUG on.
+
+### From a shell — `manage.py logs`
+
+Reading captured records no longer needs a browser:
+
+```bash
+manage.py logs --level ERROR --limit 20
+manage.py logs --request-id req_d09627b8-…      # every line that request produced
+manage.py logs --search ValidationError          # searches tracebacks too
+manage.py logs --id 6183                         # one record, full traceback
+manage.py logs --follow --level WARNING          # tail -f, cursor-based
+manage.py logs --limit 5 --json                  # same payload as the API
+```
+
+An empty result says whether capture was simply at its baseline, which is the usual cause.
+A bad filter exits non-zero with a usable message rather than a traceback.
+
+`--json` is also on `log_capture start|stop|status` and `prune_logs`. Worth knowing why: the
+human output of `log_capture status` printed a **Python dict repr** (single quotes, `False` not
+`false`), so anything parsing it was screen-scraping something that was never JSON.
 
 ### What it costs
 

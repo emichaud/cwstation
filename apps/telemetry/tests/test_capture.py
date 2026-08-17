@@ -72,6 +72,18 @@ def test_duration_has_a_floor():
     assert window.expires_at > timezone.now()
 
 
+@override_settings(TELEMETRY_MAX_CAPTURE_MINUTES=30)
+def test_max_capture_minutes_reflects_the_setting():
+    """The single source of truth start() clamps against — callers that need
+    to know *whether* a duration will be clamped (log_capture start) compare
+    against this instead of re-deriving it after the fact."""
+    assert capture.max_capture_minutes() == 30
+
+
+def test_max_capture_minutes_defaults_to_120():
+    assert capture.max_capture_minutes() == 120
+
+
 # ---------------------------------------------------------------------------
 # Effective level
 # ---------------------------------------------------------------------------

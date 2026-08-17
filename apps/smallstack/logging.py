@@ -47,8 +47,39 @@ __all__ = [
     "extract_extra",
     "get_request_id",
     "get_trace_id",
+    "json_default",
     "safe_message",
 ]
+
+# Cap on the rendered form of a value that json.dumps() can't encode natively
+# (see json_default below). Without a bound, one hostile object's repr() could
+# dwarf everything else in the record.
+MAX_UNSERIALIZABLE_REPR_CHARS = 2000
+
+
+def json_default(value: Any) -> str:
+    """Render a value ``json.dumps`` can't encode natively, for its ``default=`` hook.
+
+    ``repr()`` rather than ``str()``: for a ``datetime``, that's the difference
+    between ``'2026-08-16 12:00:00'`` (indistinguishable from a plain string
+    once it's in a JSON field) and ``'datetime.datetime(2026, 8, 16, 12, 0, 0)'``
+    (unambiguous — tells you it was never a string to begin with). Truncated so
+    a single oversized object can't blow up a log line or a database row.
+
+    ``repr(value)`` itself can raise — any ``__repr__`` that does real work
+    (formats internal state, walks a data structure) can fail, and a
+    hand-written recursive ``__repr__`` raises ``RecursionError``. Guarded here
+    so one poisoned value in ``extra`` degrades to a placeholder for *that
+    field only*, instead of raising back out of ``json.dumps`` and costing the
+    caller the whole payload.
+    """
+    try:
+        text = repr(value)
+    except Exception as exc:  # pragma: no cover - defensive
+        return f"<{type(value).__name__} repr() raised: {exc!r}>"
+    if len(text) > MAX_UNSERIALIZABLE_REPR_CHARS:
+        text = text[:MAX_UNSERIALIZABLE_REPR_CHARS] + "...(truncated)"
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -117,10 +148,36 @@ class RequestContextFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         # Don't clobber an explicit extra={"request_id": ...} from a call site.
         if not getattr(record, "request_id", ""):
-            record.request_id = _request_id.get()
+            # The contextvar is empty for Django's own auto-logged 4xx/5xx access
+            # lines: BaseHandler.get_response() calls log_response(...,
+            # request=request) *after* _middleware_chain(request) returns, i.e.
+            # after RequestIDMiddleware's `finally: reset_request_id(token)` has
+            # already fired. log_response's `request=request` kwarg lands on
+            # record.request, though — untouched by the contextvar reset — so
+            # fall back to reading the ID back off it.
+            record.request_id = _request_id.get() or self._request_id_from_record(record)
         if not getattr(record, "trace_id", ""):
             record.trace_id = _trace_id.get()
         return True
+
+    @staticmethod
+    def _request_id_from_record(record: logging.LogRecord) -> str:
+        """Best-effort fallback: read ``.id`` off ``record.request``.
+
+        Defensive at every step — ``record.request`` may be absent (most
+        records never carry one), may not actually be an ``HttpRequest`` (a
+        call site could pass anything via ``extra={"request": ...}``), and
+        its ``.id`` may not be a string. A logging filter must never raise:
+        that would drop the very record it's trying to enrich.
+        """
+        try:
+            request = getattr(record, "request", None)
+            if request is None:
+                return ""
+            request_id = getattr(request, "id", "")
+            return request_id if isinstance(request_id, str) else ""
+        except Exception:  # pragma: no cover - defensive, filter must never raise
+            return ""
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +316,7 @@ class JSONFormatter(logging.Formatter):
             payload["extra"] = extra
 
         try:
-            return json.dumps(payload, default=str, ensure_ascii=self.ensure_ascii)
+            return json.dumps(payload, default=json_default, ensure_ascii=self.ensure_ascii)
         except Exception as exc:  # pragma: no cover - defensive
             # A log formatter must never raise: a handler exception here would
             # be swallowed by logging and the line lost. Fall back to a minimal

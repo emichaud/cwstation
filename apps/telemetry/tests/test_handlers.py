@@ -108,6 +108,88 @@ def test_unserializable_extra_does_not_lose_the_row(handler):
     assert "object object at" in row.extra["thing"]
 
 
+def test_extra_field_whose_repr_raises_does_not_drop_the_row(handler):
+    """Regression: json_default() degrading a raising __repr__() to a
+    placeholder (rather than re-raising) means the whole row survives with
+    the poisoned field replaced — not the entire line vanishing."""
+
+    class BadRepr:
+        def __repr__(self):
+            raise ValueError("nope")
+
+    handler.emit(make_record("the important line", bad=BadRepr()))
+    handler.flush()
+
+    assert handler.errors == 0
+    row = LogRecord.objects.get()
+    assert row.message == "the important line"
+    assert "repr() raised" in row.extra["bad"]
+
+
+def test_extra_field_with_a_recursive_repr_does_not_drop_the_row(handler):
+    class RecursiveRepr:
+        def __repr__(self):
+            return repr(self)
+
+    handler.emit(make_record("still here", recursive=RecursiveRepr()))
+    handler.flush()
+
+    assert handler.errors == 0
+    row = LogRecord.objects.get()
+    assert row.message == "still here"
+    assert "repr() raised" in row.extra["recursive"]
+
+
+def test_control_lines_around_a_poisoned_extra_are_unaffected(handler):
+    """The exact repro from the finding: a bad line sandwiched between two
+    good ones must not take either neighbour down with it."""
+
+    class BadRepr:
+        def __repr__(self):
+            raise ValueError("nope")
+
+    handler.emit(make_record("control line before"))
+    handler.emit(make_record("the important line", bad=BadRepr()))
+    handler.emit(make_record("control line after"))
+    handler.flush()
+
+    messages = list(LogRecord.objects.order_by("pk").values_list("message", flat=True))
+    assert messages == ["control line before", "the important line", "control line after"]
+
+
+def test_jsonable_outer_fallback_does_not_touch_the_value_again(monkeypatch):
+    """Even if json_default() itself somehow still let something through
+    (belt-and-suspenders for the truly unexpected), _jsonable()'s own
+    fallback must build a fresh payload rather than calling repr() on the
+    poisoned value a second time — that second call is the original bug."""
+    from apps.telemetry.handlers import _jsonable
+
+    class Explodes:
+        def __repr__(self):
+            raise ValueError("still nope")
+
+    def _dumps_that_raises(*args, **kwargs):
+        raise TypeError("simulated json.dumps failure")
+
+    monkeypatch.setattr("apps.telemetry.handlers.json.dumps", _dumps_that_raises)
+
+    result = _jsonable({"bad": Explodes()})
+    assert result == {"unserializable": "<extra could not be rendered>"}
+
+
+def test_unserializable_extra_uses_repr_not_str_for_a_datetime(handler):
+    """Matches apps.smallstack.docs.logging-audit.md's documented contract:
+    non-serializable extra values are rendered with repr(), not str() — str()
+    would make a datetime indistinguishable from a plain string."""
+    import datetime
+
+    handler.emit(make_record("odd", when=datetime.datetime(2026, 8, 16, 12, 30, 5)))
+    handler.flush()
+
+    row = LogRecord.objects.get()
+    assert row.extra["when"] == "datetime.datetime(2026, 8, 16, 12, 30, 5)"
+
+
 def test_context_ids_are_captured(handler):
     request_token = bind_request_id("req_abc")
     trace_token = bind_trace_id("trace_xyz")
@@ -274,6 +356,104 @@ def test_handler_level_gates_what_reaches_the_database():
     finally:
         logger.removeHandler(handler)
         handler.close()
+
+
+def test_ensure_worker_runs_even_when_the_level_filter_drops_the_record():
+    """Regression: a fresh process's first log line being below the handler's
+    current level must not skip starting the writer/poller thread — that
+    thread is what lets the process ever discover an already-open capture
+    window (_poll_capture runs on it). Gating _ensure_worker() behind the
+    level check meant a process whose early lines are all INFO/DEBUG while
+    the handler is still at its WARNING baseline never started the thread,
+    no matter how long a window had been open.
+
+    Verified via call count on a stand-in, not a real thread (the rest of
+    this suite avoids real threads — see the module docstring) — this pins
+    *that emit() calls _ensure_worker() unconditionally*, independent of
+    threading timing.
+    """
+    h = DatabaseLogHandler(level="WARNING", start_worker=False)
+    calls = []
+    h._ensure_worker = lambda: calls.append(1)
+    try:
+        h.emit(make_record("below threshold", level=logging.INFO))
+    finally:
+        h.close()
+
+    assert calls, "_ensure_worker() must run even for a record the level filter goes on to drop"
+    assert LogRecord.objects.count() == 0, "the record itself is still correctly filtered out"
+
+
+def test_ensure_worker_starts_the_thread_while_still_inside_apps_populate(monkeypatch):
+    """Regression, round 6 (second bug, found only by the end-to-end proof,
+    not by any unit test): TelemetryConfig.ready() calls _ensure_worker()
+    synchronously, but Django's Apps.populate() sets `apps.ready = True`
+    only *after* every app's ready() has returned (registry.py, Phase 3) —
+    so a guard written as `if not django_apps.ready: return` is always
+    true while still inside any app's own ready(), including telemetry's.
+    The first cut of this fix used exactly that guard and silently never
+    started the thread: worker_alive stayed False forever, caught only by
+    manually running a real `manage.py shell` process end to end, not by
+    any pytest run (this suite's own django app registry is always fully
+    populated by the time a test executes, so calling _ensure_worker() from
+    a test never reproduces the mid-populate() ordering).
+
+    What must actually gate the thread is `models_ready` (models are
+    importable), which is already true by the time any app's ready() runs
+    (Phase 2 completes before Phase 3 starts) — this test drives that
+    exact scenario: models_ready True, ready False.
+    """
+    from django.apps import apps as django_apps
+
+    h = DatabaseLogHandler(level="WARNING", start_worker=True)
+    try:
+        assert django_apps.models_ready is True, "sanity: the test registry is always past Phase 2"
+        monkeypatch.setattr(django_apps, "ready", False)
+
+        h._ensure_worker()
+
+        assert h._thread is not None and h._thread.is_alive(), (
+            "the writer thread must start once models are importable, "
+            "even before every app's own ready() has finished running"
+        )
+    finally:
+        h.close()
+
+
+def test_ensure_worker_still_waits_for_models_ready(monkeypatch):
+    """The other half of the same guard: it must still refuse to start
+    before models are safely importable (e.g. a record logged mid
+    django.setup(), before Phase 2 of Apps.populate() has run) — the
+    models_ready check isn't just renamed, it still does its job."""
+    from django.apps import apps as django_apps
+
+    h = DatabaseLogHandler(level="WARNING", start_worker=True)
+    try:
+        monkeypatch.setattr(django_apps, "models_ready", False)
+
+        h._ensure_worker()
+
+        assert h._thread is None, "must not start a thread before models are importable"
+    finally:
+        h.close()
+
+
+def test_ensure_worker_does_not_run_inside_the_recursion_guard():
+    """The guard check must still short-circuit before anything else —
+    including the now-unconditional _ensure_worker() call — or a record
+    logged from inside the handler's own write path could restart machinery
+    while guarded."""
+    h = DatabaseLogHandler(level="DEBUG", start_worker=False)
+    calls = []
+    h._ensure_worker = lambda: calls.append(1)
+    _guard.active = True
+    try:
+        h.emit(make_record("emitted from inside a write"))
+    finally:
+        _guard.active = False
+        h.close()
+
+    assert calls == []
 
 
 def test_raising_the_handler_level_takes_effect_immediately():

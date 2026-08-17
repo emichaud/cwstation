@@ -31,6 +31,7 @@ from apps.smallstack.pagination import paginate_queryset
 
 from . import capture
 from .handlers import get_handlers
+from .logger_match import prefix_q
 from .models import LogRecord
 
 logger = logging.getLogger(__name__)
@@ -87,8 +88,12 @@ class LogListView(StaffRequiredMixin, TemplateView):
             qs = qs.filter(level_no__gte=level_no)
 
         if filters["logger"]:
-            # Prefix match so picking "apps.webhooks" also brings its children.
-            qs = qs.filter(logger__startswith=filters["logger"])
+            # Hierarchy-aware match so picking "apps.webhooks" also brings its
+            # children ("apps.webhooks.tasks") without also pulling in an
+            # unrelated sibling that happens to share a string prefix
+            # ("apps.webhooks_admin"). Same predicate the DatabaseLogHandler's
+            # own exclusion list uses — see logger_match.py.
+            qs = qs.filter(prefix_q("logger", filters["logger"]))
 
         if filters["q"]:
             # Tracebacks are searched too — the exception class is usually what

@@ -19,6 +19,8 @@ from django.db.models import F
 from django.tasks import Task
 from django.utils import timezone
 
+from apps.smallstack.logging import bind_trace_id, reset_trace_id
+
 from . import schedules
 from .models import ScheduledJob, ScheduledJobRun
 
@@ -90,6 +92,21 @@ def run_due_jobs(*, now: datetime | None = None) -> TickResult:
 
 
 def _process_job(job: ScheduledJob, *, now: datetime, result: TickResult) -> None:
+    # Bind a trace ID for this job's slice of the tick — so its own
+    # log lines (invalid-cadence warning, skip, unresolvable task_path) can be
+    # read back as one story, distinct from every other job the same tick
+    # processes in the same loop. Deliberately a *different* trace than the
+    # one apps.tasks binds around the enqueued task's actual execution
+    # (trace_task_<task_result.id>, bound later, likely in another process) —
+    # this one is about the scheduler's decision, not the task's work.
+    token = bind_trace_id(f"trace_schedjob_{job.pk}_{int(now.timestamp())}")
+    try:
+        _process_job_body(job, now=now, result=result)
+    finally:
+        reset_trace_id(token)
+
+
+def _process_job_body(job: ScheduledJob, *, now: datetime, result: TickResult) -> None:
     observed = job.next_run_at  # the value we must still see to win the claim
     if observed is None:
         return  # only reachable if the row changed under us; nothing to claim

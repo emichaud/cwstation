@@ -21,11 +21,13 @@ Usage:
 """
 
 import enum
+import logging
 import warnings
 from typing import Any
 
 from django import forms
 from django.contrib import messages
+from django.contrib.admin.models import LogEntry
 from django.core.exceptions import FieldDoesNotExist
 from django.db import IntegrityError
 from django.db.models import Model, ProtectedError, QuerySet, RestrictedError
@@ -41,6 +43,14 @@ from django.views.generic import (
 )
 
 from . import transforms as _transforms
+from .audit import CHANGE, DELETION
+
+logger = logging.getLogger(__name__)
+
+# Cap on how many row IDs a single bulk-action log line embeds in `extra`. The
+# count in the message text is always exact; this just bounds how large one
+# log/console line can get for a bulk action against thousands of rows.
+_BULK_LOG_ID_CAP = 200
 
 # ---------------------------------------------------------------------------
 # Field preview helpers (delegated to transforms module)
@@ -711,6 +721,79 @@ class _CRUDDeleteBase(_CRUDContextMixin, DeleteView):
         return _redirect(self.get_success_url())
 
 
+def _log_bulk_action(request, verb: str, model: type[Model], ok_ids: list, errors: dict, *, fields=None) -> None:
+    """One structured log line per bulk action — the log-viewer-visibility half of the fix.
+
+    Deliberately ONE line, not one per row: a bulk delete/update can touch
+    thousands of rows, and a `LogRecord` per row would be the "unbounded
+    growth under load" failure mode `DatabaseLogHandler` itself exists to
+    avoid (see its module docstring). The row count and error count are
+    always exact in the message text; the row IDs in `extra` are capped
+    (`_BULK_LOG_ID_CAP`) so one huge bulk action can't blow up a single log
+    line/row — this is a "was there activity, and roughly what" record, not a
+    substitute for the per-object audit trail `_audit_bulk_action` writes.
+    """
+    actor = request.user.get_username() if getattr(request.user, "is_authenticated", False) else "anonymous"
+    extra = {"ids": ok_ids[:_BULK_LOG_ID_CAP], "errors": errors}
+    if fields is not None:
+        extra["fields"] = fields
+    logger.info(
+        "Bulk %s: %s %s %d/%d %s row(s), %d error(s)",
+        verb,
+        actor,
+        "deleted" if verb == "delete" else "updated",
+        len(ok_ids),
+        len(ok_ids) + len(errors),
+        model.__name__,
+        len(errors),
+        extra=extra,
+    )
+
+
+def _audit_bulk_action(
+    request, model: type[Model], snapshots: list[tuple[Any, str]], action_flag: int, message: str
+) -> None:
+    """Per-object audit trail entries for a bulk action, written in one query.
+
+    Takes ``(pk, repr)`` snapshots rather than live model instances — for
+    delete specifically, ``obj.pk`` is set to ``None`` by Django the moment
+    ``obj.delete()`` succeeds, so building the entries from the
+    already-deleted instances afterward (as Django admin's own
+    ``LogEntry.objects.log_actions()`` batch helper does, by reading
+    ``obj.pk`` itself) would silently write every row with ``object_id=None``.
+    Capturing ``(pk, str(obj))`` *before* deleting sidesteps that; using the
+    same snapshot shape for bulk update too (where the object survives) keeps
+    one code path for both instead of two.
+
+    Still one ``bulk_create`` query for however many rows were touched — the
+    same "who touched exactly which record" answerability a single-object
+    write gets via `AuditMixin`, without paying N queries for it. Best-effort
+    and silent on failure — audit logging must never be why a bulk action
+    itself fails — and skipped entirely for an unauthenticated actor, since
+    `LogEntry.user` is required.
+    """
+    if not snapshots or getattr(request.user, "pk", None) is None:
+        return
+    try:
+        from django.contrib.contenttypes.models import ContentType
+
+        ct = ContentType.objects.get_for_model(model)
+        entries = [
+            LogEntry(
+                user_id=request.user.pk,
+                content_type_id=ct.pk,
+                object_id=str(pk),
+                object_repr=repr_str,
+                action_flag=action_flag,
+                change_message=message,
+            )
+            for pk, repr_str in snapshots
+        ]
+        LogEntry.objects.bulk_create(entries)
+    except Exception:
+        logger.exception("Bulk action audit trail write failed for %s", model.__name__)
+
+
 class _CRUDBulkActionView:
     """Handles bulk delete and bulk update operations via POST.
 
@@ -790,6 +873,7 @@ class _CRUDBulkActionView:
                 qs = cfg._get_queryset().filter(pk__in=ids)
                 objects = {obj.pk: obj for obj in qs}
                 deleted_ids = []
+                deleted_snapshots = []  # (pk, repr) captured before delete() clears obj.pk
                 errors = {}
 
                 for pk in ids:
@@ -801,8 +885,13 @@ class _CRUDBulkActionView:
                         errors[str(pk)] = "Permission denied"
                         continue
                     try:
+                        # Captured before delete(): Django sets obj.pk to None
+                        # the moment the delete succeeds, so this must not be
+                        # read back off the object afterward.
+                        object_repr = str(obj)[:200]
                         obj.delete()
                         deleted_ids.append(pk)
+                        deleted_snapshots.append((pk, object_repr))
                     except (ProtectedError, RestrictedError) as e:
                         protected = getattr(e, "protected_objects", None) or getattr(e, "restricted_objects", set())
                         name = type(next(iter(protected))).__name__ if protected else "other records"
@@ -815,6 +904,8 @@ class _CRUDBulkActionView:
                         errors[str(pk)] = "Delete failed — an unexpected error occurred."
 
                 msg = f"Deleted {len(deleted_ids)} of {len(ids)}"
+                _log_bulk_action(request, "delete", cfg.model, deleted_ids, errors)
+                _audit_bulk_action(request, cfg.model, deleted_snapshots, DELETION, "Bulk delete via CRUDView")
 
                 return HttpResponse(
                     _json.dumps({"deleted": deleted_ids, "errors": errors, "message": msg}),
@@ -851,6 +942,7 @@ class _CRUDBulkActionView:
                 qs = cfg._get_queryset().filter(pk__in=ids)
                 objects = {obj.pk: obj for obj in qs}
                 updated = []
+                updated_snapshots = []  # (pk, repr) captured just after form.save()
                 errors = {}
 
                 for pk in ids:
@@ -877,12 +969,21 @@ class _CRUDBulkActionView:
                         obj = form.save()
                         cfg.on_form_valid(request, form, obj, is_create=False)
                         updated.append(pk)
+                        updated_snapshots.append((obj.pk, str(obj)[:200]))
                     else:
                         errors[str(pk)] = {k: [str(e) for e in v] for k, v in form.errors.items()}
 
                 total = len(ids)
                 updated_count = len(updated)
                 msg = f"Updated {updated_count} of {total}"
+                _log_bulk_action(request, "update", cfg.model, updated, errors, fields=sorted(fields_data))
+                _audit_bulk_action(
+                    request,
+                    cfg.model,
+                    updated_snapshots,
+                    CHANGE,
+                    f"Bulk update via CRUDView (fields: {', '.join(sorted(fields_data))})",
+                )
 
                 return HttpResponse(
                     _json.dumps({"updated": updated, "errors": errors, "message": msg}),

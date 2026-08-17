@@ -148,6 +148,11 @@ ACTIVITY_EXCLUDE_PATHS = [
     "/smallstack/status/",
     "/admin/jsi18n/",
     "/__debug__/",
+    # The logger API reads the log table; without this, a client polling a tail
+    # fills that table with its own poll traffic and a search for its own
+    # request_id returns its own request. Same feedback shape the
+    # DatabaseLogHandler's recursion guard breaks, one level up.
+    "/api/logger/",
 ]
 
 # ---------------------------------------------------------------------------
