@@ -243,6 +243,29 @@ def api_view(methods=None, require_auth=True, require_staff=False, require_auth_
                 if require_staff and not request.user.is_staff:
                     return _error("Staff access required", 403)
 
+                # A read-only token must not write, on ANY endpoint. CRUDView
+                # endpoints have always enforced this via
+                # _check_api_permissions, but that is only reached from the
+                # generated views — so every hand-rolled @api_view write
+                # endpoint was exempt unless its author happened to write the
+                # check themselves. apps/runbook/api.py did (a private
+                # _require_write duplicating this rule); anything else did not,
+                # and a new endpoint had no way to know it needed to.
+                #
+                # Enforcing it here makes the rule structural rather than
+                # remembered, and matches what the MCP channel already does
+                # (apps/mcp/auth.py gates on access_level). Login tokens carry
+                # access_level="" and are unaffected; only tokens explicitly
+                # minted read-only change behaviour, which is the intent of
+                # minting them.
+                token = getattr(request, "_api_token", None)
+                if (
+                    token
+                    and getattr(token, "access_level", "") == "readonly"
+                    and request.method not in ("GET", "HEAD", "OPTIONS")
+                ):
+                    return _error("Token is read-only", 403)
+
             # Parse JSON body for write methods. Multipart and form-encoded
             # bodies are Django's domain (request.POST / request.FILES) —
             # force-parsing them as JSON turned every file-upload endpoint

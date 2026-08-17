@@ -2464,3 +2464,85 @@ class TestOrderingRobustness:
 
         result = _apply_ordering_fields(Heartbeat.objects.all(), "-timestamp", {"timestamp"})
         assert "ORDER BY" in str(result.query)
+
+
+# ---------------------------------------------------------------------------
+# Read-only tokens must not write, on custom @api_view endpoints too
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestReadOnlyTokenOnCustomEndpoints:
+    """CRUDView endpoints have always enforced this (via _check_api_permissions),
+    but that is only reached from the generated views. Hand-rolled @api_view
+    endpoints were exempt unless the author happened to re-implement the rule —
+    apps/runbook/api.py did, in a private helper; nothing else did, and a new
+    endpoint had no way to know it needed to.
+
+    Proven before fixing: a plain @api_view(methods=["POST"]) endpoint returned
+    200 for a read-only token *and ran its side effect*.
+    """
+
+    def _readonly_token(self, user):
+        from .models import APIToken
+
+        raw = APIToken.create_token(name="ro-test", user=user, access_level="readonly")
+        return raw[1] if isinstance(raw, tuple) else raw
+
+    def _staff_token(self, user):
+        from .models import APIToken
+
+        raw = APIToken.create_token(name="staff-test", user=user, access_level="staff")
+        return raw[1] if isinstance(raw, tuple) else raw
+
+    def _endpoint(self, state):
+        from django.test import RequestFactory
+
+        from .api import api_view
+
+        @api_view(methods=["GET", "POST"], require_staff=True)
+        def view(request):
+            if request.method == "POST":
+                state["written"] = True
+            return {"ok": True}
+
+        return view, RequestFactory()
+
+    def _call(self, view, factory, method, key, user):
+        if method == "get":
+            request = factory.get("/fake/")
+        else:
+            request = getattr(factory, method)(
+                "/fake/", data="{}", content_type="application/json"
+            )
+        request.user = user
+        request.META["HTTP_AUTHORIZATION"] = f"Bearer {key}"
+        return view(request)
+
+    def test_readonly_token_cannot_write_and_the_side_effect_never_runs(self, staff_user):
+        state = {"written": False}
+        view, factory = self._endpoint(state)
+
+        response = self._call(view, factory, "post", self._readonly_token(staff_user), staff_user)
+
+        assert response.status_code == 403
+        assert state["written"] is False, "the view body ran despite the 403"
+
+    def test_readonly_token_can_still_read(self, staff_user):
+        state = {"written": False}
+        view, factory = self._endpoint(state)
+
+        response = self._call(view, factory, "get", self._readonly_token(staff_user), staff_user)
+
+        assert response.status_code == 200
+
+    def test_a_staff_token_is_unaffected(self, staff_user):
+        """Negative control for the rule: the same POST must still succeed for a
+        normal token, so the check can't pass by blocking everything."""
+        state = {"written": False}
+        view, factory = self._endpoint(state)
+
+        response = self._call(view, factory, "post", self._staff_token(staff_user), staff_user)
+
+        assert response.status_code == 200
+        assert state["written"] is True
