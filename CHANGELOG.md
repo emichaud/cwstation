@@ -7,9 +7,157 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
-## [Unreleased]
+## [0.20.0] - 2026-08-16
 
 ### Added
+- **`/api/logger/` — the telemetry surface a machine can drive.** The staff
+  viewer answered "an operator needs to read the logs without shell access";
+  this answers the same question for a CI job, a frontend dev panel, or an AI
+  agent. Staff-only, Bearer or session auth, advertised in the OpenAPI schema:
+
+  | Endpoint | |
+  |---|---|
+  | `GET /api/logger/` | Capability document — filters, limits, capture state |
+  | `GET /api/logger/records/` | Search, with the viewer's filters |
+  | `GET /api/logger/records/<id>/` | One record, full untruncated traceback |
+  | `GET|POST|DELETE /api/logger/capture/` | Read, open, or close a capture window |
+  | `GET /api/logger/config/` | Effective settings + live handler stats (read-only) |
+  | `GET /api/logger/loggers/` | Logger names with counts, for discovery |
+
+  Shaped for its consumer rather than copying the UI. **Unknown query parameters
+  are a 400**, not silently ignored: a human eventually notices a result set
+  looks wrong, but `?sevrity=ERROR` returning the *unfiltered* table reads to a
+  script as a successful query, and everything concluded afterwards is built on
+  it. **`?after_id=` is a cursor, not a page number** — new rows arrive at the
+  top, so page 2 of a live tail re-reads what page 1 already returned.
+  **`applied_filters` is echoed back**, so a caller can check the server
+  understood the query it thinks it sent. List responses truncate tracebacks and
+  flag `exc_truncated`; the detail endpoint serves the full text.
+
+  `POST /api/logger/capture/` requires a `note` (the CLI leaves it optional — a
+  human running a command is present and accountable in the moment, an
+  unattended caller is neither). Duration is clamped with `clamped: true`
+  reported rather than silently running for a different period than asked for.
+  `DELETE` is idempotent, so a cleanup step in a `finally` is safe. Both are
+  audited. A **read-only token can read everything here but cannot open a
+  window** — the right credential for CI.
+
+  `GET /api/logger/config/` is deliberately read-only. Persistent configuration
+  belongs in settings/env where a deploy reproduces it; an API that rewrote
+  baseline logging config would be a drift generator. The capture window is the
+  one runtime knob, and it expires.
+
+- **Five MCP tools** — `logs_search`, `logs_get`, `logs_status`,
+  `logs_capture_start`, `logs_capture_stop` — so an agent can run a whole
+  debugging session: turn capture up, reproduce, correlate an `X-Request-ID` to
+  the lines that explain it, turn capture back down. Five rather than eight
+  because every tool costs room in an agent's tool list, and "what's the state
+  of logging here" is one question: `logs_status` answers capture state,
+  effective config, and the busiest loggers together.
+
+- **`manage.py logs`** — search captured records from the shell, which
+  previously required a browser. `--level`, `--logger`, `--request-id`,
+  `--trace-id`, `--search`, `--since`/`--until`, `--after-id`, plus `--id` for
+  one record with its full traceback and `--follow` for a cursor-based tail. An
+  empty result says whether capture was simply at its baseline, which is the
+  usual cause.
+
+- **`--json` on `log_capture` and `prune_logs`.** The human output of
+  `log_capture status` printed a *Python dict repr* — single quotes, `False` not
+  `false` — so anything consuming it was screen-scraping something that was
+  never JSON.
+
+- **`apps/telemetry/queries.py`** — one implementation of the filters,
+  validation, serialization, and capture verbs, with the REST API, the MCP
+  tools, and the CLI as thin adapters over it. Two bugs fixed in this same
+  release line were one rule written twice and drifting apart; three transports
+  made that risk structural, so the shared core removes it. Tests assert the
+  three surfaces return identical results for identical queries.
+
+### Fixed
+- **Read-only API tokens could write through any hand-rolled `@api_view`
+  endpoint** (security). CRUDView-generated endpoints have always enforced the
+  read-only rule via `_check_api_permissions`, but that is only reached from the
+  generated views — the `api_view` decorator every *custom* endpoint uses never
+  called it. `apps/runbook/api.py` was unaffected only because it independently
+  re-implemented the same rule in a private helper; anything else was exempt,
+  and a new endpoint had no way to know it needed the check. Verified with a
+  synthetic endpoint: a read-only token returned 200 **and ran its side
+  effect**. Now enforced in `api_view` itself, so the rule is structural rather
+  than remembered. Login tokens (`access_level=""`) are unaffected; only tokens
+  explicitly minted read-only change behaviour, which is the point of minting
+  them.
+
+- **Django's own 4xx access-log lines carried no `request_id`.** `get_response()`
+  calls `log_response(..., request=request)` *after* the middleware chain
+  returns — i.e. after `RequestIDMiddleware`'s `finally` reset — so the
+  `Unauthorized:`/`Not Found:` line documenting a failure was invisible to a
+  search by the very ID the client was told to quote. 500s were fine, which made
+  it easy to miss. `RequestContextFilter` now falls back to `record.request.id`,
+  defensively enough that a missing or broken `request` can never take the line
+  down.
+
+- **`X-Request-ID` was not exposed to cross-origin JavaScript.** The header was
+  on the wire but absent from `Access-Control-Expose-Headers`, so `fetch()` read
+  `null` — the correlation story was unreachable from exactly the browser
+  clients it was written for. `CORS_EXPOSE_HEADERS` now lists it.
+
+- **A freshly-started process ignored an already-open capture window** until it
+  happened to log at or above the baseline level. `Logger.callHandlers` compares
+  `record.levelno` against the handler's level *before* invoking the handler, so
+  nothing inside `emit()` can run for a below-baseline record — meaning the
+  writer/poller thread that picks up capture windows never started. A worker
+  whose early lines are all INFO could sit outside an open DEBUG window
+  indefinitely. `TelemetryConfig.ready()` now starts the poller eagerly.
+  (`_ensure_worker()` also gated on `django_apps.ready`, which `Apps.populate()`
+  only sets *after* every `ready()` returns — always false at that call site.)
+
+- **The log viewer's `?logger=` filter matched sibling names.** It was a raw
+  `startswith`, so `apps.telemetry` also matched `apps.telemetry_report` — the
+  bug class the capture handler's own exclusion check had already been fixed
+  for. Both now share `logger_match.prefix_q`.
+
+- **A non-serializable `extra` value rendered with `str()` while the docs
+  promised `repr()`** — which loses exactly the type information you want when
+  reading a log. Now `repr()`, bounded to 2000 characters. An `extra` value whose
+  `__repr__()` *raises* no longer drops the whole line either: the DB handler's
+  fallback used to re-touch the poisoned value and fail again, losing the
+  message and every healthy field with it.
+
+- **`log_capture start` always claimed the duration was clamped**, because it
+  compared two independently-generated `timezone.now()` values.
+
+- **CRUDView bulk delete/update left no trace.** A 500-row bulk delete was
+  invisible in both the log viewer and the audit trail. Now one summary log line
+  per call (not one per row — that is the unbounded-growth failure mode the
+  handler's own docstring warns about) plus per-row `LogEntry` audit entries
+  written in a single `bulk_create`, because "who deleted row X" has to stay
+  answerable per row.
+
+- **`bind_trace_id()` was documented but unused**, and unreachable in the
+  viewer. Background tasks and scheduler jobs now bind a trace ID
+  automatically, and the viewer gained a `trace_id` filter. The task hook
+  subscribes to **both** identically-named signal pairs — `django_tasks.signals`
+  (sent by `django_tasks_db`'s worker) and `django.tasks.signals` (sent by
+  Django's own backends, including the `ImmediateBackend` the test settings
+  use). Subscribing to one meant trace binding silently stopped the moment
+  `TASKS["default"]["BACKEND"]` changed; it also meant the real
+  `enqueue()`-to-execution path had no test coverage, since the suite runs on
+  the namespace the hook wasn't listening to.
+
+- **`django.server` is no longer captured to the database.** The dev server's
+  per-request access log wrote one INFO record per request, so anything polling
+  the log table filled it with its own poll traffic — the viewer's five-second
+  live mode included. Measured: ten polls of the logger API produced eleven new
+  records; zero after the fix. It does not exist in production (gunicorn writes
+  its own access log), and `RequestLog` already stores the same information
+  properly, with a user and a request ID attached.
+
+The telemetry subsystem itself — the staff log viewer, database-backed capture,
+and real JSON logging — landed after v0.19.0 and ships here too. Its notes
+follow.
+
+### Added — telemetry subsystem
 - **`/smallstack/logs/` — a staff log viewer, so the whole loop works without
   shell access.** Newest-first, one line per record, with a colour rail down the
   left edge carrying severity: level is the attribute you scan for, and a rail
@@ -89,7 +237,7 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 - `TELEMETRY_LOG_CAPTURE_ENABLED=false` switches the whole subsystem off: no
   handler, no queue, no thread, no rows.
 
-### Fixed
+### Fixed — telemetry subsystem
 - **Production log output is now actually JSON.** The `json` formatter was a
   `%`-style string template (`'{"message": "%(message)s"}'`) that only looked
   like JSON. It emitted malformed lines in three routine cases, all of which
@@ -113,7 +261,7 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
   `repr()` instead of taking the line down, and the formatter cannot raise — a
   serialization failure degrades to a minimal object carrying the message.
 
-### Added
+### Added — telemetry subsystem (correlation)
 - **Log lines carry the request ID that produced them.** `RequestIDMiddleware`
   binds the request ID to a `contextvar`; a new `RequestContextFilter` on each
   handler copies it onto every record as `request_id`. The docs already promised
@@ -130,7 +278,7 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
   the `development.py` / `production.py` `LOGGING` dicts configure cleanly. The
   test settings override `LOGGING`, so nothing else in the suite exercised them.
 
-### Changed
+### Changed — telemetry subsystem
 - **Production log timestamps are ISO-8601 UTC** (`2026-03-04T14:23:01.123Z`)
   instead of local-time `%(asctime)s`, so lines from different hosts sort
   correctly. JSON output is ASCII-escaped by default so it can never raise
