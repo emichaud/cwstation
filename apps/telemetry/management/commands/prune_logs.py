@@ -36,6 +36,11 @@ class Command(BaseCommand):
             default=getattr(settings, "TELEMETRY_LOG_MAX_ROWS", 20000),
             help="Hard cap on stored records; oldest beyond the cap are deleted.",
         )
+        parser.add_argument(
+            "--json",
+            action="store_true",
+            help="Print one JSON object instead of a sentence (for scripts, agents, and cron logs).",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         # Guard against nonsense (0, negative) but otherwise honour what was
@@ -70,9 +75,29 @@ class Command(BaseCommand):
         window_cutoff = timezone.now() - timedelta(days=max(keep_days, 90))
         LogCaptureWindow.objects.filter(expires_at__lt=window_cutoff).delete()
 
+        remaining = LogRecord.objects.count()
+
+        if options.get("json"):
+            import json
+
+            self.stdout.write(
+                json.dumps(
+                    {
+                        "deleted_by_age": by_age,
+                        "deleted_by_cap": by_cap,
+                        "remaining": remaining,
+                        "keep_days": keep_days,
+                        "max_rows": max_rows,
+                        "age_cutoff": cutoff.isoformat(),
+                    },
+                    indent=2,
+                )
+            )
+            return
+
         self.stdout.write(
             self.style.SUCCESS(
                 f"prune_logs: deleted {by_age} by age (<{cutoff:%Y-%m-%d}), "
-                f"{by_cap} by row cap ({max_rows}); {LogRecord.objects.count()} remain."
+                f"{by_cap} by row cap ({max_rows}); {remaining} remain."
             )
         )
