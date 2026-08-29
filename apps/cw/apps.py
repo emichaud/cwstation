@@ -57,6 +57,10 @@ class CwConfig(AppConfig):
             section="main", label="FM Radio", url_name="cw-radio",
             parent="CW Monitor", auth_required=True, order=8,
         )
+        nav.register(
+            section="main", label="Antennas", url_name="cw-survey",
+            parent="CW Monitor", auth_required=True, order=9,
+        )
         # Signal-flow blueprint — lives under Resources (and linked from Help).
         arch_icon = (
             '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">'

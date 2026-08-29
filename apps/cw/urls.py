@@ -4,6 +4,7 @@ from django.urls import path
 
 from .api import (
     abbrev,
+    band_survey,
     eqsl_config,
     live_ingest,
     log_adif,
@@ -26,6 +27,7 @@ from .api import (
     station_vars,
 )
 from .views import (
+    AntennaSurveyView,
     ArchitectureView,
     CallbookView,
     CWSessionCRUDView,
@@ -60,6 +62,8 @@ urlpatterns = [
     path("cw/log/eqsl/", log_eqsl_upload, name="cw-log-eqsl"),
     path("cw/log/eqsl/config/", eqsl_config, name="cw-log-eqsl-config"),
     *LogbookCRUDView.get_urls(),
+    path("cw/survey/", AntennaSurveyView.as_view(), name="cw-survey"),
+    path("cw/survey/scan/", band_survey, name="cw-survey-scan"),
     path("cw/radio/", RadioView.as_view(), name="cw-radio"),
     path("cw/radio/control/", radio_control, name="cw-radio-control"),
     path("cw/radio/stations/", radio_stations, name="cw-radio-stations"),

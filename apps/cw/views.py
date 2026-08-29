@@ -439,6 +439,16 @@ class RadioView(LoginRequiredMixin, TemplateView):
     template_name = "cw/radio.html"
 
 
+class AntennaSurveyView(LoginRequiredMixin, TemplateView):
+    """The antenna bench — sweep bands, score them, compare runs.
+
+    Swapping antennas is only measurable against the same bands at the same
+    gain, so a run is saved with both; the page compares saved runs side by
+    side rather than asking the operator to remember last time's numbers."""
+
+    template_name = "cw/survey.html"
+
+
 class RigSetupView(_StationCallMixin, LoginRequiredMixin, TemplateView):
     """The rig launcher — pick the serial port and rig model (the 'select the
     right modem' step), start/supervise rigctld, verify the link."""

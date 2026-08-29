@@ -1,0 +1,119 @@
+/* Antenna survey — band picker, SNR bars, and the comparison matrix.
+ * Every colour resolves from theme variables so the page holds up on all
+ * palettes; the strength ramp uses the semantic state colours rather than a
+ * hand-picked red/amber/green. */
+
+.sv-bands { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+
+/* Must outrank cw.css's `body.cw-console .cw-field label`, which styles field
+   labels as small uppercase text — these band cards are <label>s inside a
+   .cw-field, so without matching that specificity the notes shout. */
+body.cw-console .cw-field .sv-bands label.sv-band {
+    display: flex; align-items: flex-start; gap: 9px;
+    padding: 10px 12px;
+    border: 1px solid var(--card-border); border-radius: 10px;
+    background: color-mix(in srgb, var(--body-fg) 3%, var(--card-bg));
+    cursor: pointer;
+    text-transform: none; letter-spacing: normal;
+    font-size: 13.5px; font-weight: 400; color: var(--body-fg);
+}
+.sv-band:hover { border-color: var(--input-focus-border); }
+.sv-band input { margin-top: 2px; flex: none; }
+.sv-band b { display: block; font-size: 13.5px; font-weight: 650; }
+.sv-band span { display: block; font-size: 11.5px; color: var(--body-quiet-color); }
+.sv-band[data-checked="true"] { border-color: var(--primary); background: var(--accent-band-bg); }
+
+.sv-ref-tag {
+    display: inline-block;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--success-fg);
+    border: 1px solid color-mix(in srgb, var(--success-fg) 45%, transparent);
+    border-radius: 4px; padding: 1px 5px; margin-left: 4px;
+    vertical-align: 1px;
+}
+
+/* progress */
+.sv-progress { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+/* display:flex beats the [hidden] default of display:none — restore it */
+.sv-progress[hidden] { display: none; }
+.sv-bar {
+    flex: 1; height: 8px; border-radius: 999px; overflow: hidden;
+    background: color-mix(in srgb, var(--body-fg) 10%, transparent);
+}
+.sv-bar i { display: block; height: 100%; width: 0; background: var(--primary); transition: width 0.3s; }
+.sv-progress span { font-size: 12.5px; color: var(--body-quiet-color); white-space: nowrap; }
+
+/* result rows */
+.sv-row {
+    display: grid; grid-template-columns: 1fr 68px 120px;
+    align-items: center; gap: 12px;
+    padding: 9px 2px;
+    border-bottom: 1px solid var(--card-border);
+}
+.sv-row:last-child { border-bottom: 0; }
+.sv-row .sv-name { font-size: 13.5px; }
+.sv-row .sv-name i {
+    display: block; font-style: normal;
+    font-size: 11.5px; color: var(--body-quiet-color);
+}
+.sv-row .sv-db {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 14px; font-weight: 700; text-align: right;
+}
+.sv-meter { height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--body-fg) 10%, transparent); }
+.sv-meter i { display: block; height: 100%; border-radius: 999px; }
+
+/* strength ramp — semantic state colours, not hand-picked hues */
+.sv-s0 { color: var(--body-quiet-color); }
+.sv-s0 + .sv-meter i, .sv-meter i.sv-s0 { background: var(--body-quiet-color); }
+.sv-s1 { color: var(--error-fg); }
+.sv-meter i.sv-s1 { background: var(--error-fg); }
+.sv-s2 { color: var(--warning-fg); }
+.sv-meter i.sv-s2 { background: var(--warning-fg); }
+.sv-s3 { color: var(--success-fg); }
+.sv-meter i.sv-s3 { background: var(--success-fg); }
+
+/* comparison matrix */
+.sv-scroll { overflow-x: auto; }
+.sv-matrix { width: 100%; border-collapse: collapse; font-size: 13px; }
+.sv-matrix th, .sv-matrix td {
+    padding: 8px 12px; text-align: right;
+    border-bottom: 1px solid var(--card-border);
+    white-space: nowrap;
+}
+.sv-matrix th:first-child, .sv-matrix td:first-child { text-align: left; }
+.sv-matrix thead th {
+    font-size: 11.5px; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--body-quiet-color); font-weight: 700;
+}
+.sv-matrix thead th small {
+    display: block; text-transform: none; letter-spacing: 0;
+    font-weight: 400; font-size: 11px;
+}
+.sv-matrix td {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.sv-matrix td.sv-best {
+    color: var(--success-fg); font-weight: 700;
+    background: color-mix(in srgb, var(--success-fg) 10%, transparent);
+}
+.sv-matrix td.sv-none { color: var(--body-quiet-color); }
+.sv-matrix .sv-gain-warn { color: var(--warning-fg); }
+
+/* saved runs */
+.sv-run {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 2px; border-bottom: 1px solid var(--card-border);
+    font-size: 13px;
+}
+.sv-run:last-child { border-bottom: 0; }
+.sv-run b { font-weight: 650; }
+.sv-run .sv-when { color: var(--body-quiet-color); font-size: 12px; }
+.sv-run .sv-spacer { flex: 1; }
+.sv-run button {
+    appearance: none; border: 1px solid var(--card-border); border-radius: 7px;
+    background: transparent; color: var(--body-quiet-color);
+    font: inherit; font-size: 12px; padding: 4px 10px; cursor: pointer;
+}
+.sv-run button:hover { color: var(--error-fg); border-color: var(--error-fg); }
+.sv-run button:focus-visible { outline: 2px solid var(--input-focus-border); outline-offset: 2px; }

@@ -11,7 +11,16 @@ from apps.smallstack.api import api_error, api_view
 
 from .apitypes import APIRequest, operator
 from .consumers import live_group_name
-from .models import QSO, CWMacro, CWRig, CWSession, CWSimControl, QRZProfile, RadioStation
+from .models import (
+    QSO,
+    AntennaSurvey,
+    CWMacro,
+    CWRig,
+    CWSession,
+    CWSimControl,
+    QRZProfile,
+    RadioStation,
+)
 from .rigctl import RigctldClient, RigError
 
 MACRO_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,23}$")
@@ -827,3 +836,80 @@ def radio_stations(request: APIRequest) -> dict[str, Any] | Any:
         return api_error("Both name and freq_mhz are required", 400)
     station.save()
     return _station_dict(station)
+
+
+def _survey_dict(s: AntennaSurvey) -> dict[str, Any]:
+    return {
+        "id": s.pk,
+        "antenna": s.antenna,
+        "gain_db": s.gain_db,
+        "created_at": s.created_at.isoformat(),
+        "results": s.results,
+        "notes": s.notes,
+    }
+
+
+@api_view(methods=["GET", "POST"], require_auth=True)
+def band_survey(request: APIRequest) -> dict[str, Any] | Any:
+    """Sweep bands and score them, so antennas can be compared.
+
+    GET  → available bands, live scan progress, and this operator's saved runs
+    POST → {action: "start", antenna, bands: [key], gain_db?} | {action: "delete", id}
+    """
+    from . import bandscan
+
+    if request.method == "GET":
+        return {
+            "bands": bandscan.bands_payload(),
+            "defaults": {
+                "bands": bandscan.DEFAULT_BAND_KEYS,
+                "gain_db": bandscan.DEFAULT_GAIN_DB,
+            },
+            "scan": bandscan.status(),
+            "surveys": [
+                _survey_dict(s) for s in operator(request).antenna_surveys.all()[:12]
+            ],
+        }
+
+    data = request.json
+    if not isinstance(data, dict):
+        return api_error("Expected a JSON object", 400)
+    action = data.get("action")
+
+    if action == "delete":
+        try:
+            survey_pk = int(data.get("id", ""))
+        except (TypeError, ValueError):
+            return api_error("A survey id is required", 400)
+        survey = AntennaSurvey.objects.filter(
+            user=operator(request), pk=survey_pk
+        ).first()
+        if survey is None:
+            return api_error("No such survey", 404)
+        survey.delete()
+        return {"deleted": True}
+
+    if action != "start":
+        return api_error("action must be 'start' or 'delete'", 400)
+
+    user = operator(request)
+
+    def persist(antenna: str, gain_db: float, results: list[dict[str, Any]]) -> int:
+        # Runs on the scan worker thread, so it opens its own DB connection;
+        # the survey is only written once every band has been swept.
+        survey = AntennaSurvey.objects.create(
+            user=user, antenna=antenna, gain_db=gain_db,
+            results=results, notes=str(data.get("notes") or "")[:200],
+        )
+        return int(survey.pk)
+
+    try:
+        state = bandscan.start(
+            antenna=str(data.get("antenna") or ""),
+            band_keys=[str(k) for k in (data.get("bands") or [])],
+            gain_db=float(data.get("gain_db") or bandscan.DEFAULT_GAIN_DB),
+            on_finish=persist,
+        )
+    except bandscan.RadioError as e:
+        return api_error(str(e), 409)
+    return {"scan": state}

@@ -446,3 +446,39 @@ class RadioStation(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name} ({self.freq_mhz:g} MHz)"
+
+
+class AntennaSurvey(models.Model):
+    """One band sweep, labelled by the antenna it was taken with.
+
+    The point of storing these is comparison: same bands, same gain, different
+    antenna. `gain_db` is recorded rather than assumed because two runs taken at
+    different gains aren't comparable and the page has to be able to say so.
+    `results` holds one scored row per band (see `bandscan.summarize`).
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="antenna_surveys"
+    )
+    antenna = models.CharField(
+        max_length=60, help_text="What was connected — 'stock whip', 'dipole', 'loop'"
+    )
+    gain_db = models.FloatField(default=40.0, help_text="Tuner gain, pinned so runs compare")
+    results = models.JSONField(default=list, help_text="Per-band scores from the sweep")
+    notes = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Antenna Survey"
+
+    def __str__(self) -> str:
+        return f"{self.antenna} — {len(self.results)} bands"
+
+    def score_for(self, band_key: str) -> float | None:
+        """SNR for one band, or None if this survey didn't sweep it."""
+        for row in self.results:
+            if row.get("key") == band_key:
+                value = row.get("snr_db")
+                return float(value) if value is not None else None
+        return None

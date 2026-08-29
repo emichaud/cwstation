@@ -1,0 +1,93 @@
+{% extends "smallstack/base.html" %}
+{% load static theme_tags %}
+
+{% block title %}Antenna Survey{% endblock %}
+{% block breadcrumbs %}{% endblock %}
+{% block body_class %}cw-console cw-setup{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'cw/cw.css' %}">
+<link rel="stylesheet" href="{% static 'cw/survey.css' %}">
+{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions">
+    <div class="page-header-content">
+        <h1>Antennas <span class="cw-live-pill" id="sv-pill" data-state="off">idle</span></h1>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="cw-setup-wrap">
+    <header class="cw-setup-head">
+        <h2>Which antenna hears best?</h2>
+        <p>Sweep the same bands with each antenna and compare. Connect one, name it, run the
+           survey — then swap and run it again.</p>
+    </header>
+
+    <section class="cw-setup-card">
+        <div class="cw-step-head"><span class="cw-step-num">📡</span><h3>Run a survey</h3></div>
+        <p class="cw-setup-note">
+            Bands marked <span class="sv-ref-tag">always on</span> carry transmitters that never
+            stop, so a change in their reading is a change in your antenna. A quiet ham band
+            measures propagation, not hardware — it can read zero on a superb antenna.
+        </p>
+
+        <div class="cw-field">
+            <label for="sv-antenna">Antenna name</label>
+            <input type="text" id="sv-antenna" class="cw-setup-input" maxlength="60"
+                   placeholder="stock whip" autocomplete="off">
+        </div>
+
+        <div class="cw-field">
+            <label>Bands to sweep <span class="cw-slider-val" id="sv-est">~10 s</span></label>
+            <div class="sv-bands" id="sv-bands"></div>
+        </div>
+
+        <div class="cw-field">
+            <label for="sv-gain">Tuner gain <span class="cw-slider-val" id="sv-gain-val">40 dB</span></label>
+            <div class="cw-slider-row">
+                <input type="range" id="sv-gain" min="0" max="49.6" step="0.1" value="40">
+            </div>
+            <p class="cw-setup-note">Keep this identical between runs — a different gain makes
+               two antennas incomparable. Surveys taken at other gains are flagged below.</p>
+        </div>
+
+        <div class="cw-cb-actions">
+            <button type="button" class="cw-btn-lg" id="sv-run">Run survey</button>
+        </div>
+        <div class="sv-progress" id="sv-progress" hidden>
+            <div class="sv-bar"><i id="sv-bar-fill"></i></div>
+            <span id="sv-progress-text">starting…</span>
+        </div>
+        <div class="cw-cb-result" id="sv-status" role="status" aria-live="polite"></div>
+    </section>
+
+    <section class="cw-setup-card" id="sv-latest-card" hidden>
+        <div class="cw-step-head"><span class="cw-step-num">📈</span><h3>Latest run</h3></div>
+        <div id="sv-latest"></div>
+    </section>
+
+    {% comment %}
+    The comparison matrix is the whole point: bands down the side, one column per
+    saved antenna, so a swap is read as a row of numbers rather than remembered.
+    {% endcomment %}
+    <section class="cw-setup-card" id="sv-compare-card" hidden>
+        <div class="cw-step-head"><span class="cw-step-num">⚖️</span><h3>Antenna comparison</h3></div>
+        <p class="cw-setup-note">Best signal above the noise floor, in dB. Higher is better;
+           the best figure in each row is highlighted.</p>
+        <div class="sv-scroll"><table class="sv-matrix" id="sv-matrix"></table></div>
+    </section>
+
+    <section class="cw-setup-card" id="sv-runs-card" hidden>
+        <div class="cw-step-head"><span class="cw-step-num">🗂</span><h3>Saved runs</h3></div>
+        <div id="sv-runs"></div>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>window.CW_SURVEY = { url: "{% url 'cw-survey-scan' %}" };</script>
+<script src="{% static 'cw/survey.js' %}"></script>
+{% endblock %}
