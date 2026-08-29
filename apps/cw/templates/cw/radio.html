@@ -90,6 +90,26 @@
     {# problems + fixes, only rendered when something's missing #}
     <div class="fm-problems" id="fm-device-detail" hidden></div>
 </div>
+
+{% comment %}
+One dialog serves both preset flows — save (name input) and remove (confirm).
+Native <dialog> supplies the focus trap, Esc-to-close, and backdrop.
+{% endcomment %}
+<dialog class="fm-modal" id="fm-modal">
+    <form id="fm-modal-form" novalidate>
+        <h3 id="fm-modal-title">Save preset</h3>
+        <p class="fm-modal-freq"><span id="fm-modal-mhz">100.3</span> <small>MHz</small></p>
+        <div class="fm-modal-field" id="fm-modal-field">
+            <label for="fm-modal-name">Name</label>
+            <input type="text" id="fm-modal-name" maxlength="32" autocomplete="off" spellcheck="false">
+        </div>
+        <p class="fm-modal-err" id="fm-modal-err" role="alert" hidden></p>
+        <div class="fm-modal-actions">
+            <button type="button" class="fm-key" id="fm-modal-cancel">Cancel</button>
+            <button type="submit" class="fm-key fm-key--main" id="fm-modal-ok">Save</button>
+        </div>
+    </form>
+</dialog>
 {% endblock %}
 
 {% block extra_js %}

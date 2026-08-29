@@ -264,7 +264,8 @@ class TestRadioPage:
         body = client.get(reverse("cw-radio")).content.decode()
         # the faceplate pieces the JS binds to
         for element_id in ("fm-chassis", "fm-freq", "fm-favs", "fm-freq-val",
-                           "fm-listen", "fm-device-note"):
+                           "fm-listen", "fm-device-note", "fm-seek-up",
+                           "fm-seek-down", "fm-modal", "fm-modal-name"):
             assert f'id="{element_id}"' in body
 
     def test_anonymous_is_redirected(self, client):

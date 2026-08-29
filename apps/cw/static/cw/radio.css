@@ -338,6 +338,76 @@ body.cw-console .fm-dial input[type="range"]:focus-visible {
     font-size: 12px;
 }
 
+/* ── preset removal: a ✕ that reveals on hover/keyboard focus ────────── */
+.fm-preset-slot { position: relative; display: flex; }
+.fm-preset-slot .fm-preset { flex: 1; }
+.fm-preset-x {
+    position: absolute; top: -7px; right: -7px;
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 1px solid var(--card-border);
+    background: var(--card-bg);
+    color: var(--body-quiet-color);
+    font-size: 12px; line-height: 1; cursor: pointer;
+    opacity: 0; transition: opacity 0.12s, color 0.12s;
+    display: flex; align-items: center; justify-content: center;
+}
+.fm-preset-slot:hover .fm-preset-x,
+.fm-preset-slot:focus-within .fm-preset-x { opacity: 1; }
+.fm-preset-x:hover { color: var(--error-fg); border-color: var(--error-fg); }
+.fm-preset-x:focus-visible { outline: 2px solid var(--input-focus-border); outline-offset: 1px; opacity: 1; }
+
+/* ── the preset dialog ───────────────────────────────────────────────── */
+.fm-modal {
+    /* the global reset zeroes margins, which kills <dialog>'s native
+       margin:auto centering — restore it explicitly */
+    position: fixed; inset: 0; margin: auto;
+    width: min(380px, 92vw); height: fit-content;
+    border: 1px solid var(--card-border);
+    border-radius: 16px;
+    background: var(--card-bg);
+    color: var(--body-fg);
+    padding: 22px 24px;
+    box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.6);
+}
+.fm-modal::backdrop { background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(2px); }
+.fm-modal h3 { margin: 0 0 4px; font-size: 1.1rem; }
+.fm-modal-freq {
+    margin: 0 0 14px;
+    font-family: "DSEG7", ui-monospace, monospace;
+    font-size: 26px; color: var(--primary);
+    text-shadow: 0 0 8px color-mix(in srgb, var(--primary) 45%, transparent);
+}
+.fm-modal-freq small {
+    /* NOT inherit — that would set the unit in seven-segment glyphs */
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; font-weight: 700; letter-spacing: 0.14em;
+    color: var(--body-quiet-color); text-shadow: none;
+}
+.fm-modal-field label {
+    display: block; font-size: 12px; font-weight: 600;
+    color: var(--body-quiet-color); margin-bottom: 6px;
+}
+.fm-modal-field input {
+    width: 100%; box-sizing: border-box;
+    min-height: 46px; padding: 0 14px;
+    border: 1px solid var(--card-border); border-radius: 10px;
+    background: color-mix(in srgb, var(--body-fg) 3%, var(--card-bg));
+    color: var(--body-fg); font-size: 1rem;
+}
+.fm-modal-field input:focus-visible {
+    outline: 2px solid var(--input-focus-border); outline-offset: 1px;
+}
+.fm-modal-err { color: var(--error-fg); font-size: 13px; margin: 10px 0 0; }
+.fm-modal-actions {
+    display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px;
+}
+.fm-key--danger {
+    background: transparent;
+    border-color: color-mix(in srgb, var(--error-fg) 55%, transparent);
+    color: var(--error-fg);
+}
+.fm-key--danger:hover:not(:disabled) { border-color: var(--error-fg); filter: none; }
+
 /* power-on flicker, once per load */
 @keyframes fm-warmup {
     0% { opacity: 0; } 8% { opacity: 0.9; } 14% { opacity: 0.3; }

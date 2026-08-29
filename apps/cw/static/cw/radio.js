@@ -39,7 +39,11 @@
       body: JSON.stringify(body),
     }).then(function (r) {
       return r.json().then(function (j) {
-        return { ok: r.ok, data: j.data || j, error: j.error || (j.data && j.data.error) };
+        // api_error() replies {"errors": {"__all__": ["message"]}}
+        var msg =
+          (j.errors && j.errors.__all__ && j.errors.__all__[0]) ||
+          j.error || (j.data && j.data.error);
+        return { ok: r.ok, data: j.data || j, error: msg };
       });
     });
   }
@@ -140,37 +144,68 @@
     var slots = Math.max(PRESET_SLOTS, stations.length);
     for (var i = 0; i < slots; i++) {
       var s = stations[i];
+      var slot = document.createElement("div");
+      slot.className = "fm-preset-slot";
       var b = document.createElement("button");
       b.type = "button";
       if (!s) {
         b.className = "fm-preset is-empty";
         b.disabled = true;
         b.textContent = "—";
-        favs.appendChild(b);
+        slot.appendChild(b);
+        favs.appendChild(slot);
         continue;
       }
       b.className = "fm-preset";
       var mhz = Number(s.freq_mhz).toFixed(1);
+      var label = s.name === mhz ? "FM " + mhz : s.name;
       b.innerHTML =
         '<span class="n">P' + (i + 1) + "</span>" +
         '<span class="name"></span>' +
         '<span class="mhz">' + mhz + " MHz</span>";
-      b.querySelector(".name").textContent = s.name === mhz ? "FM " + mhz : s.name;
-      b.title = "Tune " + mhz + " MHz (shift-click to remove)";
+      b.querySelector(".name").textContent = label;
+      b.title = "Tune " + mhz + " MHz";
       if (state.running && Math.abs(state.freq_mhz - s.freq_mhz) < 0.05) {
         b.setAttribute("aria-selected", "true");
       }
       b.addEventListener("click", makePresetHandler(s));
-      favs.appendChild(b);
+      slot.appendChild(b);
+
+      var x = document.createElement("button");
+      x.type = "button";
+      x.className = "fm-preset-x";
+      x.textContent = "✕";
+      x.setAttribute("aria-label", "Remove preset P" + (i + 1) + " — " + label);
+      x.addEventListener("click", makeRemoveHandler(s, label));
+      slot.appendChild(x);
+      favs.appendChild(slot);
     }
   }
 
   function makePresetHandler(s) {
-    return function (ev) {
-      if (ev.shiftKey) { removeStation(s); return; }
+    return function () {
       freq.value = s.freq_mhz;
       showFreq(s.freq_mhz);
       tune(s.freq_mhz);
+    };
+  }
+
+  function makeRemoveHandler(s, label) {
+    return function () {
+      openModal({
+        title: "Remove preset?",
+        mhz: s.freq_mhz,
+        withInput: false,
+        okLabel: "Remove",
+        danger: true,
+        onSubmit: function () {
+          return post(cfg.stationsUrl, { id: s.id, delete: true }).then(function (r) {
+            if (!r.ok) return r.error || "Couldn't remove it.";
+            say("Removed " + label + ".", "ok");
+            return loadStations().then(function () { return null; });
+          });
+        },
+      });
     };
   }
 
@@ -181,23 +216,69 @@
     });
   }
 
-  function removeStation(s) {
-    if (!window.confirm("Remove " + s.name + "?")) return;
-    post(cfg.stationsUrl, { id: s.id, delete: true }).then(function () {
-      loadStations();
+  function saveStation() {
+    var mhz = Number(freq.value);
+    openModal({
+      title: "Save preset",
+      mhz: mhz,
+      withInput: true,
+      defaultName: mhz.toFixed(1),
+      okLabel: "Save",
+      onSubmit: function (name) {
+        if (!name.trim()) return Promise.resolve("Give it a name.");
+        return post(cfg.stationsUrl, { name: name.trim(), freq_mhz: mhz }).then(function (r) {
+          if (!r.ok) return r.error || "Couldn't save that preset.";
+          say("Preset saved.", "ok");
+          return loadStations().then(function () { return null; });
+        });
+      },
     });
   }
 
-  function saveStation() {
-    var mhz = Number(freq.value);
-    var name = window.prompt("Name this preset", Number(mhz).toFixed(1));
-    if (!name) return;
-    post(cfg.stationsUrl, { name: name, freq_mhz: mhz }).then(function (r) {
-      if (!r.ok) { say(r.error || "Couldn't save that preset.", "error"); return; }
-      say("Preset saved.", "ok");
-      loadStations().then(renderFavs);
-    });
+  /* ---- the preset dialog --------------------------------------------------
+   * One <dialog> serves save (with name input) and remove (confirm). The
+   * onSubmit callback resolves to null on success or an error string, which
+   * keeps the dialog open with the message inline — a 409 duplicate name is
+   * a correction, not a restart.
+   */
+  var modal = $("fm-modal");
+  var modalForm = $("fm-modal-form");
+  var modalErr = $("fm-modal-err");
+  var modalSubmit = null;
+
+  function openModal(opts) {
+    $("fm-modal-title").textContent = opts.title;
+    $("fm-modal-mhz").textContent = Number(opts.mhz).toFixed(1);
+    $("fm-modal-field").hidden = !opts.withInput;
+    $("fm-modal-name").value = opts.defaultName || "";
+    var ok = $("fm-modal-ok");
+    ok.textContent = opts.okLabel;
+    ok.classList.toggle("fm-key--danger", !!opts.danger);
+    ok.classList.toggle("fm-key--main", !opts.danger);
+    modalErr.hidden = true;
+    modalSubmit = opts.onSubmit;
+    modal.showModal();
+    if (opts.withInput) {
+      var input = $("fm-modal-name");
+      input.focus();
+      input.select();
+    }
   }
+
+  modalForm.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    if (!modalSubmit) return;
+    modalSubmit($("fm-modal-name").value).then(function (err) {
+      if (err) {
+        modalErr.textContent = err;
+        modalErr.hidden = false;
+        return;
+      }
+      modal.close();
+    });
+  });
+  $("fm-modal-cancel").addEventListener("click", function () { modal.close(); });
+  modal.addEventListener("close", function () { modalSubmit = null; });
 
   /* ---- tuning ------------------------------------------------------------ */
   function tune(mhz) {
