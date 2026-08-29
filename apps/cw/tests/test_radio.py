@@ -102,6 +102,85 @@ class TestDeviceDiscovery:
         assert radiodaemon._devices_cache is None
 
 
+class TestSeekMath:
+    """The seek pipeline's pure parts — sweep parsing, peak finding, direction
+    picking — tested on canned data, no hardware."""
+
+    # Two rtl_power hop-lines covering 88-108 MHz at 2 MHz bins. Floor ~-31 dB;
+    # strong carriers at the 97 and 103 bin centres (~+29 dB SNR); one weak
+    # bump at 93 (~+6 dB) that the default threshold must skip.
+    CSV = (
+        "2026-08-29, 12:00:00, 88000000, 98000000, 2000000, 512, "
+        "-32.1, -30.9, -25.0, -31.8, -1.5\n"
+        "2026-08-29, 12:00:01, 98000000, 108000000, 2000000, 512, "
+        "-31.5, -32.4, -2.2, -31.0, -32.2\n"
+    )
+
+    def test_parse_power_csv(self):
+        bins = radiodaemon.parse_power_csv(self.CSV)
+        assert len(bins) == 10
+        assert bins[0][0] == pytest.approx(89.0)   # centre of the first bin
+        assert bins[-1][0] == pytest.approx(107.0)
+
+    def test_find_stations_skips_weak_signals(self):
+        bins = radiodaemon.parse_power_csv(self.CSV)
+        freqs = [f for f, _ in radiodaemon.find_stations(bins)]
+        assert freqs == [97.0, 103.0]              # the +6 dB bump at 93 is skipped
+        loose = [f for f, _ in radiodaemon.find_stations(bins, threshold_db=5.0)]
+        assert 93.0 in loose                       # …but a loose threshold admits it
+
+    def test_next_station_picks_by_direction_and_wraps(self):
+        freqs = [92.5, 97.1, 103.1]
+        nxt = radiodaemon.next_station
+        assert nxt(freqs, 97.1, "up") == 103.1
+        assert nxt(freqs, 97.1, "down") == 92.5
+        assert nxt(freqs, 103.1, "up") == 92.5      # wrap at the top edge
+        assert nxt(freqs, 92.5, "down") == 103.1    # wrap at the bottom edge
+        assert nxt([97.1], 97.1, "up") is None      # only the station we're on
+        assert nxt([], 100.0, "up") is None
+
+    def test_seek_rejects_bad_direction(self):
+        with pytest.raises(RadioError, match="direction"):
+            radiodaemon.seek("sideways", 100.3)
+
+
+class TestRetuneValidation:
+    def test_retune_validates_before_touching_the_receiver(self, monkeypatch):
+        """A bad frequency must refuse without killing what's playing."""
+        died = []
+        monkeypatch.setattr(radiodaemon, "_stop_locked", lambda: died.append(1))
+        with pytest.raises(RadioError, match="outside the FM broadcast band"):
+            radiodaemon.retune(7.03)
+        assert died == []
+
+
+class TestOrphanReaping:
+    """The pidfile bridges dev-server restarts: an rtl_fm spawned before an
+    autoreload must still die when the fresh process presses Stop — that was
+    the 'Stop still plays static' bug."""
+
+    def test_reaper_ignores_a_recycled_pid(self, tmp_path, monkeypatch):
+        """A PID that now belongs to some other program must not be signalled."""
+        import subprocess as sp
+
+        bystander = sp.Popen(["sleep", "30"])
+        try:
+            pidfile = tmp_path / "pid"
+            pidfile.write_text(str(bystander.pid))
+            monkeypatch.setattr(radiodaemon, "_PIDFILE", pidfile)
+            radiodaemon._reap_stale()
+            assert bystander.poll() is None, "reaper killed an unrelated process"
+            assert not pidfile.exists()  # stale entry cleaned up regardless
+        finally:
+            bystander.kill()
+
+    def test_reaper_survives_garbage_pidfile(self, tmp_path, monkeypatch):
+        pidfile = tmp_path / "pid"
+        pidfile.write_text("not a pid")
+        monkeypatch.setattr(radiodaemon, "_PIDFILE", pidfile)
+        radiodaemon._reap_stale()  # must not raise
+
+
 @needs_dongle
 class TestReceiverLifecycle:
     def test_start_pumps_audio_then_stops(self):

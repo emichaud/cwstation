@@ -209,6 +209,36 @@
     });
   }
 
+  /* Seek: the server sweeps the whole band with rtl_power (a few seconds,
+   * during which the dongle is busy) and tunes the next strong carrier. */
+  var seeking = false;
+  function seek(direction) {
+    if (seeking) return;
+    seeking = true;
+    chassis.dataset.state = "seek";
+    say(direction === "up" ? "Seeking ▶▶…" : "◀◀ Seeking…");
+    setSeekKeys(true);
+    post(cfg.controlUrl, {
+      action: "seek", direction: direction, freq_mhz: Number(freq.value),
+    }).then(function (r) {
+      seeking = false;
+      setSeekKeys(false);
+      if (!r.ok) {
+        say(r.error || "Seek failed.", "error");
+        get(cfg.controlUrl).then(renderState);
+        return;
+      }
+      var found = r.data.seek && r.data.seek.found;
+      say(found ? "Locked " + Number(found).toFixed(1) + " MHz." : "", "ok");
+      renderState(r.data);
+    });
+  }
+
+  function setSeekKeys(disabled) {
+    ["fm-seek-down", "fm-seek-up", "fm-listen", "fm-stop", "fm-down", "fm-up"]
+      .forEach(function (id) { $(id).disabled = disabled; });
+  }
+
   function stop() {
     post(cfg.controlUrl, { action: "stop" }).then(function (r) {
       say("");
@@ -228,6 +258,8 @@
   freq.addEventListener("change", function () { if (state.running) tune(freq.value); });
   $("fm-down").addEventListener("click", function () { nudge(-0.1); });
   $("fm-up").addEventListener("click", function () { nudge(0.1); });
+  $("fm-seek-down").addEventListener("click", function () { seek("down"); });
+  $("fm-seek-up").addEventListener("click", function () { seek("up"); });
   $("fm-listen").addEventListener("click", function () { tune(freq.value); });
   $("fm-stop").addEventListener("click", stop);
   $("fm-save").addEventListener("click", saveStation);

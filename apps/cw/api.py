@@ -726,7 +726,7 @@ def radio_control(request: HttpRequest) -> dict[str, Any] | Any:
     """The FM receiver: what hardware is present, and start/stop listening.
 
     GET  → {devices, running, freq_mhz, band, rtl_fm_present, sounddevice_present, log}
-    POST → {action: "tune", freq_mhz} | {action: "stop"}
+    POST → {action: "tune", freq_mhz} | {action: "seek", direction, freq_mhz} | {action: "stop"}
     """
     from . import radiodaemon
 
@@ -744,19 +744,22 @@ def radio_control(request: HttpRequest) -> dict[str, Any] | Any:
     if action == "stop":
         return {"devices": radiodaemon.list_devices(), **radiodaemon.stop()}
 
-    if action != "tune":
-        return api_error("action must be 'tune' or 'stop'", 400)
+    if action not in ("tune", "seek"):
+        return api_error("action must be 'tune', 'seek' or 'stop'", 400)
     try:
         freq = float(data.get("freq_mhz"))
     except (TypeError, ValueError):
         return api_error("A frequency in MHz is required", 400)
+    device_index = int(data.get("device_index") or 0)
 
-    # Retuning is stop-then-start: rtl_fm has no runtime tuning channel and the
-    # dongle is exclusive, so the old process must release it first.
-    if radiodaemon.status()["running"]:
-        radiodaemon.stop()
     try:
-        state = radiodaemon.start(freq, device_index=int(data.get("device_index") or 0))
+        if action == "seek":
+            direction = str(data.get("direction") or "")
+            state = radiodaemon.seek(direction, freq, device_index=device_index)
+        else:
+            # retune() serialises stop-then-start as one operation — two racing
+            # tune clicks can't interleave and orphan an untracked rtl_fm.
+            state = radiodaemon.retune(freq, device_index=device_index)
     except radiodaemon.RadioError as e:
         return api_error(str(e), 409)
     return {"devices": radiodaemon.list_devices(), **state}

@@ -188,6 +188,13 @@
 .fm-chassis[data-state="dead"] .fm-display { filter: saturate(0.25) brightness(0.8); }
 .fm-chassis[data-state="dead"] .fm-digits .lit { opacity: 0.35; text-shadow: none; }
 
+/* seeking: the digits blink while rtl_power sweeps the band */
+.fm-chassis[data-state="seek"] .fm-digits .lit { animation: fm-seekblink 0.6s steps(2) infinite; }
+@keyframes fm-seekblink { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) {
+    .fm-chassis[data-state="seek"] .fm-digits .lit { animation: none; opacity: 0.6; }
+}
+
 /* ── the dial ────────────────────────────────────────────────────────── */
 .fm-dial { position: relative; margin: 22px 2px 6px; }
 .fm-scale {
