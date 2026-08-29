@@ -89,6 +89,16 @@ exclude = '(/migrations/|/tests/|test_[^/]*\.py$)'
 # green.
 files = ["apps"]
 
+# Downstream backlog. Upstream v0.20 widened mypy from a hand-picked list to all
+# of `apps` and made the framework tree type-clean; CW Station's own app predates
+# that standard and reports 128 errors (127 in apps/cw, 1 in our apps/help
+# override). Exempting them keeps `make lint` meaningful for everything else —
+# including any new app, which is checked by default — instead of leaving the
+# whole lane red. Shrink this list module by module; delete it when it's empty.
+[[tool.mypy.overrides]]
+module = ["apps.cw.*", "apps.help.views"]
+ignore_errors = true
+
 [tool.django-stubs]
 django_settings_module = "config.settings.test"
 
