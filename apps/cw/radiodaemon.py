@@ -128,7 +128,24 @@ def list_devices(refresh: bool = False) -> list[dict[str, Any]]:
         m = _DEVICE_RE.match(line)
         if not m:
             break  # the enumeration block ends at the first non-device line
-        devices.append({"index": int(m.group(1)), "name": m.group(2)})
+        devices.append({
+            "index": int(m.group(1)),
+            "name": m.group(2),
+            "serial": _serial_from_name(m.group(2)),
+        })
+    # rtl_test probes only the first device, so the gain table and tuner it
+    # reports belong to device 0. Attaching it to every entry would be a lie
+    # when two different sticks are plugged in.
+    gains = _gains_from_probe(text)
+    tuner = _tuner_from_probe(text)
+    if devices:
+        devices[0]["gains"] = gains
+        devices[0]["tuner"] = tuner
+        devices[0]["direct_sampling"] = supports_direct_sampling(devices[0]["name"])
+    for extra in devices[1:]:
+        extra["gains"] = []
+        extra["tuner"] = ""
+        extra["direct_sampling"] = supports_direct_sampling(extra["name"])
     # Only cache a *successful* scan. An empty result usually means the device
     # was momentarily busy (a stray rtl_fm, gqrx, an earlier run still exiting),
     # and caching that would strand the page on "No SDR detected" until a manual
@@ -136,6 +153,64 @@ def list_devices(refresh: bool = False) -> list[dict[str, Any]]:
     if devices:
         _devices_cache = devices
     return devices
+
+
+_GAINS_RE = re.compile(r"Supported gain values \(\d+\):\s*(.+)")
+# multi-word: "Found Rafael Micro R820T tuner"
+_TUNER_RE = re.compile(r"Found (.+?) tuner")
+_SERIAL_RE = re.compile(r"SN:\s*(\S+)")
+
+# Sticks whose HF coverage works through direct sampling. The ADC tap is a
+# hardware modification: the RTL-SDR Blog V3/V4 ship with it, most others
+# (including the NESDR SMArt) don't, and no software switch substitutes.
+_DIRECT_SAMPLING_HINTS = ("rtl-sdr blog", "rtlsdrblog", "blog v3", "blog v4")
+
+# Below roughly this, the R820T/R828D tuners have no signal path at all; HF
+# needs either direct sampling or an upconverter.
+TUNER_FLOOR_MHZ = 24.0
+
+
+def supports_direct_sampling(device_name: str) -> bool:
+    """Whether this stick is known to have the ADC tap HF needs.
+
+    Name-based because librtlsdr exposes no capability bit. A false negative
+    just means the operator has to tick the box themselves; a false positive
+    would silently produce noise, so the list stays conservative.
+    """
+    lowered = (device_name or "").lower()
+    return any(hint in lowered for hint in _DIRECT_SAMPLING_HINTS)
+
+
+def _serial_from_name(name: str) -> str:
+    m = _SERIAL_RE.search(name or "")
+    return m.group(1) if m else ""
+
+
+def _gains_from_probe(text: str) -> list[float]:
+    """The tuner's real gain steps. rtl_fm/rtl_power snap to the nearest, so a
+    UI offering arbitrary values would record a gain that wasn't used."""
+    m = _GAINS_RE.search(text or "")
+    if not m:
+        return []
+    values: list[float] = []
+    for token in m.group(1).split():
+        try:
+            values.append(float(token))
+        except ValueError:
+            break
+    return values
+
+
+def _tuner_from_probe(text: str) -> str:
+    m = _TUNER_RE.search(text or "")
+    return m.group(1) if m else ""
+
+
+def nearest_gain(wanted: float, gains: list[float]) -> float:
+    """Snap a requested gain to what the tuner can actually do."""
+    if not gains:
+        return float(wanted)
+    return min(gains, key=lambda g: abs(g - float(wanted)))
 
 
 @contextmanager
@@ -257,6 +332,7 @@ def _start_locked(
     device_index: int = 0,
     gain: float | None = None,
     sink: Any = None,
+    direct_sampling: bool = False,
 ) -> dict[str, Any]:
     device_index = int(device_index)
     if device_index < 0:
@@ -284,6 +360,11 @@ def _start_locked(
         ]
         if gain is not None:
             argv += ["-g", f"{float(gain):.1f}"]
+        # HF below the tuner floor only exists via the ADC tap. rtl_fm spells
+        # this "-E direct2"; rtl_power spells the same thing "-D" (checked
+        # against both binaries — they are not interchangeable).
+        if direct_sampling:
+            argv += ["-E", "direct2"]
         argv.append("-")
         _state["log"].clear()
         _state["error"] = ""
@@ -346,11 +427,12 @@ def start(
     device_index: int = 0,
     gain: float | None = None,
     sink: Any = None,
+    direct_sampling: bool = False,
 ) -> dict[str, Any]:
     """Tune `freq_mhz` and start playing. Raises RadioError with a reason."""
     freq = _validate_freq(freq_mhz)
     with _op_lock:
-        return _start_locked(freq, device_index, gain, sink)
+        return _start_locked(freq, device_index, gain, sink, direct_sampling)
 
 
 def stop() -> dict[str, Any]:
@@ -363,6 +445,7 @@ def retune(
     device_index: int = 0,
     gain: float | None = None,
     sink: Any = None,
+    direct_sampling: bool = False,
 ) -> dict[str, Any]:
     """Stop-then-start as ONE serialised operation.
 
@@ -374,7 +457,7 @@ def retune(
     with _op_lock:
         _stop_locked()
         time.sleep(0.2)  # let libusb release the interface
-        return _start_locked(freq, device_index, gain, sink)
+        return _start_locked(freq, device_index, gain, sink, direct_sampling)
 
 
 def status() -> dict[str, Any]:

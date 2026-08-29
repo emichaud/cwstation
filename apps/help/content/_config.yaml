@@ -29,6 +29,18 @@ sections:
         title: "Operator's Guide"
         description: "Decode CW off the air, practice, send — and replay it on the tape"
         icon: "book-open"
+      - slug: fm-radio
+        title: "FM Radio"
+        description: "Broadcast FM on the tuner faceplate — presets, dial, and seek"
+        icon: "radio"
+      - slug: antenna-survey
+        title: "Antenna Survey"
+        description: "Measure which antenna hears best, and compare runs side by side"
+        icon: "activity"
+      - slug: sdr-hardware
+        title: "SDR Hardware & Compatibility"
+        description: "Which receivers work, the HF tuner floor, direct sampling, and what to buy"
+        icon: "cpu"
       - slug: cw-install
         title: "Install & Deploy"
         description: "Dependencies, config, and the two production gotchas"

@@ -16,14 +16,15 @@
   var gain = $("sv-gain");
 
   var bands = [];
+  var devices = [];
   var surveys = [];
   var selected = [];
   var poll = null;
   var lastSaved = true;
   var SECONDS_PER_BAND = 2.4;  // measured; keeps the estimate honest
 
-  function get() {
-    return fetch(cfg.url, { credentials: "same-origin" })
+  function get(query) {
+    return fetch(cfg.url + (query || ""), { credentials: "same-origin" })
       .then(function (r) { return r.json(); })
       .then(function (j) { return j.data || j; });
   }
@@ -69,6 +70,7 @@
       var label = document.createElement("label");
       label.className = "sv-band";
       label.dataset.checked = selected.indexOf(b.key) >= 0 ? "true" : "false";
+      label.dataset.hf = b.hf ? "true" : "false";
 
       var cb = document.createElement("input");
       cb.type = "checkbox";
@@ -100,6 +102,78 @@
       bandsEl.appendChild(label);
     });
     updateEstimate();
+  }
+
+  /* Which stick, what it can do. Recorded with a saved run because a survey
+     from another dongle isn't comparable to this one. */
+  function renderDevices() {
+    var sel = $("sv-device");
+    var previous = sel.value;
+    sel.innerHTML = "";
+    if (!devices.length) {
+      var none = document.createElement("option");
+      none.textContent = "no SDR detected";
+      sel.appendChild(none);
+      sel.disabled = true;
+      $("sv-device-note").textContent =
+        "Plug a dongle in and press rescan. Only RTL-SDR sticks are detected — " +
+        "SDRplay, Airspy and HackRF speak a different driver.";
+      $("sv-ds-row").dataset.unsupported = "true";
+      return;
+    }
+    sel.disabled = devices.length === 1;
+    devices.forEach(function (d) {
+      var opt = document.createElement("option");
+      opt.value = String(d.index);
+      opt.textContent = "#" + d.index + "  " + d.name;
+      sel.appendChild(opt);
+    });
+    if (previous) sel.value = previous;
+
+    var current = currentDevice();
+    var canHf = !!(current && current.direct_sampling);
+    var bits = [];
+    if (current && current.tuner) bits.push(current.tuner + " tuner");
+    if (current && (current.gains || []).length) {
+      bits.push((current.gains || []).length + " gain steps");
+    }
+    bits.push(canHf
+      ? "known to support direct sampling — HF bands are reachable"
+      : "no known ADC tap: HF needs an upconverter, or a stick like the RTL-SDR Blog V3");
+    $("sv-device-note").textContent = bits.join(" · ");
+    $("sv-ds-row").dataset.unsupported = canHf ? "false" : "true";
+    applyGainSteps(current);
+  }
+
+  function currentDevice() {
+    var idx = Number($("sv-device").value);
+    return devices.filter(function (d) { return d.index === idx; })[0] || devices[0];
+  }
+
+  /* Drive the gain control from the tuner's real steps — rtl_power snaps to the
+     nearest anyway, so offering arbitrary values would record a gain that was
+     never used. */
+  function applyGainSteps(device) {
+    var steps = (device && device.gains) || [];
+    if (!steps.length) return;
+    gain.min = 0;
+    gain.max = String(steps.length - 1);
+    gain.step = 1;
+    gain.dataset.steps = JSON.stringify(steps);
+    var target = steps.reduce(function (best, g, i) {
+      return Math.abs(g - 40) < Math.abs(steps[best] - 40) ? i : best;
+    }, 0);
+    gain.value = String(target);
+    showGain();
+  }
+
+  function gainValue() {
+    var steps = gain.dataset.steps ? JSON.parse(gain.dataset.steps) : null;
+    return steps ? steps[Number(gain.value)] : Number(gain.value);
+  }
+
+  function showGain() {
+    $("sv-gain-val").textContent = Number(gainValue()).toFixed(1) + " dB";
   }
 
   function updateEstimate() {
@@ -169,6 +243,10 @@
 
     var gains = surveys.map(function (s) { return s.gain_db; });
     var mixedGain = gains.some(function (g) { return Math.abs(g - gains[0]) > 0.05; });
+    // Runs from two different dongles measure different hardware; comparing
+    // them says nothing about the antennas.
+    var devs = surveys.map(function (s) { return s.device || ""; });
+    var mixedDevice = devs.some(function (d) { return d !== devs[0]; });
 
     var table = $("sv-matrix");
     table.innerHTML = "";
@@ -180,8 +258,8 @@
       th.textContent = s.antenna;
       var small = document.createElement("small");
       small.textContent = new Date(s.created_at).toLocaleDateString() +
-        " · " + s.gain_db + " dB";
-      if (mixedGain) small.className = "sv-gain-warn";
+        " · " + s.gain_db + " dB" + (mixedDevice && s.device ? " · " + s.device : "");
+      if (mixedGain || mixedDevice) small.className = "sv-gain-warn";
       th.appendChild(small);
       hr.appendChild(th);
     });
@@ -222,7 +300,10 @@
     });
     table.appendChild(tbody);
 
-    if (mixedGain) {
+    if (mixedDevice) {
+      say("Runs were taken on different SDRs — those columns measure different "
+          + "receivers, not different antennas.", "warn");
+    } else if (mixedGain) {
       say("Runs were taken at different gains — those columns aren't directly comparable.", "warn");
     }
   }
@@ -305,15 +386,23 @@
   function refresh() {
     return get().then(function (d) {
       bands = d.bands || [];
+      devices = d.devices || [];
       surveys = d.surveys || [];
+      renderDevices();
       if (!selected.length) selected = ((d.defaults || {}).bands || []).slice();
       renderBands(); renderMatrix(); renderRuns();
       applyScan(d.scan || {});
     });
   }
 
-  gain.addEventListener("input", function () {
-    $("sv-gain-val").textContent = Number(gain.value).toFixed(0) + " dB";
+  gain.addEventListener("input", showGain);
+  $("sv-device").addEventListener("change", renderDevices);
+  $("sv-rescan").addEventListener("click", function () {
+    $("sv-device-note").textContent = "scanning…";
+    get("?refresh=1").then(function (d) {
+      devices = d.devices || [];
+      renderDevices();
+    });
   });
 
   function launch(body, label) {
@@ -331,7 +420,9 @@
     if (!selected.length) { say("Pick at least one band.", "error"); return; }
     launch({
       action: "start", antenna: antenna, save: true,
-      bands: selected, gain_db: Number(gain.value),
+      bands: selected, gain_db: gainValue(),
+      device_index: Number($("sv-device").value || 0),
+      direct_sampling: $("sv-ds").checked,
     }, "Sweeping…");
   });
 
@@ -342,7 +433,9 @@
                     .map(function (b) { return b.key; });
     launch({
       action: "start", save: false,
-      bands: refs.length ? refs : selected, gain_db: Number(gain.value),
+      bands: refs.length ? refs : selected, gain_db: gainValue(),
+      device_index: Number($("sv-device").value || 0),
+      direct_sampling: $("sv-ds").checked,
     }, "Checking…");
   });
 

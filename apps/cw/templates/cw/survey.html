@@ -40,6 +40,27 @@
                    placeholder="stock whip" autocomplete="off">
         </div>
 
+        {% comment %}
+        Receiver row: which stick, and the HF switch. Both are recorded with a
+        saved run, because a survey taken on a different dongle can't be
+        compared against one taken on this one.
+        {% endcomment %}
+        <div class="cw-field">
+            <label for="sv-device">Receiver</label>
+            <div class="sv-device-row">
+                <select id="sv-device" class="cw-setup-input"></select>
+                <button type="button" class="cw-btn-lg cw-btn-ghost" id="sv-rescan">rescan</button>
+            </div>
+            <p class="cw-setup-note" id="sv-device-note"></p>
+        </div>
+
+        <label class="sv-toggle" id="sv-ds-row">
+            <input type="checkbox" id="sv-ds">
+            <span><b>Direct sampling</b> — the only way an RTL stick reaches HF
+                (80/40/20 m, WWV). Needs a dongle with the ADC tap, such as an
+                RTL-SDR Blog V3/V4; on others it produces noise.</span>
+        </label>
+
         <div class="cw-field">
             <label>Bands to sweep <span class="cw-slider-val" id="sv-est">~10 s</span></label>
             <div class="sv-bands" id="sv-bands"></div>

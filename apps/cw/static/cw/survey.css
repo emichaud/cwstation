@@ -117,3 +117,33 @@ body.cw-console .cw-field .sv-bands label.sv-band {
 }
 .sv-run button:hover { color: var(--error-fg); border-color: var(--error-fg); }
 .sv-run button:focus-visible { outline: 2px solid var(--input-focus-border); outline-offset: 2px; }
+
+/* receiver row + HF toggle */
+.sv-device-row { display: flex; gap: 10px; align-items: center; }
+.sv-device-row select { flex: 1; }
+body.cw-console .cw-field label.sv-toggle {
+    display: flex; align-items: flex-start; gap: 9px;
+    margin: 4px 0 14px; padding: 10px 12px;
+    border: 1px solid var(--card-border); border-radius: 10px;
+    background: color-mix(in srgb, var(--body-fg) 3%, var(--card-bg));
+    text-transform: none; letter-spacing: normal;
+    font-size: 13px; font-weight: 400; color: var(--body-quiet-color);
+    cursor: pointer;
+}
+.sv-toggle {
+    display: flex; align-items: flex-start; gap: 9px;
+    margin: 4px 0 14px; padding: 10px 12px;
+    border: 1px solid var(--card-border); border-radius: 10px;
+    background: color-mix(in srgb, var(--body-fg) 3%, var(--card-bg));
+    font-size: 13px; color: var(--body-quiet-color); cursor: pointer;
+}
+.sv-toggle input { margin-top: 2px; flex: none; }
+.sv-toggle b { color: var(--body-fg); font-weight: 650; }
+.sv-toggle[data-unsupported="true"] { opacity: 0.75; }
+.sv-band[data-hf="true"] b::after {
+    content: "HF"; margin-left: 6px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+    color: var(--warning-fg);
+    border: 1px solid color-mix(in srgb, var(--warning-fg) 45%, transparent);
+    border-radius: 4px; padding: 1px 5px;
+}

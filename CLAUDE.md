@@ -13,6 +13,11 @@ the engine seam keeps those and an ML decoder addable later).
 - **`apps/cw/`** is the project's app: `engine/` (Django-free, typed, numpy-only DSP),
   `services.py` (the only engine↔Django glue), monitor/decode/send views, and the
   `CWSession` model (per-user, replay telemetry as JSON, audio regenerated on demand).
+- **The SDR side** (`radiodaemon.py`, `bandscan.py`) drives RTL-SDR dongles directly
+  for the FM Radio faceplate and the Antenna Survey bench. It supervises `rtl_fm` /
+  `rtl_power` subprocesses — read `docs/skills/sdr-subsystem.md` first; the rules
+  there (exclusive device, pidfile reaping, per-tool flag spellings) were all learned
+  from real bugs.
 - **Before touching `apps/cw/`, read `docs/skills/cw-audioengine.md`** — it has the
   three hard rules (Django-free engine, one event contract, Python-decodes/JS-renders).
 - Tests are the synthesize→decode→assert loop: `uv run pytest apps/cw/`. The headless
@@ -27,6 +32,7 @@ When the user asks you to do any of these, read the matching skill file BEFORE w
 
 | If the user wants to… | Read first |
 |---|---|
+| Touch anything **SDR** — the FM Radio page, Antenna Survey, `radiodaemon.py`, `bandscan.py` | `docs/skills/sdr-subsystem.md` |
 | Build or restyle any **CW operator screen** (setup/tool page, or match the house style) | `docs/skills/cw-screen-design.md` |
 | Build a **record-list screen** — cards collection + Table toggle + search/filter toolbar (Sessions/Logbook style) | `docs/skills/cw-collection-view.md` |
 | Build a new page, component, card, table, modal, badge (using SmallStack's theme) | `docs/skills/modern-dark-theme.md` |

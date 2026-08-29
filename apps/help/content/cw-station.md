@@ -227,6 +227,13 @@ pumped audio is hard for anything to copy.
 
 ## Receiving CW with an RTL-SDR
 
+> **Since this was written, CW Station drives RTL dongles directly.** It can tune
+> them, sweep bands, and measure antennas without any other software — see
+> [FM Radio](fm-radio), [Antenna Survey](antenna-survey), and
+> [SDR Hardware & Compatibility](sdr-hardware) for the full picture including
+> direct sampling and which receivers are detected. The audio route described
+> below still works and is still the better path for serious CW.
+
 A cheap **RTL-SDR** dongle (Nooelec NESDR, RTL-SDR Blog V3, and the like) makes a fine
 receive-only front end for CW Station. A few things to understand first, because they
 save a lot of confusion:

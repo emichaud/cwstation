@@ -464,6 +464,10 @@ class AntennaSurvey(models.Model):
         max_length=60, help_text="What was connected — 'stock whip', 'dipole', 'loop'"
     )
     gain_db = models.FloatField(default=40.0, help_text="Tuner gain, pinned so runs compare")
+    device = models.CharField(
+        max_length=120, blank=True,
+        help_text="Which SDR took the run — two dongles aren't comparable",
+    )
     results = models.JSONField(default=list, help_text="Per-band scores from the sweep")
     notes = models.CharField(max_length=200, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

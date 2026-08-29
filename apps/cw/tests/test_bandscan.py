@@ -74,7 +74,7 @@ class TestBandTable:
         """Reference bands are what make an antenna comparison valid; if one
         stops being always-on it should be demoted deliberately, not silently."""
         refs = {b.key for b in bandscan.BANDS if b.reference}
-        assert refs == {"fm", "noaa", "10m_beacon"}
+        assert refs == {"fm", "noaa", "10m_beacon", "wwv"}
 
     def test_defaults_include_a_reference_band(self):
         default = set(bandscan.DEFAULT_BAND_KEYS)
@@ -84,6 +84,14 @@ class TestBandTable:
         for b in bandscan.BANDS:
             assert b.low_mhz < b.high_mhz, b.key
             assert b.step_khz > 0, b.key
+
+    def test_hf_flag_matches_the_tuner_floor(self):
+        """`hf` decides whether direct sampling is applied to a band, so it has
+        to mean exactly 'below what a plain RTL tuner can reach'."""
+        from apps.cw.radiodaemon import TUNER_FLOOR_MHZ
+
+        for b in bandscan.BANDS:
+            assert b.hf == (b.high_mhz < TUNER_FLOOR_MHZ), b.key
 
 
 class TestStartGuards:
@@ -241,3 +249,84 @@ class TestSurveyPage:
     def test_anonymous_is_redirected(self, client):
         r = client.get(reverse("cw-survey"))
         assert r.status_code == 302 and "login" in r["Location"]
+
+
+class TestDeviceAndDirectSampling:
+    """The dongle isn't interchangeable: it decides the gain steps, whether HF
+    is reachable at all, and whether two surveys can be compared."""
+
+    def test_direct_sampling_is_only_claimed_for_sticks_that_have_the_tap(self):
+        from apps.cw.radiodaemon import supports_direct_sampling
+
+        assert supports_direct_sampling("RTL-SDR Blog V3") is True
+        assert supports_direct_sampling("rtlsdrblog, RTLSDRBlog V4") is True
+        # the stick on this bench: no ADC tap, so HF is genuinely out of reach
+        assert supports_direct_sampling("Nooelec, NESDR SMArt v5, SN: 86661822") is False
+        assert supports_direct_sampling("Generic RTL2832U OEM") is False
+        assert supports_direct_sampling("") is False
+
+    def test_gain_snaps_to_a_step_the_tuner_actually_has(self):
+        from apps.cw.radiodaemon import nearest_gain
+
+        steps = [0.0, 15.7, 28.0, 40.2, 49.6]
+        assert nearest_gain(40.0, steps) == 40.2
+        assert nearest_gain(1000.0, steps) == 49.6
+        assert nearest_gain(37.0, steps) == 40.2
+        # no table (device not probed) → take the request at face value
+        assert nearest_gain(33.3, []) == 33.3
+
+    def test_probe_parsing_pulls_serial_gains_and_tuner(self):
+        from apps.cw import radiodaemon as rd
+
+        probe = (
+            "Found 1 device(s):\n"
+            "  0:  Nooelec, NESDR SMArt v5, SN: 86661822\n"
+            "\nUsing device 0: Generic RTL2832U OEM\n"
+            "Found Rafael Micro R820T tuner\n"
+            "Supported gain values (4): 0.0 15.7 28.0 49.6\n"
+        )
+        assert rd._serial_from_name("Nooelec, NESDR SMArt v5, SN: 86661822") == "86661822"
+        assert rd._gains_from_probe(probe) == [0.0, 15.7, 28.0, 49.6]
+        assert rd._tuner_from_probe(probe) == "Rafael Micro R820T"
+
+    def test_sweep_argv_carries_device_and_direct_sampling(self, monkeypatch):
+        """rtl_power spells direct sampling `-D`; rtl_fm spells it
+        `-E direct2`. Getting them crossed would silently produce noise."""
+        seen: dict[str, list[str]] = {}
+
+        class _Done:
+            stdout = ""
+            stderr = ""
+
+        def fake_run(argv, **kw):
+            seen["argv"] = argv
+            # sweep_band reads the CSV afterwards; give it something valid
+            from pathlib import Path
+            Path(argv[-1]).write_text(
+                "2026-08-29, 16:00:00, 162400000, 162560000, 20000, 64, "
+                "-30, -30, -30, -30, -30, -30, -30, -30\n"
+            )
+            return _Done()
+
+        monkeypatch.setattr(bandscan.subprocess, "run", fake_run)
+        monkeypatch.setattr(bandscan.shutil, "which", lambda n: "/usr/bin/" + n)
+        bandscan.sweep_band(
+            bandscan.BANDS_BY_KEY["noaa"], 40.0, device_index=3, direct_sampling=True
+        )
+        argv = seen["argv"]
+        assert argv[argv.index("-d") + 1] == "3"
+        assert "-D" in argv
+        assert "-E" not in argv, "that's rtl_fm's spelling, not rtl_power's"
+
+
+@pytest.mark.django_db
+class TestSurveyRecordsDevice:
+    def test_saved_run_carries_the_dongle_it_used(self):
+        """Comparing antennas across two different receivers is meaningless, so
+        the device is stored and the page can flag a mismatch."""
+        user = User.objects.create_user(username="op3", password="pw")
+        survey = AntennaSurvey.objects.create(
+            user=user, antenna="dipole", gain_db=40.2,
+            device="Nooelec, NESDR SMArt v5, SN: 86661822", results=[],
+        )
+        assert "NESDR" in survey.device

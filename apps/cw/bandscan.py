@@ -46,6 +46,7 @@ class Band:
     def __init__(
         self, key: str, label: str, low_mhz: float, high_mhz: float,
         step_khz: float, reference: bool = False, note: str = "",
+        hf: bool = False,
     ) -> None:
         self.key = key
         self.label = label
@@ -54,13 +55,17 @@ class Band:
         self.step_khz = step_khz
         self.reference = reference
         self.note = note
+        # Below the tuner floor: reachable only through direct sampling (an
+        # RTL-SDR Blog V3/V4) or an upconverter. Swept anyway when asked —
+        # a flat result is how an operator learns their stick can't go there.
+        self.hf = hf
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "key": self.key, "label": self.label,
             "low_mhz": self.low_mhz, "high_mhz": self.high_mhz,
             "step_khz": self.step_khz, "reference": self.reference,
-            "note": self.note,
+            "note": self.note, "hf": self.hf,
         }
 
 
@@ -68,8 +73,16 @@ class Band:
 # between 24 and 26 MHz; the bands below that are kept because "flat floor" is
 # itself the measurement that tells you so.
 BANDS: list[Band] = [
+    Band("80m", "80 m ham", 3.5, 3.6, 1, hf=True,
+         note="HF — needs direct sampling or an upconverter"),
+    Band("40m_cw", "40 m CW", 7.0, 7.04, 1, hf=True,
+         note="The busiest CW segment — HF, so direct sampling or upconverter"),
+    Band("20m_cw", "20 m CW", 14.0, 14.07, 1, hf=True,
+         note="HF — needs direct sampling or an upconverter"),
+    Band("wwv", "WWV 10 MHz", 9.995, 10.005, 1, hf=True, reference=True,
+         note="Time station, transmits 24/7 — the best HF antenna check"),
     Band("12m", "12 m ham", 24.89, 24.99, 1,
-         note="Below most dongles' tuner floor — expect nothing"),
+         note="Right at most dongles' tuner floor — often nothing"),
     Band("cb", "CB / 11 m", 26.965, 27.405, 1,
          note="Busy in daytime; a decent HF-capable antenna shows traffic"),
     Band("10m_cw", "10 m CW", 28.0, 28.07, 1,
@@ -102,6 +115,8 @@ _state: dict[str, Any] = {
     "gain_db": DEFAULT_GAIN_DB,
     "survey_id": None,
     "saving": False,
+    "device": "",
+    "direct_sampling": False,
 }
 
 
@@ -114,7 +129,10 @@ def status() -> dict[str, Any]:
         return dict(_state, results=list(_state["results"]))
 
 
-def sweep_band(band: Band, gain_db: float) -> dict[str, Any]:
+def sweep_band(
+    band: Band, gain_db: float, device_index: int = 0,
+    direct_sampling: bool = False,
+) -> dict[str, Any]:
     """One rtl_power pass over `band`, scored. Raises RadioError on failure."""
     if not shutil.which("rtl_power"):
         raise RadioError(
@@ -125,9 +143,14 @@ def sweep_band(band: Band, gain_db: float) -> dict[str, Any]:
         "rtl_power",
         "-f", f"{band.low_mhz:g}M:{band.high_mhz:g}M:{band.step_khz:g}k",
         "-i", str(DWELL_S), "-1",
+        "-d", str(int(device_index)),
         "-g", f"{gain_db:.1f}",
-        str(out_path),
     ]
+    # rtl_power spells direct sampling "-D" (a bare flag); rtl_fm spells the
+    # same capability "-E direct2". Verified against both binaries.
+    if direct_sampling:
+        argv.append("-D")
+    argv.append(str(out_path))
     try:
         subprocess.run(argv, capture_output=True, text=True, timeout=DWELL_S + 40)
     except subprocess.TimeoutExpired as e:
@@ -215,6 +238,8 @@ def start(
     band_keys: list[str],
     gain_db: float = DEFAULT_GAIN_DB,
     on_finish: Any = None,
+    device_index: int = 0,
+    direct_sampling: bool = False,
 ) -> dict[str, Any]:
     """Kick off a survey in a worker thread. Raises RadioError if it can't."""
     from . import radiodaemon
@@ -233,8 +258,16 @@ def start(
             "The receiver is playing — press Stop on the FM Radio page first "
             "(the SDR can only do one thing at a time)."
         )
-    if not radiodaemon.list_devices():
+    devices = radiodaemon.list_devices()
+    if not devices:
         raise RadioError("No SDR detected — plug a dongle in and try again.")
+    device = next(
+        (d for d in devices if d.get("index") == int(device_index)), devices[0]
+    )
+    # Snap to a gain the tuner actually has: rtl_power would round silently,
+    # and a survey that records a gain it didn't use can't be compared later.
+    gain_db = radiodaemon.nearest_gain(gain_db, device.get("gains") or [])
+    device_label = str(device.get("name") or "")
 
     with _lock:
         if _state["running"]:
@@ -243,6 +276,7 @@ def start(
             running=True, done=0, total=len(bands), current=bands[0].label,
             results=[], error="", antenna=antenna, gain_db=float(gain_db),
             survey_id=None, saving=on_finish is not None,
+            device=device_label, direct_sampling=bool(direct_sampling),
         )
 
     def worker() -> None:
@@ -251,7 +285,12 @@ def start(
             for band in bands:
                 with _lock:
                     _state["current"] = band.label
-                results.append(sweep_band(band, gain_db))
+                results.append(sweep_band(
+                    band, gain_db, device_index=int(device_index),
+                    # HF only reaches the ADC through the tap; using it on a
+                    # VHF band would just add noise, so it's per-band.
+                    direct_sampling=bool(direct_sampling) and band.hf,
+                ))
                 with _lock:
                     _state["done"] = len(results)
                     _state["results"] = list(results)
@@ -265,7 +304,9 @@ def start(
             survey_id = None
             if on_finish is not None and results and not _state["error"]:
                 try:
-                    survey_id = on_finish(antenna, float(gain_db), results)
+                    survey_id = on_finish(
+                        antenna, float(gain_db), results, device_label
+                    )
                 except Exception as e:  # persistence is not worth losing the run
                     with _lock:
                         _state["error"] = f"Scanned, but couldn't save: {e}"

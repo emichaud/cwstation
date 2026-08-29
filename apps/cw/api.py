@@ -777,7 +777,10 @@ def radio_control(request: APIRequest) -> dict[str, Any] | Any:
         else:
             # retune() serialises stop-then-start as one operation — two racing
             # tune clicks can't interleave and orphan an untracked rtl_fm.
-            state = radiodaemon.retune(freq, device_index=device_index)
+            state = radiodaemon.retune(
+                freq, device_index=device_index,
+                direct_sampling=bool(data.get("direct_sampling")),
+            )
     except radiodaemon.RadioError as e:
         return api_error(str(e), 409)
     return {"devices": radiodaemon.list_devices(), **state}
@@ -843,6 +846,7 @@ def _survey_dict(s: AntennaSurvey) -> dict[str, Any]:
         "id": s.pk,
         "antenna": s.antenna,
         "gain_db": s.gain_db,
+        "device": s.device,
         "created_at": s.created_at.isoformat(),
         "results": s.results,
         "notes": s.notes,
@@ -859,7 +863,12 @@ def band_survey(request: APIRequest) -> dict[str, Any] | Any:
     from . import bandscan
 
     if request.method == "GET":
+        from . import radiodaemon
+
         return {
+            "devices": radiodaemon.list_devices(
+                refresh=bool(request.GET.get("refresh"))
+            ),
             "bands": bandscan.bands_payload(),
             "defaults": {
                 "bands": bandscan.DEFAULT_BAND_KEYS,
@@ -894,11 +903,14 @@ def band_survey(request: APIRequest) -> dict[str, Any] | Any:
 
     user = operator(request)
 
-    def persist(antenna: str, gain_db: float, results: list[dict[str, Any]]) -> int:
+    def persist(
+        antenna: str, gain_db: float, results: list[dict[str, Any]], device: str
+    ) -> int:
         # Runs on the scan worker thread, so it opens its own DB connection;
-        # the survey is only written once every band has been swept.
+        # the survey is only written once every band has been swept. The device
+        # is stored because two dongles can't be compared against each other.
         survey = AntennaSurvey.objects.create(
-            user=user, antenna=antenna, gain_db=gain_db,
+            user=user, antenna=antenna, gain_db=gain_db, device=device[:120],
             results=results, notes=str(data.get("notes") or "")[:200],
         )
         return int(survey.pk)
@@ -912,6 +924,8 @@ def band_survey(request: APIRequest) -> dict[str, Any] | Any:
             band_keys=[str(k) for k in (data.get("bands") or [])],
             gain_db=float(data.get("gain_db") or bandscan.DEFAULT_GAIN_DB),
             on_finish=persist if save else None,
+            device_index=int(data.get("device_index") or 0),
+            direct_sampling=bool(data.get("direct_sampling")),
         )
     except bandscan.RadioError as e:
         return api_error(str(e), 409)

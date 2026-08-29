@@ -181,3 +181,4 @@ When adding significant new features or systems to the project, consider creatin
 - Step-by-step procedures
 - Configuration options
 - Best practices
+- **`sdr-subsystem.md`** — the RTL-SDR side: FM Radio, Antenna Survey, `radiodaemon.py`, `bandscan.py`. Exclusive-device rules, orphan reaping, and why measurements are only comparable within one dongle and gain.
