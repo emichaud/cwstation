@@ -18,6 +18,7 @@ import json
 import time
 import urllib.error
 import urllib.request
+from datetime import timedelta
 from typing import Any
 
 from django.contrib.auth import get_user_model
@@ -84,7 +85,7 @@ class Command(BaseCommand):
                 stream_user,
                 name="cw_simulate stream",
                 description="Auto-minted by cw_simulate; revoked on exit.",
-                expires_at=timezone.now() + timezone.timedelta(hours=24),
+                expires_at=timezone.now() + timedelta(hours=24),
                 access_level="auth",
             )
             ingest_url = options["server"].rstrip("/") + "/cw/live/ingest/"

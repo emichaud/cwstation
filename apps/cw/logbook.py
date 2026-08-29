@@ -8,12 +8,20 @@ from __future__ import annotations
 
 import datetime
 import re as _re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from django.contrib.auth.base_user import AbstractBaseUser
 from django.db.models import QuerySet
+from django.utils.timezone import now as django_timezone_now
 
 from .models import QSO, CWSession
+
+if TYPE_CHECKING:
+    # Annotation-only. django-stubs resolves the ORM's expected user type
+    # from AUTH_USER_MODEL to exactly this class, so signatures that touch
+    # the ORM have to name it; User doesn't satisfy a FK or a
+    # `filter(user=...)`. No runtime import, so the swappable-model rule
+    # still holds.
+    from apps.accounts.models import User
 
 # (lo_mhz, hi_mhz, ADIF band name) — the amateur bands a CW/PSK station lives on
 BANDS: tuple[tuple[float, float, str], ...] = (
@@ -57,12 +65,12 @@ def mode_for_session(session: CWSession | None) -> str:
     return "CW"
 
 
-def worked_before(user: AbstractBaseUser, call: str) -> QuerySet[QSO]:
+def worked_before(user: User, call: str) -> QuerySet[QSO]:
     return QSO.objects.filter(user=user, call=call.upper())
 
 
 def quick_log(
-    user: AbstractBaseUser,
+    user: User,
     call: str,
     session: CWSession | None = None,
     freq_hz: float | None = None,
@@ -75,7 +83,9 @@ def quick_log(
     qso = QSO(
         user=user,
         call=call,
-        when=session.created_at if session else None,
+        # `when` is non-nullable with a now() default; resolve it here rather
+        # than passing None and patching the instance afterwards.
+        when=session.created_at if session else django_timezone_now(),
         freq_mhz=freq_mhz,
         band=band_for_freq(freq_mhz),
         mode=mode_for_session(session),
@@ -83,11 +93,6 @@ def quick_log(
         session=session,
         source=source,
     )
-    if qso.when is None:
-        from django.utils import timezone
-
-        qso.when = timezone.now()
-
     # inherit operator details from the last time this station was worked
     previous = worked_before(user, call).first()
     if previous is not None:
@@ -162,7 +167,7 @@ def _parse_adif_when(record: dict[str, str]) -> datetime.datetime | None:
         return None
 
 
-def import_adif(user: AbstractBaseUser, text: str) -> dict[str, int]:
+def import_adif(user: User, text: str) -> dict[str, int]:
     """Import an ADIF log. Duplicates (same call, same UTC minute) are
     skipped so re-importing the same file is a no-op."""
     created = duplicates = errors = 0

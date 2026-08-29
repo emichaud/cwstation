@@ -5,17 +5,25 @@ full replay telemetry. This is the only module that imports both sides.
 """
 from __future__ import annotations
 
-from typing import BinaryIO
+from typing import TYPE_CHECKING, BinaryIO
 
 from django.conf import settings
-from django.contrib.auth.base_user import AbstractBaseUser
 
 from .engine import CWConfig, decode_array, detect_tone, load_audio, synthesize_cw  # noqa: F401
 from .engine.bridge import extract_callsigns
 from .engine.events import DecodeResult  # noqa: F401 - used in annotations
 from .engine.export import session_from_result
+from .engine.manager import FloatArray
 from .engine.wav import wav_bytes_from_float32
 from .models import CWSession
+
+if TYPE_CHECKING:
+    # Annotation-only. django-stubs resolves the ORM's expected user type
+    # from AUTH_USER_MODEL to exactly this class, so signatures that touch
+    # the ORM have to name it; AbstractBaseUser doesn't satisfy a FK or a
+    # `filter(user=...)`. No runtime import, so the swappable-model rule
+    # still holds.
+    from apps.accounts.models import User
 
 # Squelch default for off-air recordings, in dB of estimated SNR.
 #
@@ -53,7 +61,7 @@ def default_stream_server() -> str:
     return FALLBACK_STREAM_SERVER
 
 
-def station_callsign(user: AbstractBaseUser) -> str:
+def station_callsign(user: User) -> str:
     """The operator's station callsign, upper-cased: their configured CWRig
     callsign if set, otherwise their username. Feeds {mycall} in send macros
     and the ADIF STATION_CALLSIGN so both agree."""
@@ -66,7 +74,7 @@ def station_callsign(user: AbstractBaseUser) -> str:
     return (call or getattr(user, "username", "") or "").upper()
 
 
-def station_defaults(user: AbstractBaseUser) -> dict:
+def station_defaults(user: User) -> dict:
     """Everything a page needs to seed a keyer: the resolved callsign and the
     operator's default WPM + sidetone. The send popup and the decode keyer both
     start from these (and let the operator override per message)."""
@@ -81,7 +89,7 @@ def station_defaults(user: AbstractBaseUser) -> dict:
 
 
 def decode_practice(
-    user: AbstractBaseUser,
+    user: User,
     text: str,
     wpm: float,
     tone_hz: float,
@@ -105,7 +113,7 @@ def decode_practice(
 
 
 def decode_recording(
-    user: AbstractBaseUser,
+    user: User,
     stream: BinaryIO,
     tone_hz: float | None,
     squelch_db: float = RECORDING_SQUELCH_DB,
@@ -137,7 +145,7 @@ def decode_recording(
     )
 
 
-def compose_send(user: AbstractBaseUser, text: str, wpm: float, tone_hz: float) -> CWSession:
+def compose_send(user: User, text: str, wpm: float, tone_hz: float) -> CWSession:
     """Key `text` into CW audio. The session self-decodes the generated audio
     so the monitor can replay exactly what will go out on the air."""
     synth = synthesize_cw(text, wpm=wpm, tone_hz=tone_hz, sample_rate=8000)
@@ -155,7 +163,7 @@ def compose_send(user: AbstractBaseUser, text: str, wpm: float, tone_hz: float) 
 
 
 def save_live_session(
-    user: AbstractBaseUser, result: "DecodeResult", tone_hz: float
+    user: User, result: "DecodeResult", tone_hz: float
 ) -> CWSession:
     """Persist a live-monitor run (audio itself is not stored)."""
     return CWSession.objects.create(
@@ -171,7 +179,7 @@ def save_live_session(
 
 
 def apply_receiver_controls(
-    user: AbstractBaseUser,
+    user: User,
     cfg: "CWConfig",
     source: object | None = None,
 ) -> None:
@@ -195,7 +203,7 @@ def apply_receiver_controls(
         source.paused_signals = control.paused_signals  # type: ignore[attr-defined]
 
 
-def session_audio_float(session: CWSession) -> tuple["object", int]:
+def session_audio_float(session: CWSession) -> tuple[FloatArray, int]:
     """Regenerate the session's audio as (float32 samples, sample_rate) —
     the transmit path plays this out the sound device into the rig."""
     if not session.has_audio:

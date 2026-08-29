@@ -4,6 +4,8 @@ Views for the help/documentation app.
 Supports hierarchical documentation with sections (folders).
 """
 
+from typing import TYPE_CHECKING
+
 from django.http import Http404, HttpRequest, JsonResponse
 from django.shortcuts import redirect
 from django.views.generic import TemplateView
@@ -22,8 +24,16 @@ from .utils import (
     is_smallstack_docs_enabled,
 )
 
+# The mixin below calls super().get(), which only exists on the view it is
+# mixed into. A TemplateView base while type-checking lets mypy resolve it;
+# at runtime it stays a plain mixin so no subclass MRO changes.
+if TYPE_CHECKING:
+    _GateBase = TemplateView
+else:
+    _GateBase = object
 
-class _SmallstackDocsGateMixin:
+
+class _SmallstackDocsGateMixin(_GateBase):
     """When the SmallStack framework docs are tucked away
     (SMALLSTACK_DOCS_ENABLED=False), its section pages redirect to the help
     index instead of 404 — so links from admin surfaces (the Help & Docs

@@ -122,9 +122,10 @@ def _shape_edges(env: FloatArray, ramp_n: int) -> FloatArray:
     rising = np.where(edges > 0)[0] + 1
     falling = np.where(edges < 0)[0] + 1
     for r in rising:
-        s = slice(r, min(r + ramp_n, len(out)))
+        # np.where gives numpy ints; slice maths wants plain int
+        s = slice(int(r), min(int(r) + ramp_n, len(out)))
         out[s] = ramp_up[: s.stop - s.start]
     for f in falling:
-        s = slice(f, min(f + ramp_n, len(out)))
+        s = slice(int(f), min(int(f) + ramp_n, len(out)))
         out[s] = ramp_dn[: s.stop - s.start]
     return out

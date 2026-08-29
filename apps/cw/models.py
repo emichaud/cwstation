@@ -1,11 +1,17 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import models
 from django.urls import reverse
 from django.utils.timezone import now as django_timezone_now
+
+if TYPE_CHECKING:
+    # Annotation-only; see apps/cw/apitypes.py for why the concrete model
+    # is named rather than AbstractBaseUser.
+    from apps.accounts.models import User
+
 
 
 class CWSession(models.Model):
@@ -208,14 +214,14 @@ class CWMacro(models.Model):
         return f"/{self.name}"
 
     @classmethod
-    def seed_defaults(cls, user: object) -> None:
+    def seed_defaults(cls, user: User) -> None:
         """Give a new operator the standard keyer memories (idempotent)."""
         if cls.objects.filter(user=user).exists():
             return
-        cls.objects.bulk_create(
-            cls(user=user, name=name, text=text, order=i)
+        CWMacro.objects.bulk_create([
+            CWMacro(user=user, name=name, text=text, order=i)
             for i, (name, text) in enumerate(DEFAULT_MACROS)
-        )
+        ])
 
 
 class CWVariable(models.Model):

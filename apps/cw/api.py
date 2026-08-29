@@ -6,10 +6,10 @@ from typing import Any
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
-from django.http import HttpRequest
 
 from apps.smallstack.api import api_error, api_view
 
+from .apitypes import APIRequest, operator
 from .consumers import live_group_name
 from .models import QSO, CWMacro, CWRig, CWSession, CWSimControl, QRZProfile, RadioStation
 from .rigctl import RigctldClient, RigError
@@ -21,7 +21,7 @@ MAX_BATCH_BYTES = 256 * 1024
 
 
 @api_view(methods=["POST"], require_auth=True)
-def live_ingest(request: HttpRequest) -> dict[str, Any] | Any:
+def live_ingest(request: APIRequest) -> dict[str, Any] | Any:
     """Relay a live-decode batch from the capture process to the operator's
     open live-view tabs. Authenticated via Bearer token (the capture command
     mints a short-lived one) or session; the group is derived from the
@@ -36,7 +36,7 @@ def live_ingest(request: HttpRequest) -> dict[str, Any] | Any:
     if layer is None:
         return api_error("Channel layer not configured", 503)
     async_to_sync(layer.group_send)(
-        live_group_name(request.user.pk),
+        live_group_name(operator(request).pk),
         {"type": "cw.batch", "payload": payload},
     )
     return {"relayed": True}
@@ -47,35 +47,35 @@ def _macro_dict(m: CWMacro) -> dict[str, Any]:
 
 
 @api_view(methods=["GET", "POST"], require_auth=True)
-def macros(request: HttpRequest) -> dict[str, Any] | Any:
+def macros(request: APIRequest) -> dict[str, Any] | Any:
     """The operator's message memories.
 
     GET  → list (defaults seeded on first call)
     POST → create {name, text} | update {id, name?, text?} | delete {id, delete: true}
     """
     if request.method == "GET":
-        CWMacro.seed_defaults(request.user)
-        return {"macros": [_macro_dict(m) for m in request.user.cw_macros.all()]}
+        CWMacro.seed_defaults(operator(request))
+        return {"macros": [_macro_dict(m) for m in operator(request).cw_macros.all()]}
 
     data = request.json
     if not isinstance(data, dict):
         return api_error("Expected a JSON object", 400)
 
     if data.get("id") is not None:
-        macro = CWMacro.objects.filter(user=request.user, pk=data["id"]).first()
+        macro = CWMacro.objects.filter(user=operator(request), pk=data["id"]).first()
         if macro is None:
             return api_error("No such macro", 404)
         if data.get("delete"):
             macro.delete()
             return {"deleted": True}
     else:
-        macro = CWMacro(user=request.user, order=request.user.cw_macros.count())
+        macro = CWMacro(user=operator(request), order=operator(request).cw_macros.count())
 
     if "name" in data:
         name = str(data["name"]).strip().lstrip("/").lower()
         if not MACRO_NAME_RE.fullmatch(name):
             return api_error("Name must be 1-24 chars: letters, digits, dashes", 400)
-        clash = CWMacro.objects.filter(user=request.user, name=name).exclude(pk=macro.pk)
+        clash = CWMacro.objects.filter(user=operator(request), name=name).exclude(pk=macro.pk)
         if clash.exists():
             return api_error(f"/{name} already exists", 409)
         macro.name = name
@@ -95,7 +95,7 @@ def _var_dict(v: Any) -> dict[str, Any]:
 
 
 @api_view(methods=["GET", "POST"], require_auth=True)
-def station_vars(request: HttpRequest) -> dict[str, Any] | Any:
+def station_vars(request: APIRequest) -> dict[str, Any] | Any:
     """The operator's custom tags — named values that expand as {name}.
 
     GET  → list
@@ -104,21 +104,21 @@ def station_vars(request: HttpRequest) -> dict[str, Any] | Any:
     from .models import RESERVED_VARIABLE_NAMES, CWVariable
 
     if request.method == "GET":
-        return {"vars": [_var_dict(v) for v in request.user.cw_variables.all()]}
+        return {"vars": [_var_dict(v) for v in operator(request).cw_variables.all()]}
 
     data = request.json
     if not isinstance(data, dict):
         return api_error("Expected a JSON object", 400)
 
     if data.get("id") is not None:
-        var = CWVariable.objects.filter(user=request.user, pk=data["id"]).first()
+        var = CWVariable.objects.filter(user=operator(request), pk=data["id"]).first()
         if var is None:
             return api_error("No such tag", 404)
         if data.get("delete"):
             var.delete()
             return {"deleted": True}
     else:
-        var = CWVariable(user=request.user, order=request.user.cw_variables.count())
+        var = CWVariable(user=operator(request), order=operator(request).cw_variables.count())
 
     if "name" in data:
         name = str(data["name"]).strip().lstrip("{").rstrip("}").lower()
@@ -126,7 +126,7 @@ def station_vars(request: HttpRequest) -> dict[str, Any] | Any:
             return api_error("Tag must be 1-24 chars: letters, digits, dashes", 400)
         if name in RESERVED_VARIABLE_NAMES:
             return api_error(f"{{{name}}} is filled by the station — pick another name", 400)
-        clash = CWVariable.objects.filter(user=request.user, name=name).exclude(pk=var.pk)
+        clash = CWVariable.objects.filter(user=operator(request), name=name).exclude(pk=var.pk)
         if clash.exists():
             return api_error(f"{{{name}}} already exists", 409)
         var.name = name
@@ -146,14 +146,14 @@ VALID_MODES = {"CW", "CWR", "USB", "LSB", "AM", "FM", "RTTY", "PKTUSB", "PKTLSB"
 
 
 @api_view(methods=["GET", "POST"], require_auth=True)
-def rig(request: HttpRequest) -> dict[str, Any] | Any:
+def rig(request: APIRequest) -> dict[str, Any] | Any:
     """The operator's rig: config + live CAT state.
 
     GET  → config + probe (freq/mode/PTT when rigctld is reachable)
     POST → partial config update, and/or CAT commands:
            {freq_hz: 14055000} tunes the rig, {mode: "CW"} sets mode
     """
-    config, _ = CWRig.objects.get_or_create(user=request.user)
+    config, _ = CWRig.objects.get_or_create(user=operator(request))
 
     if request.method == "POST":
         data = request.json
@@ -195,17 +195,17 @@ def rig(request: HttpRequest) -> dict[str, Any] | Any:
 
 
 @api_view(methods=["POST"], require_auth=True)
-def rig_tx(request: HttpRequest) -> dict[str, Any] | Any:
+def rig_tx(request: APIRequest) -> dict[str, Any] | Any:
     """Key a stored session through the rig: PTT on → audio → PTT off."""
     from . import transmit
 
-    config = CWRig.objects.filter(user=request.user, enabled=True).first()
+    config = CWRig.objects.filter(user=operator(request), enabled=True).first()
     if config is None:
         return api_error("No rig configured — enable it on the Live page first.", 400)
     data = request.json
     if not isinstance(data, dict) or not data.get("session_id"):
         return api_error("session_id is required", 400)
-    session = CWSession.objects.filter(user=request.user, pk=data["session_id"]).first()
+    session = CWSession.objects.filter(user=operator(request), pk=data["session_id"]).first()
     if session is None:
         return api_error("No such session", 404)
     try:
@@ -223,7 +223,7 @@ def _qso_dict(q: QSO) -> dict[str, Any]:
 
 
 @api_view(methods=["POST"], require_auth=True)
-def log_quick(request: HttpRequest) -> dict[str, Any] | Any:
+def log_quick(request: APIRequest) -> dict[str, Any] | Any:
     """Log a heard/worked callsign with everything the station knows:
     session link, session's mode, rig RF, and history/QRZ prefill."""
     from . import logbook
@@ -239,24 +239,24 @@ def log_quick(request: HttpRequest) -> dict[str, Any] | Any:
 
     session = None
     if data.get("session_id"):
-        session = CWSession.objects.filter(user=request.user, pk=data["session_id"]).first()
+        session = CWSession.objects.filter(user=operator(request), pk=data["session_id"]).first()
     freq_hz = data.get("freq_hz") or None
     qso = logbook.quick_log(
-        request.user, call,
+        operator(request), call,
         session=session,
         freq_hz=float(freq_hz) if freq_hz else None,
         source=str(data.get("source") or "session"),
     )
     return {
         "qso": _qso_dict(qso),
-        "worked_before": logbook.worked_before(request.user, call).exclude(pk=qso.pk).count(),
+        "worked_before": logbook.worked_before(operator(request), call).exclude(pk=qso.pk).count(),
     }
 
 
-def _filtered_qsos(request: HttpRequest):
+def _filtered_qsos(request: APIRequest):
     from django.db.models import Q
 
-    qs = QSO.objects.filter(user=request.user)
+    qs = QSO.objects.filter(user=operator(request))
     q = (request.GET.get("q") or "").strip()
     if q:
         qs = qs.filter(
@@ -273,7 +273,7 @@ def _filtered_qsos(request: HttpRequest):
 
 
 @api_view(methods=["GET"], require_auth=True)
-def log_adif(request: HttpRequest) -> Any:
+def log_adif(request: APIRequest) -> Any:
     """Download the log (respecting the current search/band/mode filters)
     as an ADIF file — dates and times in UTC per the spec."""
     from django.http import HttpResponse
@@ -282,7 +282,7 @@ def log_adif(request: HttpRequest) -> Any:
     from .services import station_callsign
 
     adif = logbook.adif_export(
-        _filtered_qsos(request), station_call=station_callsign(request.user)
+        _filtered_qsos(request), station_call=station_callsign(operator(request))
     )
     response = HttpResponse(adif, content_type="text/plain; charset=utf-8")
     response["Content-Disposition"] = 'attachment; filename="cw-station-log.adi"'
@@ -290,7 +290,7 @@ def log_adif(request: HttpRequest) -> Any:
 
 
 @api_view(methods=["GET"], require_auth=True)
-def abbrev(request: HttpRequest) -> dict[str, Any]:
+def abbrev(request: APIRequest) -> dict[str, Any]:
     """The CW shorthand dictionary for tutor mode (static reference data)."""
     from .abbrev import LOOKUP
 
@@ -298,7 +298,7 @@ def abbrev(request: HttpRequest) -> dict[str, Any]:
 
 
 @api_view(methods=["GET"], require_auth=True)
-def log_lookup(request: HttpRequest) -> dict[str, Any] | Any:
+def log_lookup(request: APIRequest) -> dict[str, Any] | Any:
     """Side-effect-free callsign intel for the QSO form: worked-before
     history and (when configured) a live QRZ record."""
     from . import logbook
@@ -307,7 +307,7 @@ def log_lookup(request: HttpRequest) -> dict[str, Any] | Any:
     call = (request.GET.get("call") or "").strip().upper()
     if not CALLSIGN_RE.fullmatch(call):
         return api_error("Not a callsign", 400)
-    history = logbook.worked_before(request.user, call)
+    history = logbook.worked_before(operator(request), call)
     last = history.first()
     payload: dict[str, Any] = {
         "call": call,
@@ -324,12 +324,12 @@ def log_lookup(request: HttpRequest) -> dict[str, Any] | Any:
         }
     from .qrz import lookup_for_user
 
-    payload["qrz"] = lookup_for_user(request.user, call)
+    payload["qrz"] = lookup_for_user(operator(request), call)
     return payload
 
 
 @api_view(methods=["POST"], require_auth=True)
-def log_import(request: HttpRequest) -> dict[str, Any] | Any:
+def log_import(request: APIRequest) -> dict[str, Any] | Any:
     """Import an uploaded ADIF file into the operator's log. Duplicate
     QSOs (same call, same UTC minute) are skipped — re-imports are no-ops."""
     from . import logbook
@@ -337,14 +337,16 @@ def log_import(request: HttpRequest) -> dict[str, Any] | Any:
     upload = request.FILES.get("adif")
     if upload is None:
         return api_error("Attach an ADIF file as 'adif'", 400)
-    if upload.size > 10 * 1024 * 1024:
+    # size is Optional on UploadedFile; an unmeasurable part can't be bounded,
+    # so treat it as oversized rather than reading it unchecked.
+    if upload.size is None or upload.size > 10 * 1024 * 1024:
         return api_error("File too large (10 MB max)", 413)
     text = upload.read().decode("utf-8", "replace")
-    return logbook.import_adif(request.user, text)
+    return logbook.import_adif(operator(request), text)
 
 
 @api_view(methods=["POST"], require_auth=True)
-def log_eqsl_upload(request: HttpRequest) -> dict[str, Any] | Any:
+def log_eqsl_upload(request: APIRequest) -> dict[str, Any] | Any:
     """Upload not-yet-sent QSOs (respecting active filters) to eQSL.cc and
     mark them sent. {resend: true} re-sends already-marked QSOs too."""
     from django.utils import timezone
@@ -353,7 +355,7 @@ def log_eqsl_upload(request: HttpRequest) -> dict[str, Any] | Any:
     from .eqsl import EQSLError, upload_adif
     from .models import EQSLProfile
 
-    profile = EQSLProfile.objects.filter(user=request.user).first()
+    profile = EQSLProfile.objects.filter(user=operator(request)).first()
     if profile is None or not profile.username or not profile.get_password():
         return api_error("eQSL credentials aren't configured yet.", 400)
 
@@ -367,7 +369,7 @@ def log_eqsl_upload(request: HttpRequest) -> dict[str, Any] | Any:
 
     from .services import station_callsign
 
-    adif = logbook.adif_export(qsos, station_call=station_callsign(request.user))
+    adif = logbook.adif_export(qsos, station_call=station_callsign(operator(request)))
     try:
         result = upload_adif(profile.username, profile.get_password(), adif)
     except EQSLError as e:
@@ -378,11 +380,11 @@ def log_eqsl_upload(request: HttpRequest) -> dict[str, Any] | Any:
 
 
 @api_view(methods=["GET", "POST"], require_auth=True)
-def eqsl_config(request: HttpRequest) -> dict[str, Any] | Any:
+def eqsl_config(request: APIRequest) -> dict[str, Any] | Any:
     """eQSL.cc credentials — write-only password, encrypted at rest."""
     from .models import EQSLProfile
 
-    profile, _ = EQSLProfile.objects.get_or_create(user=request.user)
+    profile, _ = EQSLProfile.objects.get_or_create(user=operator(request))
     if request.method == "POST":
         data = request.json
         if not isinstance(data, dict):
@@ -397,7 +399,7 @@ def eqsl_config(request: HttpRequest) -> dict[str, Any] | Any:
 
 
 @api_view(methods=["GET", "POST"], require_auth=True)
-def station_config(request: HttpRequest) -> dict[str, Any] | Any:
+def station_config(request: APIRequest) -> dict[str, Any] | Any:
     """The operator's station settings: callsign + default keying (WPM/sidetone).
 
     GET  → {callsign, resolved, wpm, tone_hz}
@@ -405,7 +407,7 @@ def station_config(request: HttpRequest) -> dict[str, Any] | Any:
            to the username). `resolved` is what fills {mycall} / ADIF."""
     from .services import station_callsign
 
-    rig, _ = CWRig.objects.get_or_create(user=request.user)
+    rig, _ = CWRig.objects.get_or_create(user=operator(request))
     if request.method == "POST":
         data = request.json
         if not isinstance(data, dict):
@@ -439,20 +441,20 @@ def station_config(request: HttpRequest) -> dict[str, Any] | Any:
             rig.save(update_fields=[*changed, "updated_at"])
     return {
         "callsign": rig.callsign,
-        "resolved": station_callsign(request.user),
+        "resolved": station_callsign(operator(request)),
         "wpm": rig.send_wpm,
         "tone_hz": rig.send_tone_hz,
     }
 
 
 @api_view(methods=["GET", "POST"], require_auth=True)
-def qrz_config(request: HttpRequest) -> dict[str, Any] | Any:
+def qrz_config(request: APIRequest) -> dict[str, Any] | Any:
     """QRZ credentials. POST {username, password} saves the XML login;
     {logbook_key} saves the logbook.qrz.com API key; {unlink: true} clears
     everything; {test_call} runs a live lookup to prove the XML login."""
     from django.utils import timezone
 
-    profile, _ = QRZProfile.objects.get_or_create(user=request.user)
+    profile, _ = QRZProfile.objects.get_or_create(user=operator(request))
     if request.method == "POST":
         data = request.json
         if not isinstance(data, dict):
@@ -483,19 +485,19 @@ def qrz_config(request: HttpRequest) -> dict[str, Any] | Any:
                 return {"configured": True, "test": info or {"error": "call not found"}}
             except QRZError as e:
                 return api_error(str(e), 502)
-    unsent = QSO.objects.filter(user=request.user, qrz_sent_at__isnull=True).count()
+    unsent = QSO.objects.filter(user=operator(request), qrz_sent_at__isnull=True).count()
     return {
         "configured": bool(profile.username and profile.password),
         "username": profile.username,
         "logbook_configured": bool(profile.logbook_key),
         "unsent": unsent,
-        "total": QSO.objects.filter(user=request.user).count(),
+        "total": QSO.objects.filter(user=operator(request)).count(),
         "now": timezone.now().isoformat(),
     }
 
 
 @api_view(methods=["POST"], require_auth=True)
-def qrz_logbook_sync(request: HttpRequest) -> dict[str, Any] | Any:
+def qrz_logbook_sync(request: APIRequest) -> dict[str, Any] | Any:
     """Sync with the operator's QRZ.com logbook.
 
     {action: "import"} → FETCH their QRZ log as ADIF and import it
@@ -506,7 +508,7 @@ def qrz_logbook_sync(request: HttpRequest) -> dict[str, Any] | Any:
     from . import logbook
     from .qrzlogbook import QRZLogbookError, fetch_adif, insert_record
 
-    profile = QRZProfile.objects.filter(user=request.user).first()
+    profile = QRZProfile.objects.filter(user=operator(request)).first()
     key = profile.get_logbook_key() if profile else ""
     if not key:
         return api_error("No QRZ logbook API key configured yet.", 400)
@@ -519,12 +521,14 @@ def qrz_logbook_sync(request: HttpRequest) -> dict[str, Any] | Any:
             adif = fetch_adif(key)
         except QRZLogbookError as e:
             return api_error(str(e), 502)
-        stats = logbook.import_adif(request.user, adif)
+        # import_adif returns counts; the reply also names where they came
+        # from, so widen rather than stuffing a string into a dict[str, int].
+        stats: dict[str, Any] = dict(logbook.import_adif(operator(request), adif))
         stats["source"] = "qrz"
         return stats
 
     if action == "export":
-        qsos = list(QSO.objects.filter(user=request.user, qrz_sent_at__isnull=True))
+        qsos = list(QSO.objects.filter(user=operator(request), qrz_sent_at__isnull=True))
         if not qsos:
             return {"exported": 0, "duplicates": 0, "message": "Nothing new to send."}
         exported = duplicates = 0
@@ -550,18 +554,18 @@ def qrz_logbook_sync(request: HttpRequest) -> dict[str, Any] | Any:
 
 
 @api_view(methods=["GET"], require_auth=True)
-def rig_setup_data(request: HttpRequest) -> dict[str, Any]:
+def rig_setup_data(request: APIRequest) -> dict[str, Any]:
     """Everything the Rig Setup page needs: Hamlib presence, serial ports,
     the rig catalog, daemon status, and the operator's saved choices."""
     from . import rigdaemon
 
-    config, _ = CWRig.objects.get_or_create(user=request.user)
+    config, _ = CWRig.objects.get_or_create(user=operator(request))
     return {
         "hamlib": rigdaemon.hamlib_status(),
         "serial_ports": rigdaemon.list_serial_ports(),
         "models": rigdaemon.list_models(),
         "daemon": rigdaemon.status(),
-        "custom_images": _custom_rig_images(request.user),
+        "custom_images": _custom_rig_images(operator(request)),
         "saved": {
             "rig_model": config.rig_model,
             "serial_port": config.serial_port,
@@ -607,7 +611,7 @@ _RIG_PHOTO_EXTS = (".png", ".webp", ".jpg", ".jpeg", ".gif")
 
 
 @api_view(methods=["POST"], require_auth=True)
-def rig_photo(request: HttpRequest) -> dict[str, Any] | Any:
+def rig_photo(request: APIRequest) -> dict[str, Any] | Any:
     """Manage the operator's own photo for a rig model.
 
     Upload/replace: multipart POST with `model` (int) + `image` (file).
@@ -624,7 +628,7 @@ def rig_photo(request: HttpRequest) -> dict[str, Any] | Any:
         model_id = data.get("model")
         if not isinstance(model_id, int):
             return api_error("Provide the rig 'model' number to remove", 400)
-        photo = CWRigPhoto.objects.filter(user=request.user, rig_model=model_id).first()
+        photo = CWRigPhoto.objects.filter(user=operator(request), rig_model=model_id).first()
         if photo:
             photo.delete()
         return {"model_id": str(model_id), "url": None}
@@ -637,15 +641,20 @@ def rig_photo(request: HttpRequest) -> dict[str, Any] | Any:
     if not raw_model.isdigit():
         return api_error("'model' must be a Hamlib model number", 400)
     model_id = int(raw_model)
+    # An UploadedFile's name and size are both optional; a nameless or
+    # size-less part can't be classified, so it's rejected with the same
+    # message as a wrong extension rather than raising.
+    if not upload.name or upload.size is None:
+        return api_error("Use a PNG, JPG, WEBP, or GIF image", 415)
     ext = os.path.splitext(upload.name)[1].lower()
     if ext not in _RIG_PHOTO_EXTS:
         return api_error("Use a PNG, JPG, WEBP, or GIF image", 415)
     if upload.size > 8 * 1024 * 1024:
         return api_error("Image too large (8 MB max)", 413)
 
-    photo = CWRigPhoto.objects.filter(user=request.user, rig_model=model_id).first()
+    photo = CWRigPhoto.objects.filter(user=operator(request), rig_model=model_id).first()
     if photo is None:
-        photo = CWRigPhoto(user=request.user, rig_model=model_id)
+        photo = CWRigPhoto(user=operator(request), rig_model=model_id)
     else:
         photo.image.delete(save=False)  # drop the old file before replacing
     photo.image = upload
@@ -654,7 +663,7 @@ def rig_photo(request: HttpRequest) -> dict[str, Any] | Any:
 
 
 @api_view(methods=["POST"], require_auth=True)
-def rig_daemon(request: HttpRequest) -> dict[str, Any] | Any:
+def rig_daemon(request: APIRequest) -> dict[str, Any] | Any:
     """Start/stop the managed rigctld.
 
     {action: "start", model, serial_port?, baud?}  |  {action: "stop"}
@@ -673,7 +682,7 @@ def rig_daemon(request: HttpRequest) -> dict[str, Any] | Any:
     if action != "start":
         return api_error("action must be 'start' or 'stop'", 400)
     try:
-        model = int(data.get("model"))
+        model = int(data.get("model", ""))
     except (TypeError, ValueError):
         return api_error("A rig model number is required (try the dummy rig, model 1)", 400)
     serial_port = (data.get("serial_port") or "").strip() or None
@@ -683,7 +692,7 @@ def rig_daemon(request: HttpRequest) -> dict[str, Any] | Any:
     except RigError as e:
         return api_error(str(e), 409)
 
-    config, _ = CWRig.objects.get_or_create(user=request.user)
+    config, _ = CWRig.objects.get_or_create(user=operator(request))
     config.enabled = True
     config.host = "127.0.0.1"
     config.port = state["spec"]["tcp_port"]
@@ -699,10 +708,10 @@ _CONTROL_FIELDS = ("noise_level", "input_gain", "squelch_db", "afc", "paused_sig
 
 
 @api_view(methods=["GET", "POST"], require_auth=True)
-def sim_control(request: HttpRequest) -> dict[str, Any] | Any:
+def sim_control(request: APIRequest) -> dict[str, Any] | Any:
     """Read (GET) or update (POST, partial) the operator's live sim knobs.
     The running `cw_simulate` process polls this row and applies changes."""
-    control, _ = CWSimControl.objects.get_or_create(user=request.user)
+    control, _ = CWSimControl.objects.get_or_create(user=operator(request))
     if request.method == "POST":
         data = request.json
         if not isinstance(data, dict):
@@ -722,7 +731,7 @@ def _station_dict(s: RadioStation) -> dict[str, Any]:
 
 
 @api_view(methods=["GET", "POST"], require_auth=True)
-def radio_control(request: HttpRequest) -> dict[str, Any] | Any:
+def radio_control(request: APIRequest) -> dict[str, Any] | Any:
     """The FM receiver: what hardware is present, and start/stop listening.
 
     GET  → {devices, running, freq_mhz, band, rtl_fm_present, sounddevice_present, log}
@@ -747,7 +756,7 @@ def radio_control(request: HttpRequest) -> dict[str, Any] | Any:
     if action not in ("tune", "seek"):
         return api_error("action must be 'tune', 'seek' or 'stop'", 400)
     try:
-        freq = float(data.get("freq_mhz"))
+        freq = float(data.get("freq_mhz", ""))
     except (TypeError, ValueError):
         return api_error("A frequency in MHz is required", 400)
     device_index = int(data.get("device_index") or 0)
@@ -766,7 +775,7 @@ def radio_control(request: HttpRequest) -> dict[str, Any] | Any:
 
 
 @api_view(methods=["GET", "POST"], require_auth=True)
-def radio_stations(request: HttpRequest) -> dict[str, Any] | Any:
+def radio_stations(request: APIRequest) -> dict[str, Any] | Any:
     """The operator's saved stations (the favourites strip).
 
     GET  → list
@@ -776,7 +785,7 @@ def radio_stations(request: HttpRequest) -> dict[str, Any] | Any:
 
     if request.method == "GET":
         return {
-            "stations": [_station_dict(s) for s in request.user.radio_stations.all()]
+            "stations": [_station_dict(s) for s in operator(request).radio_stations.all()]
         }
 
     data = request.json
@@ -784,7 +793,7 @@ def radio_stations(request: HttpRequest) -> dict[str, Any] | Any:
         return api_error("Expected a JSON object", 400)
 
     if data.get("id") is not None:
-        station = RadioStation.objects.filter(user=request.user, pk=data["id"]).first()
+        station = RadioStation.objects.filter(user=operator(request), pk=data["id"]).first()
         if station is None:
             return api_error("No such station", 404)
         if data.get("delete"):
@@ -792,7 +801,7 @@ def radio_stations(request: HttpRequest) -> dict[str, Any] | Any:
             return {"deleted": True}
     else:
         station = RadioStation(
-            user=request.user, order=request.user.radio_stations.count()
+            user=operator(request), order=operator(request).radio_stations.count()
         )
 
     if "name" in data:
@@ -800,7 +809,7 @@ def radio_stations(request: HttpRequest) -> dict[str, Any] | Any:
         if not name or len(name) > 32:
             return api_error("Name must be 1-32 characters", 400)
         clash = RadioStation.objects.filter(
-            user=request.user, name=name
+            user=operator(request), name=name
         ).exclude(pk=station.pk)
         if clash.exists():
             return api_error(f"{name} already exists", 409)

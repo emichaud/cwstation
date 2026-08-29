@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+from typing import Any
 
 from django import forms
 from django.utils import timezone as djtz
@@ -75,9 +76,11 @@ class QSOForm(forms.ModelForm):
             "name", "qth", "gridsquare", "country", "comment",
         ]
 
-    def __init__(self, *args: object, **kwargs: object) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        # Any, not object: this passes straight through to ModelForm.__init__,
+        # whose parameters are concrete types that `object` can't satisfy.
         super().__init__(*args, **kwargs)
-        instance: QSO | None = kwargs.get("instance")  # type: ignore[assignment]
+        instance: QSO | None = kwargs.get("instance")
         when = instance.when if instance and instance.pk else djtz.now()
         self.initial["when"] = when.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M")
 

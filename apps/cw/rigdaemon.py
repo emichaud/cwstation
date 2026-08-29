@@ -87,7 +87,7 @@ def list_models(refresh: bool = False) -> list[dict[str, str]]:
         ).stdout
     except (OSError, subprocess.TimeoutExpired):
         return []
-    models: list[dict[str, str]] = []
+    models: list[dict[str, Any]] = []  # 'id' is an int; the rest are strings
     for line in out.splitlines():
         m = re.match(r"^\s*(\d+)\s+(\S.*?)\s{2,}(\S.*?)\s{2,}", line)
         if m:

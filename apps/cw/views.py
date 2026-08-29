@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -18,8 +18,18 @@ from apps.smallstack.crud import Action, CRUDView
 from apps.smallstack.displays import CardDisplay, TableDisplay
 
 from . import services
+from .apitypes import operator
 from .forms import PracticeDecodeForm, QSOForm, RecordingDecodeForm, SendForm
 from .models import QSO, CWSession
+
+# Mixins below call super().get_context_data() and read self.request, which only
+# exist on the view they're mixed into. Giving them a TemplateView base while
+# type-checking lets mypy see both; at runtime they stay plain object mixins so
+# no subclass MRO changes.
+if TYPE_CHECKING:
+    _ViewBase = TemplateView
+else:
+    _ViewBase = object
 
 
 def _render_direction(value: str, obj: CWSession) -> SafeString:
@@ -119,7 +129,7 @@ class CWSessionCRUDView(CRUDView):
 
     @classmethod
     def get_list_queryset(cls, qs: QuerySet[CWSession], request: HttpRequest) -> QuerySet[CWSession]:
-        return qs.filter(user=request.user)
+        return qs.filter(user=operator(request))
 
     @classmethod
     def _get_template_names(cls, suffix: str) -> list[str]:
@@ -139,14 +149,17 @@ class CWSessionCRUDView(CRUDView):
         if base_class in (_CRUDDetailBase, _CRUDDeleteBase):
 
             def get_queryset(self) -> QuerySet[CWSession]:
-                return CWSession.objects.filter(user=self.request.user)
+                return CWSession.objects.filter(user=operator(self.request))
 
             view_class.get_queryset = get_queryset
 
         if base_class is _CRUDDetailBase:
 
             def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
-                context = super(view_class, self).get_context_data(**kwargs)
+                # view_class is assembled at runtime by _make_view, so mypy has
+                # no superclass to resolve this against — unavoidable for a
+                # method attached to a dynamically built class.
+                context = super(view_class, self).get_context_data(**kwargs)  # type: ignore[misc]
                 session: CWSession = self.object
                 context["telemetry_json"] = json.dumps(session.telemetry or {})
                 context["is_tx"] = session.direction == CWSession.Direction.SENT
@@ -201,7 +214,9 @@ def _render_qso_station(value: object, obj: QSO) -> SafeString:
 
 
 def _render_qso_session(value: object, obj: QSO) -> SafeString:
-    if obj.session_id is None:
+    # Guard on the relation, not session_id: a QSO can carry an id whose row was
+    # deleted, and that's the case that would raise here.
+    if obj.session is None:
         return mark_safe('<span style="color: var(--text-muted);">—</span>')
     return format_html(
         '<a href="{}" title="Replay the tape" style="color: var(--link-color);">tape #{}</a>',
@@ -277,7 +292,7 @@ class LogbookCRUDView(CRUDView):
 
     @classmethod
     def get_list_queryset(cls, qs: QuerySet[QSO], request: HttpRequest) -> QuerySet[QSO]:
-        qs = qs.filter(user=request.user).select_related("session")
+        qs = qs.filter(user=operator(request)).select_related("session")
         band = (request.GET.get("band") or "").strip()
         if band:
             qs = qs.filter(band=band)
@@ -288,7 +303,7 @@ class LogbookCRUDView(CRUDView):
 
     @classmethod
     def on_form_valid(cls, request: HttpRequest, form: Any, obj: QSO, is_create: bool = False) -> None:
-        obj.user = request.user
+        obj.user = operator(request)
         obj.call = obj.call.upper()
         from .logbook import band_for_freq
 
@@ -320,24 +335,24 @@ class LogbookCRUDView(CRUDView):
             def form_valid(self, form: Any) -> Any:
                 from .logbook import band_for_freq
 
-                form.instance.user = self.request.user
+                form.instance.user = operator(self.request)
                 form.instance.band = band_for_freq(form.cleaned_data.get("freq_mhz"))
-                return super(view_class, self).form_valid(form)
+                return super(view_class, self).form_valid(form)  # type: ignore[misc]  # method attached to a runtime-built view_class
 
             view_class.form_valid = form_valid
 
         if base_class in (_CRUDUpdateBase, _CRUDDeleteBase):
 
             def get_queryset(self) -> QuerySet[QSO]:
-                return QSO.objects.filter(user=self.request.user)
+                return QSO.objects.filter(user=operator(self.request))
 
             view_class.get_queryset = get_queryset
 
         if base_class is _CRUDListBase:
 
             def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
-                context = super(view_class, self).get_context_data(**kwargs)
-                mine = QSO.objects.filter(user=self.request.user)
+                context = super(view_class, self).get_context_data(**kwargs)  # type: ignore[misc]  # method attached to a runtime-built view_class
+                mine = QSO.objects.filter(user=operator(self.request))
                 context["log_stats"] = {
                     "total": mine.count(),
                     "calls": mine.values("call").distinct().count(),
@@ -366,16 +381,16 @@ class MonitorView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
-        sessions = CWSession.objects.filter(user=self.request.user)[:12]
+        sessions = CWSession.objects.filter(user=operator(self.request))[:12]
         replayable = [s for s in sessions if s.can_replay]
         context["sessions"] = replayable
         context["sessions_map"] = {str(s.pk): s.telemetry for s in replayable}
         context["stats"] = {
-            "total": CWSession.objects.filter(user=self.request.user).count(),
+            "total": CWSession.objects.filter(user=operator(self.request)).count(),
             "rx": CWSession.objects.filter(
-                user=self.request.user, direction=CWSession.Direction.RECEIVED
+                user=operator(self.request), direction=CWSession.Direction.RECEIVED
             ).count(),
-            "best_wpm": CWSession.objects.filter(user=self.request.user).aggregate(
+            "best_wpm": CWSession.objects.filter(user=operator(self.request)).aggregate(
                 m=Max("wpm")
             )["m"] or 0,
         }
@@ -390,14 +405,18 @@ class ArchitectureView(LoginRequiredMixin, TemplateView):
     template_name = "cw/architecture.html"
 
 
-class _StationCallMixin:
+class _StationCallMixin(_ViewBase):
     """Adds the operator's station defaults to the context — the resolved
     callsign plus the default keying WPM/sidetone — so any page can seed a
-    keyer (send popup, decode keyer, /send setup) without re-deriving them."""
+    keyer (send popup, decode keyer, /send setup) without re-deriving them.
+
+    `_ViewBase` is `TemplateView` only while type-checking; at runtime this
+    stays a plain mixin so it doesn't alter any subclass's MRO.
+    """
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
-        defaults = services.station_defaults(self.request.user)
+        defaults = services.station_defaults(operator(self.request))
         context["station_call"] = defaults["call"]
         context["send_wpm"] = defaults["wpm"]
         context["send_tone_hz"] = defaults["tone_hz"]
@@ -456,7 +475,7 @@ class DecodeView(_StationCallMixin, LoginRequiredMixin, TemplateView):
         # a standard reply pre-filled (the live pages reply in-place instead).
         to_call = (self.request.GET.get("to") or "").strip().upper()
         if CALLSIGN_RE.fullmatch(to_call):
-            my_call = context.get("station_call") or self.request.user.username.upper()
+            my_call = context.get("station_call") or operator(self.request).username.upper()
             context["reply_to"] = to_call
             context["keyer_prefill"] = f"{to_call} DE {my_call} {my_call} K"
         return context
@@ -467,7 +486,7 @@ class DecodeView(_StationCallMixin, LoginRequiredMixin, TemplateView):
             form = PracticeDecodeForm(request.POST)
             if form.is_valid():
                 session = services.decode_practice(
-                    request.user,
+                    operator(request),
                     text=form.cleaned_data["text"],
                     wpm=form.cleaned_data["wpm"],
                     tone_hz=form.cleaned_data["tone_hz"],
@@ -476,21 +495,26 @@ class DecodeView(_StationCallMixin, LoginRequiredMixin, TemplateView):
                 return redirect(session)
             return self.render_to_response(self.get_context_data(practice_form=form))
 
-        form = RecordingDecodeForm(request.POST, request.FILES)
-        if form.is_valid():
+        # distinct name: `form` above is bound to the practice form, and the two
+        # are different types
+        recording_form = RecordingDecodeForm(request.POST, request.FILES)
+        if recording_form.is_valid():
             tone: float | None = (
-                None if form.cleaned_data["auto_tone"] else form.cleaned_data["tone_hz"]
+                None if recording_form.cleaned_data["auto_tone"]
+                else recording_form.cleaned_data["tone_hz"]
             )
             try:
                 session = services.decode_recording(
-                    request.user,
-                    stream=form.cleaned_data["recording"],
+                    operator(request),
+                    stream=recording_form.cleaned_data["recording"],
                     tone_hz=tone,
-                    squelch_db=form.cleaned_data["squelch_db"],
+                    squelch_db=recording_form.cleaned_data["squelch_db"],
                 )
             except ValueError as exc:
                 messages.error(request, f"Couldn't decode that file: {exc}")
-                return self.render_to_response(self.get_context_data(recording_form=form))
+                return self.render_to_response(
+                    self.get_context_data(recording_form=recording_form)
+                )
             if not session.text:
                 messages.warning(
                     request,
@@ -498,7 +522,7 @@ class DecodeView(_StationCallMixin, LoginRequiredMixin, TemplateView):
                     "you hear (commonly 500–800 Hz).",
                 )
             return redirect(session)
-        return self.render_to_response(self.get_context_data(recording_form=form))
+        return self.render_to_response(self.get_context_data(recording_form=recording_form))
 
 
 class SendView(_StationCallMixin, LoginRequiredMixin, TemplateView):
@@ -521,7 +545,7 @@ class SendView(_StationCallMixin, LoginRequiredMixin, TemplateView):
         form = SendForm(request.POST)
         if form.is_valid():
             session = services.compose_send(
-                request.user,
+                operator(request),
                 text=form.cleaned_data["text"],
                 wpm=form.cleaned_data["wpm"],
                 tone_hz=form.cleaned_data["tone_hz"],
@@ -543,7 +567,7 @@ def session_audio(request: HttpRequest, pk: int) -> HttpResponse:
     """Regenerated WAV for a synthesized session (practice or composed send)."""
     if not request.user.is_authenticated:
         return HttpResponse(status=403)
-    session = get_object_or_404(CWSession, pk=pk, user=request.user)
+    session = get_object_or_404(CWSession, pk=pk, user=operator(request))
     if not session.has_audio:
         return HttpResponse("Audio for uploaded recordings is not stored.", status=404)
     blob = services.session_wav_bytes(session)

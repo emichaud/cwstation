@@ -50,7 +50,7 @@ class FldigiTap:
 
     def connect(self) -> dict[str, Any]:
         """Probe fldigi; returns version/modem info. Starts the tap clock."""
-        info = {
+        info: dict[str, Any] = {
             "version": str(self._call("fldigi.version")),
             "modem": str(self._call("modem.get_name")),
             "carrier_hz": float(self._call("modem.get_carrier")),
@@ -89,7 +89,9 @@ class FldigiTap:
         except FldigiError:
             pass
 
-        now = self._clock() - self._t0
+        # connect() above sets _t0; the fallback keeps the type honest
+        # without restating that invariant as an assert.
+        now = self._clock() - (self._t0 or 0.0)
         confidence = max(0.0, min(quality / 100.0, 1.0))
         events: list[CharEvent] = []
         for ch in text:
