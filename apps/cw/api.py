@@ -903,12 +903,15 @@ def band_survey(request: APIRequest) -> dict[str, Any] | Any:
         )
         return int(survey.pk)
 
+    # `save: false` is the instant check — sweep and show, keep nothing, and
+    # don't ask for an antenna name.
+    save = data.get("save", True) is not False
     try:
         state = bandscan.start(
             antenna=str(data.get("antenna") or ""),
             band_keys=[str(k) for k in (data.get("bands") or [])],
             gain_db=float(data.get("gain_db") or bandscan.DEFAULT_GAIN_DB),
-            on_finish=persist,
+            on_finish=persist if save else None,
         )
     except bandscan.RadioError as e:
         return api_error(str(e), 409)

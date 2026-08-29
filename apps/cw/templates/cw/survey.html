@@ -55,8 +55,17 @@
         </div>
 
         <div class="cw-cb-actions">
-            <button type="button" class="cw-btn-lg" id="sv-run">Run survey</button>
+            <button type="button" class="cw-btn-lg" id="sv-quick"
+                    title="Sweep the always-on bands and show the result — nothing saved">
+                ⚡ Instant check
+            </button>
+            <button type="button" class="cw-btn-lg cw-btn-ghost" id="sv-run">Save as a run</button>
         </div>
+        <p class="cw-setup-note">
+            <b>Instant check</b> sweeps the always-on bands and just shows you the numbers —
+            no name, nothing kept. <b>Save as a run</b> records the bands you ticked under an
+            antenna name so it joins the comparison below.
+        </p>
         <div class="sv-progress" id="sv-progress" hidden>
             <div class="sv-bar"><i id="sv-bar-fill"></i></div>
             <span id="sv-progress-text">starting…</span>
@@ -65,7 +74,9 @@
     </section>
 
     <section class="cw-setup-card" id="sv-latest-card" hidden>
-        <div class="cw-step-head"><span class="cw-step-num">📈</span><h3>Latest run</h3></div>
+        <div class="cw-step-head"><span class="cw-step-num">📈</span><h3 id="sv-latest-title">Latest run</h3></div>
+        <p class="cw-setup-note" id="sv-latest-note" hidden>Not saved — press
+           <b>Save as a run</b> with an antenna name to keep a result for comparison.</p>
         <div id="sv-latest"></div>
     </section>
 

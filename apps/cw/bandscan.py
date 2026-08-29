@@ -101,6 +101,7 @@ _state: dict[str, Any] = {
     "antenna": "",
     "gain_db": DEFAULT_GAIN_DB,
     "survey_id": None,
+    "saving": False,
 }
 
 
@@ -219,8 +220,11 @@ def start(
     from . import radiodaemon
 
     antenna = (antenna or "").strip()
-    if not antenna:
-        raise RadioError("Name the antenna so runs can be told apart.")
+    # A name only matters for runs that get kept — an instant check is a
+    # "what am I hearing right now", and demanding a label for that is friction
+    # with no payoff.
+    if on_finish is not None and not antenna:
+        raise RadioError("Name the antenna so saved runs can be told apart.")
     bands = [BANDS_BY_KEY[k] for k in band_keys if k in BANDS_BY_KEY]
     if not bands:
         raise RadioError("Pick at least one band to sweep.")
@@ -238,7 +242,7 @@ def start(
         _state.update(
             running=True, done=0, total=len(bands), current=bands[0].label,
             results=[], error="", antenna=antenna, gain_db=float(gain_db),
-            survey_id=None,
+            survey_id=None, saving=on_finish is not None,
         )
 
     def worker() -> None:

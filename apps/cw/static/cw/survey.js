@@ -19,6 +19,7 @@
   var surveys = [];
   var selected = [];
   var poll = null;
+  var lastSaved = true;
   var SECONDS_PER_BAND = 2.4;  // measured; keeps the estimate honest
 
   function get() {
@@ -274,6 +275,11 @@
     }
     if ((scan.results || []).length) {
       $("sv-latest-card").hidden = false;
+      var saving = scan.saving !== false;
+      $("sv-latest-title").textContent = saving
+        ? (scan.antenna ? "Latest run — " + scan.antenna : "Latest run")
+        : "Instant check";
+      $("sv-latest-note").hidden = saving;
       renderRows($("sv-latest"), scan.results);
     }
   }
@@ -286,7 +292,9 @@
         if (!(d.scan || {}).running) {
           surveys = d.surveys || [];
           renderMatrix(); renderRuns();
-          if (!(d.scan || {}).error) say("Survey saved.", "ok");
+          if (!(d.scan || {}).error) {
+            say(lastSaved ? "Survey saved." : "Instant check done — not saved.", "ok");
+          }
         }
       });
     }, 1200);
@@ -308,18 +316,34 @@
     $("sv-gain-val").textContent = Number(gain.value).toFixed(0) + " dB";
   });
 
-  $("sv-run").addEventListener("click", function () {
-    var antenna = $("sv-antenna").value.trim();
-    if (!antenna) { say("Name the antenna first — that's what runs are compared by.", "error"); return; }
-    if (!selected.length) { say("Pick at least one band.", "error"); return; }
-    say("Sweeping…");
-    post({
-      action: "start", antenna: antenna,
-      bands: selected, gain_db: Number(gain.value),
-    }).then(function (r) {
-      if (!r.ok) { say(r.error || "Couldn't start the survey.", "error"); return; }
+  function launch(body, label) {
+    lastSaved = body.save !== false;
+    say(label);
+    post(body).then(function (r) {
+      if (!r.ok) { say(r.error || "Couldn't start the sweep.", "error"); return; }
       applyScan(r.data.scan || {});
     });
+  }
+
+  $("sv-run").addEventListener("click", function () {
+    var antenna = $("sv-antenna").value.trim();
+    if (!antenna) { say("Name the antenna first — that's what saved runs are compared by.", "error"); return; }
+    if (!selected.length) { say("Pick at least one band.", "error"); return; }
+    launch({
+      action: "start", antenna: antenna, save: true,
+      bands: selected, gain_db: Number(gain.value),
+    }, "Sweeping…");
+  });
+
+  // Instant check: the always-on bands only. They're the ones whose reading
+  // actually tracks the antenna, and limiting to them keeps it quick.
+  $("sv-quick").addEventListener("click", function () {
+    var refs = bands.filter(function (b) { return b.reference; })
+                    .map(function (b) { return b.key; });
+    launch({
+      action: "start", save: false,
+      bands: refs.length ? refs : selected, gain_db: Number(gain.value),
+    }, "Checking…");
   });
 
   refresh();

@@ -87,9 +87,26 @@ class TestBandTable:
 
 
 class TestStartGuards:
-    def test_unnamed_antenna_is_refused(self):
+    def test_unnamed_antenna_is_refused_when_saving(self):
         with pytest.raises(RadioError, match="Name the antenna"):
-            bandscan.start(antenna="  ", band_keys=["fm"])
+            bandscan.start(
+                antenna="  ", band_keys=["fm"],
+                on_finish=lambda *a: 1,   # a run that would be kept
+            )
+
+    def test_unnamed_is_allowed_for_an_instant_check(self, monkeypatch):
+        """No on_finish means nothing is kept, so there's nothing to label —
+        the instant check must not demand a name."""
+        from apps.cw import radiodaemon
+
+        monkeypatch.setattr(radiodaemon, "status", lambda: {"running": False})
+        monkeypatch.setattr(radiodaemon, "list_devices", lambda *a, **k: [{"index": 0}])
+        monkeypatch.setattr(
+            bandscan, "sweep_band",
+            lambda band, gain: bandscan.summarize(band, [(88.0, -30.0)] * 8),
+        )
+        state = bandscan.start(antenna="", band_keys=["fm"])
+        assert state["saving"] is False
 
     def test_no_bands_is_refused(self):
         with pytest.raises(RadioError, match="at least one band"):
@@ -174,6 +191,29 @@ class TestSurveyEndpoint:
 
     def test_anonymous_is_refused(self, client):
         assert client.get(reverse("cw-survey-scan")).status_code in (401, 403, 302)
+
+    def test_instant_check_needs_no_name_and_saves_nothing(self, client_logged, monkeypatch):
+        """The whole point of the instant check: no label, no stored row."""
+        from apps.cw import bandscan as bs
+        from apps.cw import radiodaemon
+
+        monkeypatch.setattr(radiodaemon, "status", lambda: {"running": False})
+        monkeypatch.setattr(radiodaemon, "list_devices", lambda *a, **k: [{"index": 0}])
+        monkeypatch.setattr(
+            bs, "sweep_band",
+            lambda band, gain: bs.summarize(band, [(88.0, -30.0)] * 8),
+        )
+        r = client_logged.post(
+            reverse("cw-survey-scan"),
+            data=json.dumps({"action": "start", "bands": ["fm"], "save": False}),
+            content_type="application/json",
+        )
+        assert r.status_code == 200
+        assert (r.json().get("data") or r.json())["scan"]["saving"] is False
+        # give the worker a moment; nothing should land in the table
+        import time
+        time.sleep(0.6)
+        assert not AntennaSurvey.objects.exists()
 
 
 @pytest.mark.django_db
