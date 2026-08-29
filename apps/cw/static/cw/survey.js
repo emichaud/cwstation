@@ -63,43 +63,35 @@
     return "strong";
   }
 
-  /* ---- band picker -------------------------------------------------------- */
+  /* ---- band picker: compact chips; details live in the tooltip ---------- */
   function renderBands() {
     bandsEl.innerHTML = "";
     bands.forEach(function (b) {
-      var label = document.createElement("label");
-      label.className = "sv-band";
-      label.dataset.checked = selected.indexOf(b.key) >= 0 ? "true" : "false";
-      label.dataset.hf = b.hf ? "true" : "false";
+      var chip = document.createElement("label");
+      chip.className = "svx-chip";
+      chip.dataset.checked = selected.indexOf(b.key) >= 0 ? "true" : "false";
+      chip.dataset.ref = b.reference ? "true" : "false";
+      chip.dataset.hf = b.hf ? "true" : "false";
+      chip.title = b.low_mhz + "\u2013" + b.high_mhz + " MHz" + (b.note ? " \u2014 " + b.note : "");
 
       var cb = document.createElement("input");
       cb.type = "checkbox";
       cb.checked = selected.indexOf(b.key) >= 0;
+      cb.setAttribute("aria-label", b.label);
       cb.addEventListener("change", function () {
         var i = selected.indexOf(b.key);
         if (cb.checked && i < 0) selected.push(b.key);
         if (!cb.checked && i >= 0) selected.splice(i, 1);
-        label.dataset.checked = cb.checked ? "true" : "false";
+        chip.dataset.checked = cb.checked ? "true" : "false";
         updateEstimate();
       });
 
-      var text = document.createElement("div");
-      var title = document.createElement("b");
-      title.textContent = b.label + "  " + b.low_mhz + "–" + b.high_mhz + " MHz";
-      if (b.reference) {
-        var tag = document.createElement("span");
-        tag.className = "sv-ref-tag";
-        tag.textContent = "always on";
-        title.appendChild(tag);
-      }
-      var note = document.createElement("span");
-      note.textContent = b.note || "";
-      text.appendChild(title);
-      if (b.note) text.appendChild(note);
-
-      label.appendChild(cb);
-      label.appendChild(text);
-      bandsEl.appendChild(label);
+      var dot = document.createElement("span");
+      dot.className = "dot";
+      chip.appendChild(cb);
+      chip.appendChild(dot);
+      chip.appendChild(document.createTextNode(b.label));
+      bandsEl.appendChild(chip);
     });
     updateEstimate();
   }
@@ -255,7 +247,17 @@
     hr.appendChild(document.createElement("th")).textContent = "Band";
     surveys.forEach(function (s) {
       var th = document.createElement("th");
-      th.textContent = s.antenna;
+      th.appendChild(document.createTextNode(s.antenna));
+      var x = document.createElement("button");
+      x.type = "button";
+      x.className = "sv-x";
+      x.textContent = "\u2715";
+      x.setAttribute("aria-label", "Remove the " + s.antenna + " run");
+      x.title = "Remove this run";
+      x.addEventListener("click", function () {
+        post({ action: "delete", id: s.id }).then(refresh);
+      });
+      th.appendChild(x);
       var small = document.createElement("small");
       small.textContent = new Date(s.created_at).toLocaleDateString() +
         " · " + s.gain_db + " dB" + (mixedDevice && s.device ? " · " + s.device : "");
@@ -308,40 +310,15 @@
     }
   }
 
-  function renderRuns() {
-    var card = $("sv-runs-card");
-    card.hidden = surveys.length === 0;
-    var box = $("sv-runs");
-    box.innerHTML = "";
-    surveys.forEach(function (s) {
-      var row = document.createElement("div");
-      row.className = "sv-run";
-      var name = document.createElement("b");
-      name.textContent = s.antenna;
-      var when = document.createElement("span");
-      when.className = "sv-when";
-      when.textContent = new Date(s.created_at).toLocaleString() +
-        " · " + (s.results || []).length + " bands · gain " + s.gain_db + " dB";
-      var spacer = document.createElement("span");
-      spacer.className = "sv-spacer";
-      var del = document.createElement("button");
-      del.type = "button";
-      del.textContent = "remove";
-      del.setAttribute("aria-label", "Remove the " + s.antenna + " survey");
-      del.addEventListener("click", function () {
-        post({ action: "delete", id: s.id }).then(refresh);
-      });
-      row.appendChild(name); row.appendChild(when);
-      row.appendChild(spacer); row.appendChild(del);
-      box.appendChild(row);
-    });
-  }
-
   /* ---- run + poll --------------------------------------------------------- */
   function applyScan(scan) {
     var running = !!scan.running;
+    var chassis = document.getElementById("svx-chassis");
+    if (chassis) chassis.dataset.state = running ? "scan" : "idle";
     $("sv-run").disabled = running;
+    $("sv-quick").disabled = running;
     $("sv-progress").hidden = !running;
+    if (running) $("sv-latest-card").hidden = false;
     pill.dataset.state = running ? "live" : "off";
     pill.textContent = running ? "● scanning" : "idle";
     if (running) {
@@ -372,7 +349,7 @@
         applyScan(d.scan || {});
         if (!(d.scan || {}).running) {
           surveys = d.surveys || [];
-          renderMatrix(); renderRuns();
+          renderMatrix();
           if (!(d.scan || {}).error) {
             say(lastSaved ? "Survey saved." : "Instant check done — not saved.", "ok");
           }

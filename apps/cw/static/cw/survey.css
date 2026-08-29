@@ -1,71 +1,275 @@
-/* Antenna survey — band picker, SNR bars, and the comparison matrix.
- * Every colour resolves from theme variables so the page holds up on all
- * palettes; the strength ramp uses the semantic state colours rather than a
- * hand-picked red/amber/green. */
+/* Antenna survey — the bench instrument.
+ *
+ * One chassis, matching the FM Radio faceplate: a dense control strip, band
+ * chips, an LED-bargraph readout behind glass, the comparison matrix, and a
+ * model plate along the bottom edge.
+ *
+ * Palette rules: every hue derives from theme variables. Glass panels layer
+ * black-alpha shading over var(--accent-band-bg) so each palette tints its own
+ * instrument; the strength ramp uses the semantic state colours.
+ */
 
-.sv-bands { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+@font-face {
+    font-family: "DSEG7";
+    src: url("fonts/DSEG7Classic-BoldItalic.woff2") format("woff2");
+    font-display: swap;
+}
 
-/* Must outrank cw.css's `body.cw-console .cw-field label`, which styles field
-   labels as small uppercase text — these band cards are <label>s inside a
-   .cw-field, so without matching that specificity the notes shout. */
-body.cw-console .cw-field .sv-bands label.sv-band {
-    display: flex; align-items: flex-start; gap: 9px;
-    padding: 10px 12px;
-    border: 1px solid var(--card-border); border-radius: 10px;
+.svx-wrap { max-width: 1020px; margin: 0 auto; padding: 8px 16px 40px; }
+
+.svx-chassis {
+    background:
+        repeating-linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--body-fg) 2%, transparent) 0 1px,
+            transparent 1px 3px
+        ),
+        var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 22px;
+    padding: 18px 22px 0;
+    box-shadow:
+        inset 0 1px 0 color-mix(in srgb, var(--body-fg) 8%, transparent),
+        0 18px 40px -18px rgba(0, 0, 0, 0.55);
+}
+
+.svx-spacer { flex: 1; }
+
+/* ── control strip ───────────────────────────────────────────────────── */
+.svx-controls {
+    display: flex; gap: 14px; align-items: stretch; flex-wrap: wrap;
+}
+.svx-ctl { display: flex; flex-direction: column; gap: 4px; min-width: 130px; }
+.svx-grow { flex: 1; }
+.svx-ctl > label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--body-quiet-color);
+    display: flex; justify-content: space-between; align-items: baseline;
+}
+.svx-ctl > label b {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px; color: var(--primary); letter-spacing: 0;
+}
+.svx-ctl input[type="text"], .svx-ctl select {
+    box-sizing: border-box; width: 100%;
+    min-height: 38px; padding: 0 12px;
+    border: 1px solid var(--card-border); border-radius: 9px;
     background: color-mix(in srgb, var(--body-fg) 3%, var(--card-bg));
-    cursor: pointer;
-    text-transform: none; letter-spacing: normal;
-    font-size: 13.5px; font-weight: 400; color: var(--body-fg);
+    color: var(--body-fg); font-size: 13.5px;
 }
-.sv-band:hover { border-color: var(--input-focus-border); }
-.sv-band input { margin-top: 2px; flex: none; }
-.sv-band b { display: block; font-size: 13.5px; font-weight: 650; }
-.sv-band span { display: block; font-size: 11.5px; color: var(--body-quiet-color); }
-.sv-band[data-checked="true"] { border-color: var(--primary); background: var(--accent-band-bg); }
+.svx-ctl input:focus-visible, .svx-ctl select:focus-visible,
+.svx-mini:focus-visible, .svx-key:focus-visible, .svx-chip:focus-within {
+    outline: 2px solid var(--input-focus-border); outline-offset: 1px;
+}
+.svx-inline { display: flex; gap: 6px; }
+.svx-inline select { flex: 1; }
+.svx-mini {
+    appearance: none; width: 38px; min-height: 38px;
+    border: 1px solid var(--card-border); border-radius: 9px;
+    background: color-mix(in srgb, var(--body-fg) 4%, var(--card-bg));
+    color: var(--body-quiet-color); font-size: 15px; cursor: pointer;
+}
+.svx-mini:hover { color: var(--body-fg); border-color: var(--input-focus-border); }
 
-.sv-ref-tag {
-    display: inline-block;
-    font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
-    color: var(--success-fg);
-    border: 1px solid color-mix(in srgb, var(--success-fg) 45%, transparent);
-    border-radius: 4px; padding: 1px 5px; margin-left: 4px;
-    vertical-align: 1px;
+.svx-gain { min-width: 150px; max-width: 190px; }
+/* compact gain slider — must outrank cw.css's console-wide range styling */
+body.cw-console .svx-gain input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    height: 38px; margin: 0; background: transparent; width: 100%;
+}
+body.cw-console .svx-gain input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px; border-radius: 2px; border: 0; margin-top: 0;
+    background: color-mix(in srgb, var(--body-fg) 14%, transparent);
+}
+body.cw-console .svx-gain input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 22px; border: 0; border-radius: 4px;
+    background: var(--primary);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--primary) 55%, transparent);
+    margin-top: -9px; cursor: ew-resize;
+}
+body.cw-console .svx-gain input[type="range"]::-moz-range-track {
+    height: 4px; border-radius: 2px; border: 0;
+    background: color-mix(in srgb, var(--body-fg) 14%, transparent);
+}
+body.cw-console .svx-gain input[type="range"]::-moz-range-thumb {
+    width: 14px; height: 22px; border: 0; border-radius: 4px;
+    background: var(--primary);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--primary) 55%, transparent);
+    cursor: ew-resize;
 }
 
-/* progress */
-.sv-progress { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
-/* display:flex beats the [hidden] default of display:none — restore it */
-.sv-progress[hidden] { display: none; }
-.sv-bar {
-    flex: 1; height: 8px; border-radius: 999px; overflow: hidden;
-    background: color-mix(in srgb, var(--body-fg) 10%, transparent);
+/* HF direct-sampling switch */
+.svx-ds {
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 14px;
+    border: 1px solid var(--card-border); border-radius: 9px;
+    background: color-mix(in srgb, var(--body-fg) 3%, var(--card-bg));
+    cursor: pointer; align-self: stretch;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--body-fg);
+    line-height: 1.25; text-align: left;
 }
-.sv-bar i { display: block; height: 100%; width: 0; background: var(--primary); transition: width 0.3s; }
-.sv-progress span { font-size: 12.5px; color: var(--body-quiet-color); white-space: nowrap; }
+.svx-ds small {
+    font-size: 9px; font-weight: 600; letter-spacing: 0.1em;
+    color: var(--body-quiet-color);
+}
+.svx-ds input { accent-color: var(--primary); }
+.svx-ds[data-unsupported="true"] { opacity: 0.6; }
 
-/* result rows */
+/* ── band chips ──────────────────────────────────────────────────────── */
+.svx-bandrow {
+    display: flex; align-items: flex-start; gap: 12px;
+    margin-top: 14px;
+}
+.svx-rowlabel, .svx-est {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--body-quiet-color);
+    padding-top: 7px; white-space: nowrap;
+}
+.svx-est {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--primary); letter-spacing: 0;
+}
+.svx-chips { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+.svx-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 11px;
+    border: 1px solid var(--card-border); border-radius: 999px;
+    background: color-mix(in srgb, var(--body-fg) 3%, var(--card-bg));
+    color: var(--body-quiet-color);
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    transition: 0.12s; white-space: nowrap;
+}
+.svx-chip:hover { border-color: var(--input-focus-border); color: var(--body-fg); }
+.svx-chip input { position: absolute; opacity: 0; pointer-events: none; }
+.svx-chip[data-checked="true"] {
+    background: var(--accent-band-bg);
+    border-color: var(--primary); color: var(--body-fg);
+}
+/* always-on transmitters get a lit dot; HF bands a warning tick */
+.svx-chip .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: color-mix(in srgb, var(--body-fg) 25%, transparent);
+}
+.svx-chip[data-ref="true"] .dot {
+    background: var(--success-fg);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--success-fg) 60%, transparent);
+}
+.svx-chip[data-hf="true"]::after {
+    content: "HF";
+    font-size: 9px; font-weight: 800; letter-spacing: 0.06em;
+    color: var(--warning-fg);
+}
+
+/* ── actions ─────────────────────────────────────────────────────────── */
+.svx-actions {
+    display: flex; align-items: center; gap: 10px;
+    margin: 14px 0 16px; flex-wrap: wrap;
+}
+.svx-key {
+    appearance: none;
+    min-height: 44px; padding: 0 20px;
+    border: 1px solid var(--card-border); border-bottom-width: 3px;
+    border-radius: 11px;
+    background: color-mix(in srgb, var(--body-fg) 4%, var(--card-bg));
+    color: var(--body-fg);
+    font-size: 0.95rem; font-weight: 650; cursor: pointer; transition: 0.12s;
+}
+.svx-key:hover:not(:disabled) { border-color: var(--input-focus-border); }
+.svx-key:active:not(:disabled) { transform: translateY(2px); border-bottom-width: 1px; }
+.svx-key:disabled { opacity: 0.45; cursor: not-allowed; }
+.svx-key--main {
+    background: var(--primary); border-color: var(--primary);
+    border-bottom-color: color-mix(in srgb, var(--primary) 70%, black);
+    color: var(--button-fg);
+}
+.svx-key--main:hover:not(:disabled) { filter: brightness(1.08); }
+.svx-status { font-size: 12.5px; color: var(--body-quiet-color); }
+.svx-status[data-kind="error"] { color: var(--error-fg); }
+.svx-status[data-kind="ok"] { color: var(--success-fg); }
+.svx-status[data-kind="warn"] { color: var(--warning-fg); }
+
+/* ── glass panels (readout + matrix share the look) ──────────────────── */
+.svx-glass, .svx-matrixwrap {
+    margin: 0 -6px 14px;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, var(--body-fg) 14%, transparent);
+    background:
+        linear-gradient(180deg, rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.34)),
+        var(--accent-band-bg);
+    box-shadow: inset 0 2px 12px rgba(0, 0, 0, 0.5);
+    padding: 12px 18px 14px;
+}
+.svx-glass[hidden], .svx-matrixwrap[hidden] { display: none; }
+.svx-glass-head {
+    display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px;
+}
+.svx-glass-head h3 {
+    margin: 0;
+    font-size: 11px; font-weight: 800; letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--primary) 75%, var(--body-fg));
+}
+.svx-note { font-size: 11px; color: var(--body-quiet-color); }
+
+/* progress — lives inside the glass while a sweep runs */
+.svx-progress { display: flex; align-items: center; gap: 12px; margin: 4px 0 10px; }
+.svx-progress[hidden] { display: none; }
+.svx-bar {
+    flex: 1; height: 6px; border-radius: 999px; overflow: hidden;
+    background: color-mix(in srgb, var(--body-fg) 12%, transparent);
+}
+.svx-bar i {
+    display: block; height: 100%; width: 0;
+    background: var(--primary);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--primary) 60%, transparent);
+    transition: width 0.3s;
+}
+.svx-progress span {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px; color: var(--body-quiet-color); white-space: nowrap;
+}
+
+/* readout rows: band · segmented meter · DSEG dB */
 .sv-row {
-    display: grid; grid-template-columns: 1fr 68px 120px;
-    align-items: center; gap: 12px;
-    padding: 9px 2px;
-    border-bottom: 1px solid var(--card-border);
+    display: grid; grid-template-columns: minmax(150px, 1fr) 2fr 92px;
+    align-items: center; gap: 14px;
+    padding: 6px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--body-fg) 7%, transparent);
 }
 .sv-row:last-child { border-bottom: 0; }
-.sv-row .sv-name { font-size: 13.5px; }
-.sv-row .sv-name i {
+.sv-name { font-size: 12.5px; font-weight: 650; line-height: 1.3; }
+.sv-name i {
     display: block; font-style: normal;
-    font-size: 11.5px; color: var(--body-quiet-color);
+    font-size: 10.5px; font-weight: 400; color: var(--body-quiet-color);
 }
-.sv-row .sv-db {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 14px; font-weight: 700; text-align: right;
+.sv-name .sv-ref-tag {
+    display: inline-block; margin-left: 5px; vertical-align: 1px;
+    font-size: 8.5px; font-weight: 800; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--success-fg);
+    border: 1px solid color-mix(in srgb, var(--success-fg) 45%, transparent);
+    border-radius: 3px; padding: 0 4px;
 }
-.sv-meter { height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--body-fg) 10%, transparent); }
-.sv-meter i { display: block; height: 100%; border-radius: 999px; }
+/* segmented LED meter: the fill shows through a comb mask */
+.sv-meter {
+    height: 14px; border-radius: 3px; overflow: hidden;
+    background: color-mix(in srgb, var(--body-fg) 7%, transparent);
+}
+.sv-meter i {
+    display: block; height: 100%;
+    -webkit-mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);
+    mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);
+}
+.sv-db {
+    font-family: "DSEG7", ui-monospace, monospace;
+    font-size: 19px; text-align: right;
+    text-shadow: 0 0 6px color-mix(in srgb, currentColor 45%, transparent);
+}
 
-/* strength ramp — semantic state colours, not hand-picked hues */
+/* strength ramp — semantic state colours */
 .sv-s0 { color: var(--body-quiet-color); }
-.sv-s0 + .sv-meter i, .sv-meter i.sv-s0 { background: var(--body-quiet-color); }
+.sv-meter i.sv-s0 { background: var(--body-quiet-color); }
 .sv-s1 { color: var(--error-fg); }
 .sv-meter i.sv-s1 { background: var(--error-fg); }
 .sv-s2 { color: var(--warning-fg); }
@@ -73,22 +277,30 @@ body.cw-console .cw-field .sv-bands label.sv-band {
 .sv-s3 { color: var(--success-fg); }
 .sv-meter i.sv-s3 { background: var(--success-fg); }
 
-/* comparison matrix */
-.sv-scroll { overflow-x: auto; }
-.sv-matrix { width: 100%; border-collapse: collapse; font-size: 13px; }
+/* ── the matrix ──────────────────────────────────────────────────────── */
+.svx-scroll { overflow-x: auto; }
+.sv-matrix { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .sv-matrix th, .sv-matrix td {
-    padding: 8px 12px; text-align: right;
-    border-bottom: 1px solid var(--card-border);
-    white-space: nowrap;
+    padding: 6px 12px; text-align: right; white-space: nowrap;
+    border-bottom: 1px solid color-mix(in srgb, var(--body-fg) 7%, transparent);
 }
+.sv-matrix tbody tr:last-child td { border-bottom: 0; }
 .sv-matrix th:first-child, .sv-matrix td:first-child { text-align: left; }
 .sv-matrix thead th {
-    font-size: 11.5px; letter-spacing: 0.04em; text-transform: uppercase;
-    color: var(--body-quiet-color); font-weight: 700;
+    font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--body-fg); font-weight: 750; vertical-align: top;
 }
 .sv-matrix thead th small {
     display: block; text-transform: none; letter-spacing: 0;
-    font-weight: 400; font-size: 11px;
+    font-weight: 400; font-size: 10.5px; color: var(--body-quiet-color);
+}
+.sv-matrix thead th .sv-x {
+    appearance: none; border: 0; background: none; cursor: pointer;
+    color: var(--body-quiet-color); font-size: 11px; padding: 0 0 0 6px;
+}
+.sv-matrix thead th .sv-x:hover { color: var(--error-fg); }
+.sv-matrix thead th .sv-x:focus-visible {
+    outline: 2px solid var(--input-focus-border); outline-offset: 1px;
 }
 .sv-matrix td {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -99,51 +311,41 @@ body.cw-console .cw-field .sv-bands label.sv-band {
 }
 .sv-matrix td.sv-none { color: var(--body-quiet-color); }
 .sv-matrix .sv-gain-warn { color: var(--warning-fg); }
+.sv-matrix .sv-ref-tag {
+    display: inline-block; margin-left: 5px;
+    font-size: 8.5px; font-weight: 800; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--success-fg);
+    border: 1px solid color-mix(in srgb, var(--success-fg) 45%, transparent);
+    border-radius: 3px; padding: 0 4px;
+}
 
-/* saved runs */
-.sv-run {
-    display: flex; align-items: center; gap: 12px;
-    padding: 9px 2px; border-bottom: 1px solid var(--card-border);
-    font-size: 13px;
+/* ── model plate ─────────────────────────────────────────────────────── */
+.svx-plate {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    margin: 0 -22px;
+    padding: 9px 22px;
+    border-top: 1px solid var(--card-border);
+    border-radius: 0 0 22px 22px;
+    background: color-mix(in srgb, var(--body-fg) 3%, transparent);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px; letter-spacing: 0.04em;
+    color: var(--body-quiet-color);
 }
-.sv-run:last-child { border-bottom: 0; }
-.sv-run b { font-weight: 650; }
-.sv-run .sv-when { color: var(--body-quiet-color); font-size: 12px; }
-.sv-run .sv-spacer { flex: 1; }
-.sv-run button {
-    appearance: none; border: 1px solid var(--card-border); border-radius: 7px;
-    background: transparent; color: var(--body-quiet-color);
-    font: inherit; font-size: 12px; padding: 4px 10px; cursor: pointer;
-}
-.sv-run button:hover { color: var(--error-fg); border-color: var(--error-fg); }
-.sv-run button:focus-visible { outline: 2px solid var(--input-focus-border); outline-offset: 2px; }
+.svx-plate a { color: var(--body-quiet-color); }
+.svx-plate a:hover { color: var(--body-fg); }
 
-/* receiver row + HF toggle */
-.sv-device-row { display: flex; gap: 10px; align-items: center; }
-.sv-device-row select { flex: 1; }
-body.cw-console .cw-field label.sv-toggle {
-    display: flex; align-items: flex-start; gap: 9px;
-    margin: 4px 0 14px; padding: 10px 12px;
-    border: 1px solid var(--card-border); border-radius: 10px;
-    background: color-mix(in srgb, var(--body-fg) 3%, var(--card-bg));
-    text-transform: none; letter-spacing: normal;
-    font-size: 13px; font-weight: 400; color: var(--body-quiet-color);
-    cursor: pointer;
+/* scanning: sweep shimmer on the chassis pill via data-state */
+.svx-chassis[data-state="scan"] .svx-glass {
+    box-shadow:
+        inset 0 2px 12px rgba(0, 0, 0, 0.5),
+        0 0 18px -6px color-mix(in srgb, var(--primary) 55%, transparent);
 }
-.sv-toggle {
-    display: flex; align-items: flex-start; gap: 9px;
-    margin: 4px 0 14px; padding: 10px 12px;
-    border: 1px solid var(--card-border); border-radius: 10px;
-    background: color-mix(in srgb, var(--body-fg) 3%, var(--card-bg));
-    font-size: 13px; color: var(--body-quiet-color); cursor: pointer;
+
+@media (max-width: 760px) {
+    .svx-controls { flex-direction: column; }
+    .svx-gain { max-width: none; }
+    .sv-row { grid-template-columns: 1fr 1.2fr 80px; gap: 8px; }
 }
-.sv-toggle input { margin-top: 2px; flex: none; }
-.sv-toggle b { color: var(--body-fg); font-weight: 650; }
-.sv-toggle[data-unsupported="true"] { opacity: 0.75; }
-.sv-band[data-hf="true"] b::after {
-    content: "HF"; margin-left: 6px;
-    font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
-    color: var(--warning-fg);
-    border: 1px solid color-mix(in srgb, var(--warning-fg) 45%, transparent);
-    border-radius: 4px; padding: 1px 5px;
+@media (prefers-reduced-motion: reduce) {
+    .svx-bar i { transition: none; }
 }

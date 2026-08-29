@@ -3,7 +3,7 @@
 
 {% block title %}Antenna Survey{% endblock %}
 {% block breadcrumbs %}{% endblock %}
-{% block body_class %}cw-console cw-setup{% endblock %}
+{% block body_class %}cw-console{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'cw/cw.css' %}">
@@ -19,103 +19,82 @@
 {% endblock %}
 
 {% block content %}
-<div class="cw-setup-wrap">
-    <header class="cw-setup-head">
-        <h2>Which antenna hears best?</h2>
-        <p>Sweep the same bands with each antenna and compare. Connect one, name it, run the
-           survey — then swap and run it again.</p>
-    </header>
+<div class="svx-wrap">
+    <div class="svx-chassis" id="svx-chassis" data-state="idle">
 
-    <section class="cw-setup-card">
-        <div class="cw-step-head"><span class="cw-step-num">📡</span><h3>Run a survey</h3></div>
-        <p class="cw-setup-note">
-            Bands marked <span class="sv-ref-tag">always on</span> carry transmitters that never
-            stop, so a change in their reading is a change in your antenna. A quiet ham band
-            measures propagation, not hardware — it can read zero on a superb antenna.
-        </p>
-
-        <div class="cw-field">
-            <label for="sv-antenna">Antenna name</label>
-            <input type="text" id="sv-antenna" class="cw-setup-input" maxlength="60"
-                   placeholder="stock whip" autocomplete="off">
-        </div>
-
-        {% comment %}
-        Receiver row: which stick, and the HF switch. Both are recorded with a
-        saved run, because a survey taken on a different dongle can't be
-        compared against one taken on this one.
-        {% endcomment %}
-        <div class="cw-field">
-            <label for="sv-device">Receiver</label>
-            <div class="sv-device-row">
-                <select id="sv-device" class="cw-setup-input"></select>
-                <button type="button" class="cw-btn-lg cw-btn-ghost" id="sv-rescan">rescan</button>
+        {# ── control strip: name · receiver · gain · HF switch ── #}
+        <div class="svx-controls">
+            <div class="svx-ctl svx-grow">
+                <label for="sv-antenna">Antenna</label>
+                <input type="text" id="sv-antenna" maxlength="60"
+                       placeholder="stock whip" autocomplete="off" spellcheck="false">
             </div>
-            <p class="cw-setup-note" id="sv-device-note"></p>
-        </div>
-
-        <label class="sv-toggle" id="sv-ds-row">
-            <input type="checkbox" id="sv-ds">
-            <span><b>Direct sampling</b> — the only way an RTL stick reaches HF
-                (80/40/20 m, WWV). Needs a dongle with the ADC tap, such as an
-                RTL-SDR Blog V3/V4; on others it produces noise.</span>
-        </label>
-
-        <div class="cw-field">
-            <label>Bands to sweep <span class="cw-slider-val" id="sv-est">~10 s</span></label>
-            <div class="sv-bands" id="sv-bands"></div>
-        </div>
-
-        <div class="cw-field">
-            <label for="sv-gain">Tuner gain <span class="cw-slider-val" id="sv-gain-val">40 dB</span></label>
-            <div class="cw-slider-row">
-                <input type="range" id="sv-gain" min="0" max="49.6" step="0.1" value="40">
+            <div class="svx-ctl svx-grow">
+                <label for="sv-device">Receiver</label>
+                <div class="svx-inline">
+                    <select id="sv-device" aria-label="SDR device"></select>
+                    <button type="button" class="svx-mini" id="sv-rescan"
+                            title="Re-detect SDR dongles" aria-label="Rescan for SDR devices">⟳</button>
+                </div>
             </div>
-            <p class="cw-setup-note">Keep this identical between runs — a different gain makes
-               two antennas incomparable. Surveys taken at other gains are flagged below.</p>
+            <div class="svx-ctl svx-gain">
+                <label for="sv-gain">Gain <b id="sv-gain-val">40 dB</b></label>
+                <input type="range" id="sv-gain" min="0" max="49.6" step="0.1" value="40"
+                       aria-label="Tuner gain">
+            </div>
+            <label class="svx-ds" id="sv-ds-row"
+                   title="The only way an RTL stick reaches HF (80/40/20 m, WWV). Needs the ADC tap — RTL-SDR Blog V3/V4; on other dongles it produces noise.">
+                <input type="checkbox" id="sv-ds">
+                <span>HF<br><small>direct&nbsp;sampling</small></span>
+            </label>
         </div>
 
-        <div class="cw-cb-actions">
-            <button type="button" class="cw-btn-lg" id="sv-quick"
-                    title="Sweep the always-on bands and show the result — nothing saved">
-                ⚡ Instant check
-            </button>
-            <button type="button" class="cw-btn-lg cw-btn-ghost" id="sv-run">Save as a run</button>
+        {# ── band chips (built by survey.js) ── #}
+        <div class="svx-bandrow">
+            <span class="svx-rowlabel">Bands</span>
+            <div class="svx-chips" id="sv-bands"></div>
+            <span class="svx-est" id="sv-est">~12 s</span>
         </div>
-        <p class="cw-setup-note">
-            <b>Instant check</b> sweeps the always-on bands and just shows you the numbers —
-            no name, nothing kept. <b>Save as a run</b> records the bands you ticked under an
-            antenna name so it joins the comparison below.
-        </p>
-        <div class="sv-progress" id="sv-progress" hidden>
-            <div class="sv-bar"><i id="sv-bar-fill"></i></div>
-            <span id="sv-progress-text">starting…</span>
+
+        {# ── actions ── #}
+        <div class="svx-actions">
+            <button type="button" class="svx-key svx-key--main" id="sv-quick"
+                    title="Sweep the always-on bands and show the result — nothing saved">⚡ Check</button>
+            <button type="button" class="svx-key" id="sv-run"
+                    title="Sweep the ticked bands and save under the antenna name">● Record run</button>
+            <span class="svx-spacer"></span>
+            <span class="svx-status" id="sv-status" role="status" aria-live="polite"></span>
         </div>
-        <div class="cw-cb-result" id="sv-status" role="status" aria-live="polite"></div>
-    </section>
 
-    <section class="cw-setup-card" id="sv-latest-card" hidden>
-        <div class="cw-step-head"><span class="cw-step-num">📈</span><h3 id="sv-latest-title">Latest run</h3></div>
-        <p class="cw-setup-note" id="sv-latest-note" hidden>Not saved — press
-           <b>Save as a run</b> with an antenna name to keep a result for comparison.</p>
-        <div id="sv-latest"></div>
-    </section>
+        {# ── the glass: progress + latest readings ── #}
+        <section class="svx-glass" id="sv-latest-card" hidden>
+            <div class="svx-glass-head">
+                <h3 id="sv-latest-title">Latest run</h3>
+                <span class="svx-note" id="sv-latest-note" hidden>not saved</span>
+            </div>
+            <div class="svx-progress" id="sv-progress" hidden>
+                <div class="svx-bar"><i id="sv-bar-fill"></i></div>
+                <span id="sv-progress-text">starting…</span>
+            </div>
+            <div class="svx-readout" id="sv-latest"></div>
+        </section>
 
-    {% comment %}
-    The comparison matrix is the whole point: bands down the side, one column per
-    saved antenna, so a swap is read as a row of numbers rather than remembered.
-    {% endcomment %}
-    <section class="cw-setup-card" id="sv-compare-card" hidden>
-        <div class="cw-step-head"><span class="cw-step-num">⚖️</span><h3>Antenna comparison</h3></div>
-        <p class="cw-setup-note">Best signal above the noise floor, in dB. Higher is better;
-           the best figure in each row is highlighted.</p>
-        <div class="sv-scroll"><table class="sv-matrix" id="sv-matrix"></table></div>
-    </section>
+        {# ── comparison matrix; saved runs live in its column headers ── #}
+        <section class="svx-matrixwrap" id="sv-compare-card" hidden>
+            <div class="svx-glass-head">
+                <h3>Comparison</h3>
+                <span class="svx-note">best signal over the floor, dB — higher is better</span>
+            </div>
+            <div class="svx-scroll"><table class="sv-matrix" id="sv-matrix"></table></div>
+        </section>
 
-    <section class="cw-setup-card" id="sv-runs-card" hidden>
-        <div class="cw-step-head"><span class="cw-step-num">🗂</span><h3>Saved runs</h3></div>
-        <div id="sv-runs"></div>
-    </section>
+        {# ── model plate ── #}
+        <div class="svx-plate">
+            <span id="sv-device-note">Looking for an SDR…</span>
+            <span class="svx-spacer"></span>
+            <a href="{% url 'help:detail' slug='sdr-hardware' %}">hardware guide</a>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
