@@ -1,0 +1,345 @@
+/* FM Radio — the faceplate.
+ *
+ * One instrument, not a stack of admin cards: preset keys, a glass display
+ * with seven-segment digits, a tuning scale with a needle, transport keys,
+ * and the receiver's model plate along the bottom edge.
+ *
+ * Palette rules: every hue comes from the theme variables. The display window
+ * layers black-alpha "glass" over var(--accent-band-bg), so each palette tints
+ * its own LCD; black-alpha here is shading (like a box-shadow), not a surface
+ * hue. Digits glow with color-mix on var(--primary).
+ */
+
+@font-face {
+    font-family: "DSEG7";
+    src: url("fonts/DSEG7Classic-BoldItalic.woff2") format("woff2");
+    font-display: swap;
+}
+
+.fm-wrap { max-width: 940px; margin: 0 auto; padding: 8px 16px 40px; }
+
+/* ── chassis ─────────────────────────────────────────────────────────── */
+.fm-chassis {
+    background:
+        repeating-linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--body-fg) 2%, transparent) 0 1px,
+            transparent 1px 3px
+        ),
+        var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 22px;
+    padding: 22px 26px 0;
+    box-shadow:
+        inset 0 1px 0 color-mix(in srgb, var(--body-fg) 8%, transparent),
+        0 18px 40px -18px rgba(0, 0, 0, 0.55);
+}
+
+/* ── presets (favourites) ────────────────────────────────────────────── */
+.fm-presets { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+@media (max-width: 720px) { .fm-presets { grid-template-columns: repeat(3, 1fr); } }
+
+.fm-preset {
+    appearance: none;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+    padding: 10px 12px 8px;
+    background: color-mix(in srgb, var(--body-fg) 4%, var(--card-bg));
+    border: 1px solid var(--card-border);
+    border-bottom-width: 3px;               /* keycap sit */
+    border-radius: 10px;
+    color: var(--body-fg);
+    cursor: pointer;
+    text-align: left;
+    transition: 0.12s;
+    min-height: 58px;
+}
+.fm-preset:hover { border-color: var(--input-focus-border); }
+.fm-preset:active { transform: translateY(2px); border-bottom-width: 1px; }
+.fm-preset:focus-visible { outline: 2px solid var(--input-focus-border); outline-offset: 2px; }
+.fm-preset .n {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    color: var(--body-quiet-color);
+}
+.fm-preset .name {
+    font-size: 13px; font-weight: 650;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fm-preset .mhz {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px; color: var(--body-quiet-color);
+}
+.fm-preset[aria-selected="true"] {
+    background: var(--accent-band-bg);
+    border-color: var(--primary);
+    box-shadow: 0 0 14px -4px color-mix(in srgb, var(--primary) 55%, transparent);
+}
+.fm-preset[aria-selected="true"] .n,
+.fm-preset[aria-selected="true"] .mhz { color: var(--primary); }
+.fm-preset.is-empty {
+    border-style: dashed; border-bottom-width: 1px;
+    color: var(--body-quiet-color); cursor: default;
+    align-items: center; justify-content: center;
+}
+.fm-preset.is-empty:hover { border-color: var(--card-border); }
+
+/* ── the display window ──────────────────────────────────────────────── */
+.fm-display {
+    position: relative;
+    margin: 18px -4px 0;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, var(--body-fg) 14%, transparent);
+    background:
+        linear-gradient(180deg, rgba(0, 0, 0, 0.62), rgba(0, 0, 0, 0.44)),
+        var(--accent-band-bg);
+    box-shadow:
+        inset 0 2px 12px rgba(0, 0, 0, 0.6),
+        inset 0 -1px 0 color-mix(in srgb, var(--body-fg) 6%, transparent);
+    padding: 18px 24px 14px;
+    display: flex; align-items: center; gap: 24px;
+    overflow: hidden;
+}
+/* glass sheen */
+.fm-display::after {
+    content: "";
+    position: absolute; inset: 0 0 55% 0;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--body-fg) 7%, transparent), transparent);
+    pointer-events: none;
+}
+
+.fm-band {
+    align-self: flex-start;
+    font-size: 11px; font-weight: 800; letter-spacing: 0.28em;
+    color: var(--primary);
+    border: 1px solid color-mix(in srgb, var(--primary) 55%, transparent);
+    border-radius: 4px; padding: 3px 7px 2px 9px;
+}
+
+.fm-digits { position: relative; flex: 1; text-align: right; line-height: 1; }
+.fm-digits .ghost,
+.fm-digits .lit {
+    font-family: "DSEG7", ui-monospace, monospace;
+    font-size: clamp(44px, 9vw, 84px);
+    letter-spacing: 0.04em;
+}
+.fm-digits .ghost {                          /* unlit segments behind */
+    color: color-mix(in srgb, var(--primary) 11%, transparent);
+}
+.fm-digits .lit {
+    position: absolute; right: 0; top: 0;
+    color: var(--primary);
+    text-shadow:
+        0 0 6px color-mix(in srgb, var(--primary) 60%, transparent),
+        0 0 22px color-mix(in srgb, var(--primary) 30%, transparent);
+}
+.fm-unit {
+    align-self: flex-end;
+    font-size: 13px; font-weight: 700; letter-spacing: 0.18em;
+    color: color-mix(in srgb, var(--primary) 70%, var(--body-quiet-color));
+    padding-bottom: 6px;
+}
+
+/* right column of the display: lamp + meter */
+.fm-display-side {
+    align-self: stretch;
+    display: flex; flex-direction: column; justify-content: space-between;
+    align-items: flex-end; gap: 10px; padding: 2px 0;
+}
+.fm-lamp-onair {
+    font-size: 10.5px; font-weight: 800; letter-spacing: 0.14em;
+    color: color-mix(in srgb, var(--body-fg) 30%, transparent);
+    display: inline-flex; align-items: center; gap: 6px;
+    white-space: nowrap;
+}
+.fm-lamp-onair::before {
+    content: "";
+    width: 8px; height: 8px; border-radius: 50%;
+    background: color-mix(in srgb, var(--body-fg) 18%, transparent);
+}
+.fm-chassis[data-state="on"] .fm-lamp-onair { color: var(--success-fg); }
+.fm-chassis[data-state="on"] .fm-lamp-onair::before {
+    background: var(--success-fg);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--success-fg) 70%, transparent);
+    animation: fm-lamp 2.4s ease-in-out infinite;
+}
+@keyframes fm-lamp { 50% { opacity: 0.55; } }
+
+.fm-meter { display: flex; align-items: flex-end; gap: 3px; height: 26px; }
+.fm-meter i {
+    width: 5px; border-radius: 2px 2px 0 0;
+    background: color-mix(in srgb, var(--primary) 22%, transparent);
+    height: 30%;
+}
+.fm-meter i:nth-child(2) { height: 55%; }
+.fm-meter i:nth-child(3) { height: 80%; }
+.fm-meter i:nth-child(4) { height: 100%; }
+.fm-meter i:nth-child(5) { height: 65%; }
+.fm-chassis[data-state="on"] .fm-meter i {
+    background: var(--primary);
+    animation: fm-meter 1.1s ease-in-out infinite;
+}
+.fm-chassis[data-state="on"] .fm-meter i:nth-child(2) { animation-delay: 0.12s; }
+.fm-chassis[data-state="on"] .fm-meter i:nth-child(3) { animation-delay: 0.28s; }
+.fm-chassis[data-state="on"] .fm-meter i:nth-child(4) { animation-delay: 0.05s; }
+.fm-chassis[data-state="on"] .fm-meter i:nth-child(5) { animation-delay: 0.2s; }
+@keyframes fm-meter { 50% { transform: scaleY(0.45); } 100% { transform: scaleY(1); } }
+.fm-meter i { transform-origin: bottom; }
+
+/* dead receiver: dim the whole window */
+.fm-chassis[data-state="dead"] .fm-display { filter: saturate(0.25) brightness(0.8); }
+.fm-chassis[data-state="dead"] .fm-digits .lit { opacity: 0.35; text-shadow: none; }
+
+/* ── the dial ────────────────────────────────────────────────────────── */
+.fm-dial { position: relative; margin: 22px 2px 6px; }
+.fm-scale {
+    height: 34px;
+    /* minor tick each 0.5 MHz, major each 2 MHz across the 20 MHz span */
+    background:
+        repeating-linear-gradient(
+            90deg,
+            color-mix(in srgb, var(--body-fg) 45%, transparent) 0 1px,
+            transparent 1px calc(100% / 10)
+        ) top / 100% 14px no-repeat,
+        repeating-linear-gradient(
+            90deg,
+            color-mix(in srgb, var(--body-fg) 22%, transparent) 0 1px,
+            transparent 1px calc(100% / 40)
+        ) top / 100% 8px no-repeat;
+}
+.fm-scale-nums {
+    display: flex; justify-content: space-between;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px; color: var(--body-quiet-color);
+    margin-top: 2px;
+    /* first/last numbers sit on the ticks */
+    transform: translateX(0);
+}
+
+/* The needle is the range input's thumb, riding over the scale. Selectors
+ * carry the body.cw-console prefix because cw.css styles every console range
+ * input at that specificity — without it the stock pill thumb wins. */
+body.cw-console .fm-dial input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    position: absolute; top: -8px; left: 0;
+    width: 100%; height: 50px;
+    margin: 0; background: transparent;
+}
+body.cw-console .fm-dial input[type="range"]::-webkit-slider-runnable-track {
+    background: transparent; height: 50px; border: 0;
+}
+body.cw-console .fm-dial input[type="range"]::-moz-range-track {
+    background: transparent; height: 50px; border: 0;
+}
+body.cw-console .fm-dial input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 4px; height: 46px; border: 0; border-radius: 2px;
+    background: var(--primary);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--primary) 65%, transparent);
+    cursor: ew-resize;
+    margin-top: 2px;
+}
+body.cw-console .fm-dial input[type="range"]::-moz-range-thumb {
+    width: 4px; height: 46px; border: 0; border-radius: 2px;
+    background: var(--primary);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--primary) 65%, transparent);
+    cursor: ew-resize;
+}
+body.cw-console .fm-dial input[type="range"]:focus-visible {
+    outline: 2px solid var(--input-focus-border); outline-offset: 4px;
+}
+
+/* ── transport row ───────────────────────────────────────────────────── */
+.fm-transport {
+    display: flex; align-items: center; gap: 12px;
+    margin: 16px 0 18px;
+    flex-wrap: wrap;
+}
+.fm-key {
+    appearance: none;
+    min-height: 52px; min-width: 52px; padding: 0 18px;
+    border: 1px solid var(--card-border); border-bottom-width: 3px;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--body-fg) 4%, var(--card-bg));
+    color: var(--body-fg);
+    font-size: 1rem; font-weight: 650;
+    cursor: pointer; transition: 0.12s;
+}
+.fm-key:hover:not(:disabled) { border-color: var(--input-focus-border); }
+.fm-key:active:not(:disabled) { transform: translateY(2px); border-bottom-width: 1px; }
+.fm-key:focus-visible { outline: 2px solid var(--input-focus-border); outline-offset: 2px; }
+.fm-key:disabled { opacity: 0.45; cursor: not-allowed; }
+.fm-key--main {
+    background: var(--primary);
+    border-color: var(--primary);
+    border-bottom-color: color-mix(in srgb, var(--primary) 70%, black);
+    color: var(--button-fg);
+    padding: 0 30px;
+    font-size: 1.06rem;
+}
+.fm-key--main:hover:not(:disabled) { filter: brightness(1.08); }
+.fm-transport .fm-spacer { flex: 1; }
+.fm-transport .fm-status-msg {
+    font-size: 13px; color: var(--body-quiet-color); min-height: 1.2em;
+}
+.fm-transport .fm-status-msg[data-kind="error"] { color: var(--error-fg); }
+.fm-transport .fm-status-msg[data-kind="ok"] { color: var(--success-fg); }
+
+/* ── the model plate (receiver status line) ──────────────────────────── */
+.fm-plate {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    margin: 0 -26px;
+    padding: 10px 26px;
+    border-top: 1px solid var(--card-border);
+    border-radius: 0 0 22px 22px;
+    background: color-mix(in srgb, var(--body-fg) 3%, transparent);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px; letter-spacing: 0.04em;
+    color: var(--body-quiet-color);
+}
+.fm-plate .fm-lamp {
+    display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+}
+.fm-plate .fm-lamp::before {
+    content: "";
+    width: 6px; height: 6px; border-radius: 50%;
+    background: color-mix(in srgb, var(--body-fg) 22%, transparent);
+}
+.fm-plate .fm-lamp[data-ok="1"]::before { background: var(--success-fg); }
+.fm-plate .fm-lamp[data-ok="0"]::before { background: var(--error-fg); }
+.fm-plate .fm-spacer { flex: 1; }
+.fm-plate button {
+    appearance: none;
+    border: 1px solid var(--card-border); border-radius: 7px;
+    background: transparent; color: var(--body-quiet-color);
+    font: inherit; padding: 4px 12px; cursor: pointer;
+}
+.fm-plate button:hover { color: var(--body-fg); border-color: var(--input-focus-border); }
+.fm-plate button:focus-visible { outline: 2px solid var(--input-focus-border); outline-offset: 2px; }
+
+/* problems list (only shown when something's missing) */
+.fm-problems {
+    margin: 14px 0 0;
+    padding: 12px 16px;
+    border: 1px solid color-mix(in srgb, var(--error-fg) 40%, transparent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--error-fg) 7%, transparent);
+    font-size: 13.5px;
+    color: var(--body-fg);
+}
+.fm-problems ul { margin: 0; padding-left: 1.1rem; }
+.fm-problems code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+}
+
+/* power-on flicker, once per load */
+@keyframes fm-warmup {
+    0% { opacity: 0; } 8% { opacity: 0.9; } 14% { opacity: 0.3; }
+    24% { opacity: 1; } 32% { opacity: 0.7; } 100% { opacity: 1; }
+}
+.fm-display { animation: fm-warmup 0.9s ease-out 1; }
+
+@media (prefers-reduced-motion: reduce) {
+    .fm-display { animation: none; }
+    .fm-chassis[data-state="on"] .fm-lamp-onair::before,
+    .fm-chassis[data-state="on"] .fm-meter i { animation: none; }
+}

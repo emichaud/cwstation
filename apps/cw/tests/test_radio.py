@@ -183,9 +183,10 @@ class TestRadioPage:
         User.objects.create_user(username="op", password="pw")
         client.login(username="op", password="pw")
         body = client.get(reverse("cw-radio")).content.decode()
-        assert "Listen to broadcast FM" in body
-        assert 'id="fm-freq"' in body      # the JS binds these ids
-        assert 'id="fm-favs"' in body
+        # the faceplate pieces the JS binds to
+        for element_id in ("fm-chassis", "fm-freq", "fm-favs", "fm-freq-val",
+                           "fm-listen", "fm-device-note"):
+            assert f'id="{element_id}"' in body
 
     def test_anonymous_is_redirected(self, client):
         r = client.get(reverse("cw-radio"))
