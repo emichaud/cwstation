@@ -1445,9 +1445,11 @@ body.cw-login .message.error {
 }
 .cw-btn-xl { min-height: 58px; padding: 0 32px; font-size: 1.2rem; }
 .cw-btn-lg { min-height: 52px; padding: 0 24px; font-size: 1.05rem; }
-.cw-btn-xl:hover, .cw-btn-lg:hover { filter: brightness(1.08); }
-.cw-btn-xl:active, .cw-btn-lg:active { transform: translateY(1px); }
-.cw-btn-xl:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
+.cw-btn-xl:hover:not(:disabled), .cw-btn-lg:hover:not(:disabled) { filter: brightness(1.08); }
+.cw-btn-xl:active:not(:disabled), .cw-btn-lg:active:not(:disabled) { transform: translateY(1px); }
+/* -lg was missing the disabled treatment -xl already had, so a disabled button
+   (FM Radio's Listen with no receiver) still looked pressable. */
+.cw-btn-xl:disabled, .cw-btn-lg:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
 a.cw-btn-lg { display: inline-flex; align-items: center; text-decoration: none; }
 .cw-btn-danger {
     background: transparent; color: var(--error-fg); border-color: var(--error-fg);

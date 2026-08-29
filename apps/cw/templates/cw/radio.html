@@ -1,0 +1,85 @@
+{% extends "smallstack/base.html" %}
+{% load static theme_tags %}
+
+{% block title %}FM Radio{% endblock %}
+{% block breadcrumbs %}{% endblock %}
+{% block body_class %}cw-console cw-setup{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'cw/cw.css' %}">
+{% endblock %}
+
+{% block page_header %}
+<div class="page-header-bleed page-header-with-actions">
+    <div class="page-header-content">
+        <h1>FM Radio <span class="cw-live-pill" id="fm-pill" data-state="off">checking…</span></h1>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="cw-setup-wrap">
+    <header class="cw-setup-head">
+        <h2>Listen to broadcast FM</h2>
+        <p>Tune the SDR dongle across the FM band and play it through this machine's
+           speakers. Save the stations you come back to.</p>
+    </header>
+
+    {% comment %}
+    Receiver card — hardware presence. Three things can be missing independently
+    (dongle, rtl-sdr tools, sounddevice), so each gets its own line rather than
+    one vague "not available".
+    {% endcomment %}
+    <section class="cw-setup-card">
+        <div class="cw-step-head"><span class="cw-step-num">📻</span><h3>Receiver</h3></div>
+        <p class="cw-setup-note" id="fm-device-note">Looking for an SDR…</p>
+        <div class="cw-cb-result" id="fm-device-detail" hidden></div>
+        <div class="cw-cb-actions">
+            <button type="button" class="cw-btn-lg cw-btn-ghost" id="fm-rescan">Rescan</button>
+        </div>
+    </section>
+
+    <section class="cw-setup-card" id="fm-tuner-card">
+        <div class="cw-step-head"><span class="cw-step-num">🎚</span><h3>Tuner</h3></div>
+        <p class="cw-setup-note">FM broadcast only — 88 to 108 MHz. This dongle can't tune
+           below about 24 MHz, so AM broadcast and the shortwave bands are out of its reach.</p>
+
+        <div class="cw-field">
+            <label for="fm-freq">Frequency
+                <span class="cw-slider-val cw-slider-val-lg" id="fm-freq-val">100.3 MHz</span>
+            </label>
+            <div class="cw-slider-row">
+                <button type="button" class="cw-ctrl" id="fm-down" aria-label="Down 0.1 MHz">−</button>
+                <input type="range" id="fm-freq" min="88" max="108" step="0.1" value="100.3"
+                       aria-label="Frequency in MHz">
+                <button type="button" class="cw-ctrl" id="fm-up" aria-label="Up 0.1 MHz">+</button>
+            </div>
+        </div>
+
+        <div class="cw-cb-actions">
+            <button type="button" class="cw-btn-lg" id="fm-listen">▶ Listen</button>
+            <button type="button" class="cw-btn-lg cw-btn-ghost" id="fm-stop">■ Stop</button>
+            <button type="button" class="cw-btn-lg cw-btn-ghost" id="fm-save">★ Save station</button>
+        </div>
+        <div class="cw-cb-result" id="fm-status" role="status" aria-live="polite"></div>
+    </section>
+
+    <section class="cw-setup-card">
+        <div class="cw-step-head"><span class="cw-step-num">⭐</span><h3>Favourites</h3></div>
+        <p class="cw-setup-note">Click one to tune it. Saving uses whatever the tuner is set to now.</p>
+        <div class="cw-tabs" id="fm-favs"></div>
+        <p class="cw-setup-note" id="fm-favs-empty">Nothing saved yet — tune something and press
+           <b>★ Save station</b>.</p>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+window.CW_RADIO = {
+    controlUrl: "{% url 'cw-radio-control' %}",
+    stationsUrl: "{% url 'cw-radio-stations' %}"
+};
+</script>
+<script src="{% static 'cw/radio.js' %}"></script>
+{% endblock %}

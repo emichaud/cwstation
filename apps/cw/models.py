@@ -408,3 +408,35 @@ class CWSimControl(models.Model):
         self.input_gain = min(max(self.input_gain, 0.1), 10.0)
         self.squelch_db = min(max(self.squelch_db, 0.0), 12.0)
         return self
+
+
+class RadioStation(models.Model):
+    """A saved broadcast station — the FM Radio page's favourites strip.
+
+    Same shape as `CWMacro`: per-user, ordered, one name per operator. Recalling
+    one just retunes the receiver, so nothing here is validated against what's
+    actually on the air — an operator may save a frequency that's dead where
+    they are.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="radio_stations"
+    )
+    name = models.CharField(
+        max_length=32, help_text="What to call it on the strip (e.g. WXYZ, Jazz)"
+    )
+    freq_mhz = models.FloatField(help_text="Frequency in MHz (FM broadcast: 88–108)")
+    order = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["order", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "name"], name="unique_radio_station_per_user"
+            )
+        ]
+        verbose_name = "Radio Station"
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.freq_mhz:g} MHz)"

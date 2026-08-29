@@ -11,7 +11,7 @@ from django.http import HttpRequest
 from apps.smallstack.api import api_error, api_view
 
 from .consumers import live_group_name
-from .models import QSO, CWMacro, CWRig, CWSession, CWSimControl, QRZProfile
+from .models import QSO, CWMacro, CWRig, CWSession, CWSimControl, QRZProfile, RadioStation
 from .rigctl import RigctldClient, RigError
 
 MACRO_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,23}$")
@@ -715,3 +715,103 @@ def sim_control(request: HttpRequest) -> dict[str, Any] | Any:
                 setattr(control, name, value)
         control.clamped().save()
     return {name: getattr(control, name) for name in _CONTROL_FIELDS}
+
+
+def _station_dict(s: RadioStation) -> dict[str, Any]:
+    return {"id": s.pk, "name": s.name, "freq_mhz": s.freq_mhz, "order": s.order}
+
+
+@api_view(methods=["GET", "POST"], require_auth=True)
+def radio_control(request: HttpRequest) -> dict[str, Any] | Any:
+    """The FM receiver: what hardware is present, and start/stop listening.
+
+    GET  → {devices, running, freq_mhz, band, rtl_fm_present, sounddevice_present, log}
+    POST → {action: "tune", freq_mhz} | {action: "stop"}
+    """
+    from . import radiodaemon
+
+    if request.method == "GET":
+        return {
+            "devices": radiodaemon.list_devices(refresh=bool(request.GET.get("refresh"))),
+            **radiodaemon.status(),
+        }
+
+    data = request.json
+    if not isinstance(data, dict):
+        return api_error("Expected a JSON object", 400)
+    action = data.get("action")
+
+    if action == "stop":
+        return {"devices": radiodaemon.list_devices(), **radiodaemon.stop()}
+
+    if action != "tune":
+        return api_error("action must be 'tune' or 'stop'", 400)
+    try:
+        freq = float(data.get("freq_mhz"))
+    except (TypeError, ValueError):
+        return api_error("A frequency in MHz is required", 400)
+
+    # Retuning is stop-then-start: rtl_fm has no runtime tuning channel and the
+    # dongle is exclusive, so the old process must release it first.
+    if radiodaemon.status()["running"]:
+        radiodaemon.stop()
+    try:
+        state = radiodaemon.start(freq, device_index=int(data.get("device_index") or 0))
+    except radiodaemon.RadioError as e:
+        return api_error(str(e), 409)
+    return {"devices": radiodaemon.list_devices(), **state}
+
+
+@api_view(methods=["GET", "POST"], require_auth=True)
+def radio_stations(request: HttpRequest) -> dict[str, Any] | Any:
+    """The operator's saved stations (the favourites strip).
+
+    GET  → list
+    POST → create {name, freq_mhz} | update {id, name?, freq_mhz?} | delete {id, delete: true}
+    """
+    from .radiodaemon import FM_BAND_MHZ
+
+    if request.method == "GET":
+        return {
+            "stations": [_station_dict(s) for s in request.user.radio_stations.all()]
+        }
+
+    data = request.json
+    if not isinstance(data, dict):
+        return api_error("Expected a JSON object", 400)
+
+    if data.get("id") is not None:
+        station = RadioStation.objects.filter(user=request.user, pk=data["id"]).first()
+        if station is None:
+            return api_error("No such station", 404)
+        if data.get("delete"):
+            station.delete()
+            return {"deleted": True}
+    else:
+        station = RadioStation(
+            user=request.user, order=request.user.radio_stations.count()
+        )
+
+    if "name" in data:
+        name = str(data["name"]).strip()
+        if not name or len(name) > 32:
+            return api_error("Name must be 1-32 characters", 400)
+        clash = RadioStation.objects.filter(
+            user=request.user, name=name
+        ).exclude(pk=station.pk)
+        if clash.exists():
+            return api_error(f"{name} already exists", 409)
+        station.name = name
+    if "freq_mhz" in data:
+        try:
+            freq = float(data["freq_mhz"])
+        except (TypeError, ValueError):
+            return api_error("Frequency must be a number", 400)
+        low, high = FM_BAND_MHZ
+        if not low <= freq <= high:
+            return api_error(f"Frequency must be between {low:g} and {high:g} MHz", 400)
+        station.freq_mhz = freq
+    if not station.name or station.freq_mhz is None:
+        return api_error("Both name and freq_mhz are required", 400)
+    station.save()
+    return _station_dict(station)

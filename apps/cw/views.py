@@ -410,6 +410,16 @@ class LiveView(_StationCallMixin, LoginRequiredMixin, TemplateView):
     template_name = "cw/live.html"
 
 
+class RadioView(LoginRequiredMixin, TemplateView):
+    """Broadcast FM receiver — tune, listen, and recall saved stations.
+
+    Deliberately not part of the CW decode path: it drives `rtl_fm` directly and
+    plays to the server's sound device. Renders a clean empty state when there's
+    no dongle (which is always the case on a deployed instance)."""
+
+    template_name = "cw/radio.html"
+
+
 class RigSetupView(_StationCallMixin, LoginRequiredMixin, TemplateView):
     """The rig launcher — pick the serial port and rig model (the 'select the
     right modem' step), start/supervise rigctld, verify the link."""
