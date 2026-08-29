@@ -56,9 +56,12 @@ def rtl_status() -> dict[str, Any]:
     """Is the rtl-sdr toolchain installed, and is audio output available?"""
     path = shutil.which("rtl_fm")
     sounddevice_present = True
-    try:  # the optional live-audio extra; absent means no speaker output
+    try:
+        # The optional live-audio extra. ImportError = package absent;
+        # OSError = package present but PortAudio itself isn't (a headless
+        # Linux box without libportaudio2). Either way there's no speaker.
         import sounddevice  # noqa: F401
-    except ImportError:
+    except (ImportError, OSError):
         sounddevice_present = False
     return {
         "rtl_fm_present": bool(path),
@@ -116,9 +119,9 @@ def _speaker_sink() -> Iterator[Sink]:
     """Play PCM out the machine's default sound device."""
     try:
         import sounddevice as sd
-    except ImportError as e:  # pragma: no cover - dep hint
+    except (ImportError, OSError) as e:  # pragma: no cover - dep hint
         raise RadioError(
-            "Radio audio needs the 'sounddevice' package: "
+            "Radio audio needs the 'sounddevice' package and PortAudio: "
             "uv sync --extra dev --extra live"
         ) from e
     stream = sd.RawOutputStream(samplerate=AUDIO_RATE, channels=1, dtype="int16")

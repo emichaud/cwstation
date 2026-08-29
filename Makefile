@@ -79,12 +79,17 @@ superuser:
 shell:
 	uv run python manage.py shell_plus
 
+# `live` is synced alongside `dev` because extras REPLACE rather than accumulate:
+# a bare `uv sync --extra dev` uninstalls sounddevice, and the live monitor and
+# FM Radio audio then fail until someone re-syncs by hand. The suite itself
+# doesn't need it (audio paths are tested through injected fakes) — this is so
+# running the tests doesn't quietly break the dev environment afterwards.
 test:
-	uv sync --extra dev --quiet
+	uv sync --extra dev --extra live --quiet
 	uv run pytest
 
 coverage:
-	uv sync --extra dev --quiet
+	uv sync --extra dev --extra live --quiet
 	uv run pytest --cov-report=html
 	@echo ""
 	@echo "HTML report: open htmlcov/index.html"

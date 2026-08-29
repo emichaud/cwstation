@@ -75,6 +75,24 @@ class TestDeviceDiscovery:
         assert set(s) >= {"running", "freq_mhz", "band", "rtl_fm_present", "sounddevice_present"}
         assert s["band"] == {"low": 88.0, "high": 108.0}
 
+    @pytest.mark.parametrize("boom", [ImportError("no module"), OSError("PortAudio not found")])
+    def test_missing_audio_stack_is_reported_not_raised(self, monkeypatch, boom):
+        """`make test` keeps the live extra installed, so on a box without
+        PortAudio the import fails with OSError rather than ImportError. Both
+        must read as 'no speaker', not blow up the status endpoint."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *a, **kw):
+            if name == "sounddevice":
+                raise boom
+            return real_import(name, *a, **kw)
+
+        monkeypatch.delitem(__import__("sys").modules, "sounddevice", raising=False)
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        assert radiodaemon.rtl_status()["sounddevice_present"] is False
+
     def test_empty_scan_is_not_cached(self, monkeypatch):
         """A scan that fails because the dongle is momentarily busy must not
         strand the page on 'No SDR detected' until a manual rescan."""
