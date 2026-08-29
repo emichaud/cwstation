@@ -123,18 +123,27 @@ LOG_FILE = config("LOG_FILE", default="")
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "filters": {
+        # Puts request_id/trace_id on every record. Attached to handlers, not
+        # loggers, so it also sees records propagated up from child loggers.
+        "request_context": {
+            "()": "apps.smallstack.logging.RequestContextFilter",
+        },
+    },
     "formatters": {
+        # Real JSON via json.dumps — quotes, newlines and backslashes in a
+        # message are escaped, tracebacks land in an "exc" field instead of
+        # spilling raw lines after the closing brace, and extra={...} fields
+        # from call sites are preserved under "extra".
         "json": {
-            "format": (
-                '{"time": "%(asctime)s", "level": "%(levelname)s", "name": "%(name)s",'
-                ' "module": "%(module)s", "message": "%(message)s"}'
-            ),
+            "()": "apps.smallstack.logging.JSONFormatter",
         },
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": "json",
+            "filters": ["request_context"],
         },
     },
     "root": {
@@ -178,11 +187,29 @@ if LOG_FILE:
         "maxBytes": 5 * 1024 * 1024,  # 5 MB
         "backupCount": 5,
         "formatter": "json",
+        "filters": ["request_context"],
     }
     # Add file handler to all loggers
     LOGGING["root"]["handlers"].append("file")
     for logger_config in LOGGING["loggers"].values():
         logger_config["handlers"].append("file")
+
+# Database log capture — makes logs readable from inside the app when the log
+# stream isn't reachable (locked-down container, managed platform with no
+# shell). Baseline is WARNING; `manage.py log_capture start --level DEBUG
+# --minutes 15` turns it up temporarily. Settings live in smallstack.py.
+if TELEMETRY_LOG_CAPTURE_ENABLED:  # noqa: F405
+    LOGGING["handlers"]["db"] = {
+        "()": "apps.telemetry.handlers.DatabaseLogHandler",
+        "level": TELEMETRY_LOG_LEVEL,  # noqa: F405
+        "queue_size": TELEMETRY_LOG_QUEUE_SIZE,  # noqa: F405
+        "filters": ["request_context"],
+    }
+    # Every logger, because they all set propagate=False — a handler on root
+    # alone would only ever see records nothing else claimed.
+    LOGGING["root"]["handlers"].append("db")
+    for logger_config in LOGGING["loggers"].values():
+        logger_config["handlers"].append("db")
 
 # Email: SMTP in production, via Django 6.1's MAILERS. Same EMAIL_* env vars as
 # before (EMAIL_HOST/PORT/HOST_USER/HOST_PASSWORD/USE_TLS/USE_SSL/TIMEOUT) — they

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from django import forms
 from django.utils import timezone
@@ -39,22 +40,25 @@ class ScheduledJobForm(forms.ModelForm):
             "cron_expression": forms.TextInput(attrs={"placeholder": "0 6 * * *"}),
         }
 
-    def __init__(self, *args: object, **kwargs: object) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         # Native datetime-local pickers (calendar + clock) for the two datetime
         # fields, with a matching parse format so they round-trip.
         dt_fmt = "%Y-%m-%dT%H:%M"
         for name in ("run_at", "anchor_at"):
-            self.fields[name].widget = forms.DateTimeInput(
+            field = self.fields[name]
+            field.widget = forms.DateTimeInput(
                 attrs={"type": "datetime-local"}, format=dt_fmt
             )
-            self.fields[name].input_formats = [dt_fmt, "%Y-%m-%dT%H:%M:%S"]
+            # These are model DateTimeFields, so input_formats is always present.
+            if isinstance(field, forms.DateTimeField):
+                field.input_formats = [dt_fmt, "%Y-%m-%dT%H:%M:%S"]
         # Timezone: reuse the project's grouped, scrollable region select, but
         # add UTC (common for schedulers, absent from the profile list) and keep
         # whatever the instance already has selectable even if it's custom.
         tz_choices = list(TIMEZONE_CHOICES)
         tz_choices.insert(1, ("UTC", "UTC"))
-        flat = set()
+        flat: set[str] = set()
         for _label, opts in tz_choices:
             if isinstance(opts, (list, tuple)):
                 flat.update(v for v, _ in opts)
@@ -94,7 +98,7 @@ class ScheduledJobForm(forms.ModelForm):
 
     def clean(self) -> dict:
         """Run the model's cadence validation and surface it on the right field."""
-        cleaned = super().clean()
+        cleaned = super().clean() or {}
         # Build a throwaway instance to reuse the model's coherence checks.
         instance = ScheduledJob(**{k: cleaned.get(k) for k in self.Meta.fields if k in cleaned})
         try:

@@ -7,7 +7,552 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
-## [Unreleased]
+## [0.20.0] - 2026-08-16
+
+### Added
+- **`/api/logger/` — the telemetry surface a machine can drive.** The staff
+  viewer answered "an operator needs to read the logs without shell access";
+  this answers the same question for a CI job, a frontend dev panel, or an AI
+  agent. Staff-only, Bearer or session auth, advertised in the OpenAPI schema:
+
+  | Endpoint | |
+  |---|---|
+  | `GET /api/logger/` | Capability document — filters, limits, capture state |
+  | `GET /api/logger/records/` | Search, with the viewer's filters |
+  | `GET /api/logger/records/<id>/` | One record, full untruncated traceback |
+  | `GET|POST|DELETE /api/logger/capture/` | Read, open, or close a capture window |
+  | `GET /api/logger/config/` | Effective settings + live handler stats (read-only) |
+  | `GET /api/logger/loggers/` | Logger names with counts, for discovery |
+
+  Shaped for its consumer rather than copying the UI. **Unknown query parameters
+  are a 400**, not silently ignored: a human eventually notices a result set
+  looks wrong, but `?sevrity=ERROR` returning the *unfiltered* table reads to a
+  script as a successful query, and everything concluded afterwards is built on
+  it. **`?after_id=` is a cursor, not a page number** — new rows arrive at the
+  top, so page 2 of a live tail re-reads what page 1 already returned.
+  **`applied_filters` is echoed back**, so a caller can check the server
+  understood the query it thinks it sent. List responses truncate tracebacks and
+  flag `exc_truncated`; the detail endpoint serves the full text.
+
+  `POST /api/logger/capture/` requires a `note` (the CLI leaves it optional — a
+  human running a command is present and accountable in the moment, an
+  unattended caller is neither). Duration is clamped with `clamped: true`
+  reported rather than silently running for a different period than asked for.
+  `DELETE` is idempotent, so a cleanup step in a `finally` is safe. Both are
+  audited. A **read-only token can read everything here but cannot open a
+  window** — the right credential for CI.
+
+  `GET /api/logger/config/` is deliberately read-only. Persistent configuration
+  belongs in settings/env where a deploy reproduces it; an API that rewrote
+  baseline logging config would be a drift generator. The capture window is the
+  one runtime knob, and it expires.
+
+- **Five MCP tools** — `logs_search`, `logs_get`, `logs_status`,
+  `logs_capture_start`, `logs_capture_stop` — so an agent can run a whole
+  debugging session: turn capture up, reproduce, correlate an `X-Request-ID` to
+  the lines that explain it, turn capture back down. Five rather than eight
+  because every tool costs room in an agent's tool list, and "what's the state
+  of logging here" is one question: `logs_status` answers capture state,
+  effective config, and the busiest loggers together.
+
+- **`manage.py logs`** — search captured records from the shell, which
+  previously required a browser. `--level`, `--logger`, `--request-id`,
+  `--trace-id`, `--search`, `--since`/`--until`, `--after-id`, plus `--id` for
+  one record with its full traceback and `--follow` for a cursor-based tail. An
+  empty result says whether capture was simply at its baseline, which is the
+  usual cause.
+
+- **`--json` on `log_capture` and `prune_logs`.** The human output of
+  `log_capture status` printed a *Python dict repr* — single quotes, `False` not
+  `false` — so anything consuming it was screen-scraping something that was
+  never JSON.
+
+- **`apps/telemetry/queries.py`** — one implementation of the filters,
+  validation, serialization, and capture verbs, with the REST API, the MCP
+  tools, and the CLI as thin adapters over it. Two bugs fixed in this same
+  release line were one rule written twice and drifting apart; three transports
+  made that risk structural, so the shared core removes it. Tests assert the
+  three surfaces return identical results for identical queries.
+
+### Fixed
+- **Read-only API tokens could write through any hand-rolled `@api_view`
+  endpoint** (security). CRUDView-generated endpoints have always enforced the
+  read-only rule via `_check_api_permissions`, but that is only reached from the
+  generated views — the `api_view` decorator every *custom* endpoint uses never
+  called it. `apps/runbook/api.py` was unaffected only because it independently
+  re-implemented the same rule in a private helper; anything else was exempt,
+  and a new endpoint had no way to know it needed the check. Verified with a
+  synthetic endpoint: a read-only token returned 200 **and ran its side
+  effect**. Now enforced in `api_view` itself, so the rule is structural rather
+  than remembered. Login tokens (`access_level=""`) are unaffected; only tokens
+  explicitly minted read-only change behaviour, which is the point of minting
+  them.
+
+- **Django's own 4xx access-log lines carried no `request_id`.** `get_response()`
+  calls `log_response(..., request=request)` *after* the middleware chain
+  returns — i.e. after `RequestIDMiddleware`'s `finally` reset — so the
+  `Unauthorized:`/`Not Found:` line documenting a failure was invisible to a
+  search by the very ID the client was told to quote. 500s were fine, which made
+  it easy to miss. `RequestContextFilter` now falls back to `record.request.id`,
+  defensively enough that a missing or broken `request` can never take the line
+  down.
+
+- **`X-Request-ID` was not exposed to cross-origin JavaScript.** The header was
+  on the wire but absent from `Access-Control-Expose-Headers`, so `fetch()` read
+  `null` — the correlation story was unreachable from exactly the browser
+  clients it was written for. `CORS_EXPOSE_HEADERS` now lists it.
+
+- **A freshly-started process ignored an already-open capture window** until it
+  happened to log at or above the baseline level. `Logger.callHandlers` compares
+  `record.levelno` against the handler's level *before* invoking the handler, so
+  nothing inside `emit()` can run for a below-baseline record — meaning the
+  writer/poller thread that picks up capture windows never started. A worker
+  whose early lines are all INFO could sit outside an open DEBUG window
+  indefinitely. `TelemetryConfig.ready()` now starts the poller eagerly.
+  (`_ensure_worker()` also gated on `django_apps.ready`, which `Apps.populate()`
+  only sets *after* every `ready()` returns — always false at that call site.)
+
+- **The log viewer's `?logger=` filter matched sibling names.** It was a raw
+  `startswith`, so `apps.telemetry` also matched `apps.telemetry_report` — the
+  bug class the capture handler's own exclusion check had already been fixed
+  for. Both now share `logger_match.prefix_q`.
+
+- **A non-serializable `extra` value rendered with `str()` while the docs
+  promised `repr()`** — which loses exactly the type information you want when
+  reading a log. Now `repr()`, bounded to 2000 characters. An `extra` value whose
+  `__repr__()` *raises* no longer drops the whole line either: the DB handler's
+  fallback used to re-touch the poisoned value and fail again, losing the
+  message and every healthy field with it.
+
+- **`log_capture start` always claimed the duration was clamped**, because it
+  compared two independently-generated `timezone.now()` values.
+
+- **CRUDView bulk delete/update left no trace.** A 500-row bulk delete was
+  invisible in both the log viewer and the audit trail. Now one summary log line
+  per call (not one per row — that is the unbounded-growth failure mode the
+  handler's own docstring warns about) plus per-row `LogEntry` audit entries
+  written in a single `bulk_create`, because "who deleted row X" has to stay
+  answerable per row.
+
+- **`bind_trace_id()` was documented but unused**, and unreachable in the
+  viewer. Background tasks and scheduler jobs now bind a trace ID
+  automatically, and the viewer gained a `trace_id` filter. The task hook
+  subscribes to **both** identically-named signal pairs — `django_tasks.signals`
+  (sent by `django_tasks_db`'s worker) and `django.tasks.signals` (sent by
+  Django's own backends, including the `ImmediateBackend` the test settings
+  use). Subscribing to one meant trace binding silently stopped the moment
+  `TASKS["default"]["BACKEND"]` changed; it also meant the real
+  `enqueue()`-to-execution path had no test coverage, since the suite runs on
+  the namespace the hook wasn't listening to.
+
+- **`django.server` is no longer captured to the database.** The dev server's
+  per-request access log wrote one INFO record per request, so anything polling
+  the log table filled it with its own poll traffic — the viewer's five-second
+  live mode included. Measured: ten polls of the logger API produced eleven new
+  records; zero after the fix. It does not exist in production (gunicorn writes
+  its own access log), and `RequestLog` already stores the same information
+  properly, with a user and a request ID attached.
+
+The telemetry subsystem itself — the staff log viewer, database-backed capture,
+and real JSON logging — landed after v0.19.0 and ships here too. Its notes
+follow.
+
+### Added — telemetry subsystem
+- **`/smallstack/logs/` — a staff log viewer, so the whole loop works without
+  shell access.** Newest-first, one line per record, with a colour rail down the
+  left edge carrying severity: level is the attribute you scan for, and a rail
+  finds it without reading while costing no row height (a badge would have made
+  every row taller for information the rail already carries). Filters for level
+  (each showing the count you'd get), logger, time range, and a search that
+  covers tracebacks as well as messages — the exception class is what you
+  remember, and it lives in the traceback.
+
+  Rows expand in place for the full message, traceback, `extra` fields and
+  source location; tracebacks load on demand, since one can be 20 KB and fifty
+  inlined would dominate the page. A live mode polls every five seconds.
+
+  **The capture control sits in the page header**, because "nothing here, turn
+  it up" is the first move when the baseline level missed your bug. Opening a
+  window from the UI is audited via `log_action`.
+
+  **Request correlation is now round-trip**: expanding a record links to every
+  line its request produced, and `/smallstack/activity/requests/` gained a
+  `logs` link per request going the other way.
+
+  Verified across the django / orange / dark-blue / high-contrast palettes, in
+  light and dark, and down to a 420px viewport (the logger column drops, the
+  rails hold).
+
+- **`apps/telemetry` — log records are written to the database, so a deployment
+  is debuggable from inside the app.** Console and file logging both assume you
+  can reach the output; a container platform with no shell means the log is
+  written perfectly and you can't see a line of it. Records now also land in
+  `telemetry_logrecord`, browsable at `/admin/telemetry/logrecord/` and through
+  Explorer, each carrying the `request_id` that produced it — so an
+  `X-Request-ID` from a bug report pulls every line that request emitted.
+
+- **Time-boxed capture windows.** Baseline capture is WARNING so the table
+  stays small. `manage.py log_capture start --level DEBUG --minutes 15` turns it
+  up and it closes itself — nothing is left switched on because someone got
+  distracted. The window lives in the database, not one process's memory, so
+  every worker and container picks it up within a poll interval (5s), and each
+  row records who opened it and why.
+
+  Both the handler *and* the logger levels move. A record has to be created
+  before any handler is consulted, so lowering the handler alone would capture
+  nothing new — this is the usual reason "I turned on DEBUG and saw nothing".
+  `TELEMETRY_CAPTURE_LOGGERS` controls which loggers are lowered;
+  `django.db.backends` is pinned at WARNING regardless, because at DEBUG it
+  emits one line per SQL query.
+
+- **`DatabaseLogHandler`, built so logging can never break a request.** Four
+  guards, each for a specific failure mode of writing logs to the database you
+  are serving from:
+  - *recursion* — writing a row runs a query, the query logs, the record comes
+    back to the handler. A thread-local guard plus logger-hierarchy exclusion
+    breaks the cycle.
+  - *raising* — every path swallows; a failed write costs log lines, not a 500.
+  - *latency* — nothing is written on the request path; records go to a bounded
+    queue and a background thread batches them out.
+  - *load* — an incident floods ERROR lines exactly when the database can least
+    absorb them, so the queue drops on overflow and counts the drops instead of
+    blocking the caller. `log_capture status` reports them.
+
+- **`manage.py prune_logs`** — retention by age (`TELEMETRY_LOG_RETENTION_DAYS`,
+  default 7) *and* a hard row cap (`TELEMETRY_LOG_MAX_ROWS`, default 20000),
+  whichever binds first; wired into the container cron every 15 minutes. Age
+  alone wouldn't survive an incident logging a million lines in ten minutes; a
+  cap alone would keep stale rows forever on a quiet site.
+
+- **`manage.py log_capture start|stop|status`** — control surface for the
+  window, plus queue health (written / dropped / errors / worker liveness).
+
+- 51 tests in `apps/telemetry/tests/`. Two bugs they caught during development:
+  logger exclusion used a raw string prefix, which also swallowed unrelated apps
+  like `apps.telemetry_report`; and the row-cap prune cut on `pk`, copied from
+  `prune_activity` where pk order tracks timestamp order — it doesn't here,
+  because records are queued and batched, so concurrent workers interleave.
+  It now cuts on `ts`.
+
+- `TELEMETRY_LOG_CAPTURE_ENABLED=false` switches the whole subsystem off: no
+  handler, no queue, no thread, no rows.
+
+### Fixed — telemetry subsystem
+- **Production log output is now actually JSON.** The `json` formatter was a
+  `%`-style string template (`'{"message": "%(message)s"}'`) that only looked
+  like JSON. It emitted malformed lines in three routine cases, all of which
+  silently corrupted anything downstream that tried to parse them:
+
+  - **Any quote, backslash, or newline in a message** broke the line — nothing
+    escaped `%(message)s`. A single `logger.info('Ticket "42" closed')` was
+    enough.
+  - **`logger.exception()` was unparseable by construction.** Python appends the
+    traceback *after* the formatted string, so the JSON object was followed by
+    20-odd raw `Traceback` lines. The most important events were the ones a
+    collector could never read.
+  - **`extra={...}` was silently discarded.** The format string had no
+    placeholder for it, so existing structured call sites in `apps/api/threats.py`
+    and `apps/help/search.py` were logging fields that went nowhere.
+
+  Formatting now runs through `json.dumps` (`apps.smallstack.logging.JSONFormatter`):
+  messages are escaped, tracebacks land in an `exc` field (with `exc_type`
+  alongside) *inside* the object, `stack_info` lands in `stack`, and `extra`
+  fields are preserved under an `extra` key. Non-serializable values fall back to
+  `repr()` instead of taking the line down, and the formatter cannot raise — a
+  serialization failure degrades to a minimal object carrying the message.
+
+### Added — telemetry subsystem (correlation)
+- **Log lines carry the request ID that produced them.** `RequestIDMiddleware`
+  binds the request ID to a `contextvar`; a new `RequestContextFilter` on each
+  handler copies it onto every record as `request_id`. The docs already promised
+  you could correlate a user-reported `X-Request-ID` to log entries — now you
+  actually can, across both the log stream and the `RequestLog` table, with no
+  changes at any call site.
+- **`bind_trace_id()` / `reset_trace_id()`** in `apps.smallstack.logging`, for
+  stitching together work that isn't a single HTTP request — scheduled jobs,
+  webhook delivery chains, multi-step agent runs. Every log line emitted inside
+  the binding carries a shared `trace_id`.
+- **`apps/smallstack/test_logging.py`** — 33 tests pinning JSON validity
+  (quotes, backslashes, newlines, unicode, nested JSON), traceback containment,
+  `extra` preservation, context binding and reset-on-exception, and a check that
+  the `development.py` / `production.py` `LOGGING` dicts configure cleanly. The
+  test settings override `LOGGING`, so nothing else in the suite exercised them.
+
+### Changed — telemetry subsystem
+- **Production log timestamps are ISO-8601 UTC** (`2026-03-04T14:23:01.123Z`)
+  instead of local-time `%(asctime)s`, so lines from different hosts sort
+  correctly. JSON output is ASCII-escaped by default so it can never raise
+  `UnicodeEncodeError` on a stream with a non-UTF-8 encoding; parsers decode the
+  escapes back to the original text. Pass `ensure_ascii=False` to `JSONFormatter`
+  if you read raw container logs by eye.
+- **Development console lines show `request_id=…`** when emitted during a
+  request, appended at the end of the line so the left edge stays scannable.
+
+## [0.19.0] - 2026-08-16
+
+### Changed
+- **The "Connect a SmallStack" pairing panel picks events instead of asking for
+  raw JSON.** The "Events (JSON)" text field is replaced by the same
+  `EventFilterWidget` picker the endpoint form uses — checkboxes built from
+  `available_events()`, with `*` pre-checked reproducing the old `["*"]`
+  default. Both surfaces now share one picker, upgraded together:
+
+  - **Plain-English annotations** on every option (`*.created — any record is
+    created`; model patterns resolve verbose names: *"a Ticket is created"*).
+  - **A help popup** on the custom-pattern box explaining the
+    `app.model.action` grammar with examples — built on a new reusable
+    `.help-pop` component (`<details>`-based, no JS, keyboard-operable,
+    palette-correct), documented in `admin-page-styling.md`.
+  - **Progressive disclosure**: the custom-pattern box collapses to a quiet
+    "advanced" line when empty and auto-expands with a count badge whenever
+    patterns exist — expansion is round-trip safety, since patterns usually
+    arrive via REST/MCP/CLI and a UI save with the textarea absent would
+    silently strip them.
+
+  The scripted contract is unchanged: raw `events` JSON is still accepted by
+  the pairing action, and REST/MCP/CLI post `event_filter` exactly as before.
+
+### Fixed
+- **Malformed event patterns are now rejected instead of silently matching
+  nothing.** A typo is still valid JSON, so `"support ticket created"` or a
+  pasted `["*"]` sailed through every surface and produced an endpoint that
+  simply never fires, with no error anywhere. `validate_event_patterns()`
+  shape-checks patterns on the endpoint form — HTML, REST, MCP, and CLI all
+  validate through it — and in the pairing view. Well-formed patterns that
+  match nothing this instance currently emits are still accepted (they may
+  target future events); the pairing flow warns about them, staying silent on
+  instances with no concrete events where the warning would be noise. Pairing
+  with an empty selection is rejected rather than creating a link that
+  forwards nothing.
+- **The event picker's border used the undefined `--border-color` variable**,
+  falling back to a hard-coded `#333` on light themes (the v0.15.2 bug class).
+  Now `var(--card-border)`.
+
+## [0.18.0] - 2026-08-15
+
+### Changed
+- **The scheduler job edit page is redesigned as a control console.** It was a
+  1,830px single-column form with **Run now** buried at the bottom as a
+  tertiary outline button; it is now 1,040px with Run now leading the page.
+
+  An **identity strip** replaces both the generic "Edit Scheduled job" card
+  header and the read-only "What it runs" section: status dot, job name as the
+  title, task path / queue / args in the monospace ops voice, a status line,
+  and Run now as a solid-accent button top right. The body becomes two rails —
+  cadence editor left, behavior toggles + the Next-5-runs preview right — so
+  the fire-time feedback is visible *while* the cadence is edited. Collapses
+  to one column under 940px; on mobile Run now stays above the fold.
+
+  The strip also surfaces a state the old page hid: a `next_run_at` in the
+  past (stalled worker) used to display as a future-looking "next fire" — it
+  now reads **"fire overdue since <date> — is the worker running?"** in
+  warning color.
+
+  Delivered as `scheduler/crud/scheduledjob_edit.html` via the CRUDView
+  template chain — no framework changes, all cadence-builder JS and htmx
+  endpoints untouched. Theme-variable-only, verified across palettes.
+
+### Fixed
+- **"Run now" returns to the job page.** `scheduler_run_now` honors a
+  same-origin-validated `next` param (the control page posts its own path);
+  offsite values fall back to the dashboard, so it cannot become an open
+  redirect. Callers that don't pass `next` see the old behavior.
+
+## [0.17.0] - 2026-08-15
+
+### Changed
+- **The admin sidebar section is listed A–Z instead of by hand-assigned
+  `order`.** It reads: Activity, API Health, API Tokens, Backups, Dashboard,
+  Explorer, MCP, Scheduler, Search, Status, Users, Webhooks.
+
+  That section is a tool drawer — a dozen unrelated utilities contributed by
+  whichever apps are installed, with no workflow sequence to preserve. It was
+  hand-numbered across twelve `apps.py` files, so every new app had to pick a
+  number, the numbers collided (`Status` and `Explorer` both sat at `20`, making
+  their relative position a function of `INSTALLED_APPS` ordering rather than
+  intent), and the list drifted out of alphabetical whenever anything was added
+  or relabelled. Sorting in the registry keeps it A–Z permanently, including for
+  apps a downstream project adds — which renumbering upstream could never fix.
+
+  Sorting is case-insensitive, so "API Health" files next to "Activity" rather
+  than ahead of every lowercase label.
+
+  **`order` is now inert for the admin section** (documented on `register()`).
+  A downstream project that deliberately ordered its own admin nav items will
+  see them alphabetised instead. Existing `order=` values are harmless and were
+  left in place. Every other section still honours `order` exactly as before.
+
+  **"Admin Panel" is unaffected** — it isn't a registry item, but a hardcoded
+  link at the end of `sidebar.html` out to Django's own admin, so it stays
+  pinned last rather than filing under A.
+
+## [0.16.2] - 2026-08-15
+
+### Fixed
+- **Empty states rendered raw template source into the page.** Django's
+  tokenizer matches tags with `{%.*?%}` and **no `DOTALL`**, so a `{% %}` tag
+  split across lines is never parsed — it is emitted as literal text. Four
+  empty-state includes were wrapped for readability and shipped that way, so a
+  visitor saw:
+
+  ```
+  {% include "smallstack/includes/empty_state.html" with
+     no_card=True
+     title="No matches"
+     body="No "|add:object_verbose_name_plural|add:" matched your search…" %}
+  ```
+
+  This hit **every CRUDView on the default templates whenever its list was
+  empty** — a no-match search or a fresh install with nothing added yet — on
+  both the plain page load and the HTMX toolbar swap, plus the dashboard
+  "no widgets available" state and the MCP tools admin.
+
+  The pattern spread because `empty_state.html`'s own usage example was written
+  wrapped and every caller copied it; that example is now a single line carrying
+  an explicit warning. A whole-tree sweep test now fails the build on any
+  multi-line tag — the defect is invisible in review, since the template reads
+  perfectly well.
+- **A missing `object_verbose_name_plural` raised instead of degrading.** With
+  the tag parsing again, `body="No "|add:object_verbose_name_plural` makes that
+  variable a filter *argument*, and an unresolved filter argument raises
+  `VariableDoesNotExist` rather than rendering empty the way `{{ missing }}`
+  does. `_CRUDContextMixin` always supplies it, but this partial is also
+  included by hand-written list templates (`usermanager` does, and downstream
+  projects do) — it now resolves through `{% with %}` with a default noun.
+
+### Added
+- **The related-tab partial is overridable like every other CRUD surface.**
+  `_CRUDRelatedTabBase` hardcoded its template while every sibling — including
+  `_CRUDFieldPreviewBase` directly above it — resolves through
+  `_get_template_names(suffix)`, so it was the one CRUD surface a project could
+  not override per model or per app. It now offers the same instance → app →
+  default chain. The shipped partial lives at
+  `crud/includes/related_tab_content.html`, which doesn't fit the
+  `crud/object_{suffix}` default convention, so that path is appended as the
+  final fallback — the loader takes the first template that exists, so behavior
+  is unchanged when no override is present.
+
+## [0.16.1] - 2026-08-14
+
+### Fixed
+- **`CalendarDisplay` compared `DateTimeField`s against naive month boundaries.**
+  Filtering used plain `date` bounds, so under `USE_TZ` Django built a naive
+  midnight, emitted "received a naive datetime while time zone support is
+  active", then coerced it with the **default** timezone — while the bucketing
+  side used `localtime()`, the **current** one. Two halves of the same display
+  deciding "is this in the month?" through different clocks. Boundaries are now
+  coerced to the type each field expects (aware midnight for datetimes, the
+  plain date for `DateField`s), resolved independently for the start and end
+  fields.
+
+  **No events move.** Verified against rows straddling both month edges,
+  including exact midnights: old and new code select identically. The two
+  timezones coincide because nothing activates a per-request timezone (the
+  profile timezone is applied by a template filter), so the drift this prevents
+  is latent — it would only appear if timezone-activating middleware were added.
+  Removes 24 warnings from the test suite.
+- **`api_doctor` detected opt-ins by regex while `mcp_doctor` used AST.** The
+  line-anchored regex matched `enable_api = True` on any line with only
+  whitespace before it — i.e. exactly how a code example is indented inside a
+  docstring, which is how this codebase documents its own flags (8 in-scope
+  modules already mention `enable_api` in prose). Nothing was misreported: of
+  two regex/AST disagreements repo-wide, both sat outside the scan's scope. That
+  was the problem — the check was correct only because a directory exclusion
+  happened to cover the one offending file.
+
+  Both doctors now share `has_enable_classvar(source, marker)` in
+  `apps/smallstack/autodiscover.py`, so they agree on what an opt-in is. With
+  AST the `management/` exclusion is unnecessary, so `api_doctor` scans that
+  directory again — closing the opposite gap, where a genuine opt-in defined in
+  a management command was invisible to it but visible to `mcp_doctor`.
+
+## [0.16.0] - 2026-08-14
+
+### Changed
+- **`CalendarDisplay` caps events rendered per day (`max_per_day`, default 5).**
+  The calendar rendered one chip — plus a hover-tooltip subtree — for every
+  record in the visible month, so a high-volume site produced tens of thousands
+  of DOM nodes and a calendar that took seconds to paint, or never usefully did.
+  Cells now render at most 5 events followed by a **"+N more"** link that
+  expands that single day in full (`?day=YYYY-MM-DD`). Overflow events are
+  counted, not materialised.
+
+  The point isn't the constant factor — it's that rendered chips are now bounded
+  by `max_per_day × days_in_month` **regardless of record count**. Measured on
+  200 seeded records: 201 chips / 171 KB before, 26 chips / 73 KB after.
+
+  Capping is a *rendering* limit only: the header total and every "+N more"
+  badge still report exact counts. **This changes what existing calendars
+  display** — pass `max_per_day=None` to restore the previous behavior.
+
+### Fixed
+- **Related tabs 500'd when the related view had no DETAIL action.**
+  `_CRUDRelatedTabBase` hardcoded `crud_actions = [Action.DETAIL]`, so
+  `{% crud_table %}` reversed `<url_base>-detail` for a view that never
+  generates that route (`get_urls` only registers it when `actions` include
+  DETAIL). Because related tabs load lazily over HTMX, the NoReverseMatch
+  surfaced as a tab with a count badge and an empty body rather than a visible
+  error. The tab now forwards what the related view actually routes — DETAIL,
+  else UPDATE, else unlinked — matching `crud_table`'s documented fallback.
+  DELETE is never forwarded, and exactly one action is passed so a tab whose
+  target routes both doesn't grow an Edit column it never had.
+- **Related tabs rendered child rows through the parent's hooks.**
+  `crud_config` stayed the parent CRUDView's, and `{% crud_table %}` reads
+  `row_link_url()`, `row_actions()` and `column_widths` off it — so a parent
+  that redirects its row links silently pointed a child row at an unrelated
+  record that happened to share its pk. Fails silently, so worth re-checking any
+  related tab under a CRUDView that overrides those hooks.
+- **`api_doctor` / `mcp_doctor` reported test fixtures as unregistered opt-ins.**
+  Both excluded test code by directory (`tests/`), missing the flat `test_*.py`
+  convention `apps/smallstack` uses — so `smallstack/test_bulk_ops.py` was
+  flagged as an orphan on every run and on the `/smallstack/api/` and
+  `/smallstack/mcp/` pages. A CRUDView declared in a test is meant to stay out
+  of the registry; the advertised fix (importing it from `AppConfig.ready()`)
+  would have published a test view as a live REST endpoint and MCP tool. The
+  shared `is_test_module()` helper now lives in
+  `apps/smallstack/autodiscover.py` and covers both layouts.
+
+## [0.15.2] - 2026-08-12
+
+### Fixed
+- **Invisible "Copy" button on the token-reveal page (gold + high contrast).**
+  The button set a background but no `color`, so it inherited `--button-fg` —
+  the foreground meant to pair with a *solid* `--primary` fill. On the only two
+  palettes with a dark `--button-fg` (gold `#1a1a1a`, high-contrast `#000000`)
+  that painted dark text on a dark card and the label disappeared. It now uses
+  the existing `.btn-outline` class.
+- **Unreadable MCP consent page (`/mcp/oauth/authorize`) on dark themes.** The
+  template referenced `--border`, `--muted-fg` and `--code-bg`, none of which
+  were defined anywhere, so each always resolved to its hard-coded *light*
+  fallback: gray borders on dark cards, and `#f4f4f4` chips whose inherited text
+  was also light. That made the client id and the **redirect host** — the one
+  field a user must read before granting access — invisible. Its Allow button
+  also hard-coded `color: #fff` over `var(--primary)`, i.e. white-on-white on
+  the high-contrast palette.
+- **Links ignored the selected palette in light mode.** Every dark palette block
+  set `--link-fg`, but the gold / orange / purple / dark-blue *light* blocks set
+  only `--link-color`. SmallStack's own CSS reads `--link-color`, while Django
+  admin's `a:link, a:visited` rule reads `--link-fg` — so every plain anchor
+  stayed on admin's `#417893` teal. All light blocks now set both.
+- **The default `django` palette had no light block at all**, so light mode fell
+  through to Django admin's colors (`--primary: #79aec8`) instead of
+  SmallStack's. `admin/css/base.css` declares its variables under
+  `html[data-theme="light"], :root`; that first branch scores (0,1,1) and the
+  theme JS always writes an explicit `data-theme`, so it outranks theme.css's
+  plain `:root` (0,1,0) no matter which file loads last. Adds a django light
+  block built on emerald-700 `#047857` (5.5:1 on white — the dark palette's
+  `#10b981` is only 2.5:1 and unusable for accent text).
+
+### Added
+- **`--border`, `--muted-fg` and `--code-bg`** are now defined in `theme.css`.
+  They were referenced by templates but declared nowhere, which is what let the
+  bugs above degrade silently. Defined as derived aliases (`var(--card-border)`,
+  `var(--text-muted)`, and a `color-mix` recipe) so they track the active theme
+  and palette with no per-palette overrides. Prefer the specific token in new
+  code.
+- **`apps/smallstack/test_palette_css.py`** — parses `palettes.css` against
+  `UserProfile.COLOR_PALETTE_CHOICES` and fails if any palette is missing a
+  light or dark block, or omits `--link-fg` / `--link-color`.
 
 ## [0.15.1] - 2026-08-09
 
@@ -603,6 +1148,13 @@ See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full 
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
 [Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.15.1...HEAD
+[0.19.0]: https://github.com/emichaud/django-smallstack/compare/v0.18.0...v0.19.0
+[0.18.0]: https://github.com/emichaud/django-smallstack/compare/v0.17.0...v0.18.0
+[0.17.0]: https://github.com/emichaud/django-smallstack/compare/v0.16.2...v0.17.0
+[0.16.2]: https://github.com/emichaud/django-smallstack/compare/v0.16.1...v0.16.2
+[0.16.1]: https://github.com/emichaud/django-smallstack/compare/v0.16.0...v0.16.1
+[0.16.0]: https://github.com/emichaud/django-smallstack/compare/v0.15.2...v0.16.0
+[0.15.2]: https://github.com/emichaud/django-smallstack/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/emichaud/django-smallstack/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/emichaud/django-smallstack/compare/v0.14.3...v0.15.0
 [0.14.3]: https://github.com/emichaud/django-smallstack/compare/v0.14.2...v0.14.3

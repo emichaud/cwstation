@@ -63,31 +63,47 @@ class StatusDashboardWidget(DashboardWidget):
         }
 
 
-HeartbeatAdmin.explorer_list_fields = ("monitor_key", "timestamp", "status")
-HeartbeatAdmin.explorer_column_widths = {"monitor_key": "20%", "timestamp": "45%", "status": "35%"}
-HeartbeatAdmin.explorer_dashboard_widgets = [StatusDashboardWidget()]
+setattr(HeartbeatAdmin, "explorer_list_fields", ("monitor_key", "timestamp", "status"))
+setattr(
+    HeartbeatAdmin,
+    "explorer_column_widths",
+    {"monitor_key": "20%", "timestamp": "45%", "status": "35%"},
+)
+setattr(HeartbeatAdmin, "explorer_dashboard_widgets", [StatusDashboardWidget()])
 
 # NB: HeartbeatEpoch + MaintenanceWindow are editable via the explorer, and the
 # explorer derives the edit form from explorer_list_fields — so monitor_key is
 # left out of these lists (it would become a required form field). The Django
 # admin list_filter (admin.py) covers per-monitor filtering for them instead.
-HeartbeatEpochAdmin.explorer_list_fields = ("started_at", "service_target", "service_minimum")
-HeartbeatEpochAdmin.explorer_column_widths = {
-    "started_at": "30%",
-    "service_target": "35%",
-    "service_minimum": "35%",
-}
+setattr(HeartbeatEpochAdmin, "explorer_list_fields", ("started_at", "service_target", "service_minimum"))
+setattr(
+    HeartbeatEpochAdmin,
+    "explorer_column_widths",
+    {
+        "started_at": "30%",
+        "service_target": "35%",
+        "service_minimum": "35%",
+    },
+)
 
-MaintenanceWindowAdmin.explorer_list_fields = ("title", "start", "end")
-MaintenanceWindowAdmin.explorer_column_widths = {
-    "title": "34%",
-    "start": "33%",
-    "end": "33%",
-}
-MaintenanceWindowAdmin.explorer_displays = [
-    TableDisplay,
-    CalendarDisplay(date_field="start", end_field="end", title_field="title"),
-]
+setattr(MaintenanceWindowAdmin, "explorer_list_fields", ("title", "start", "end"))
+setattr(
+    MaintenanceWindowAdmin,
+    "explorer_column_widths",
+    {
+        "title": "34%",
+        "start": "33%",
+        "end": "33%",
+    },
+)
+setattr(
+    MaintenanceWindowAdmin,
+    "explorer_displays",
+    [
+        TableDisplay,
+        CalendarDisplay(date_field="start", end_field="end", title_field="title"),
+    ],
+)
 
 explorer.register(Heartbeat, HeartbeatAdmin, group="Monitoring")
 explorer.register(HeartbeatEpoch, HeartbeatEpochAdmin, group="Monitoring")

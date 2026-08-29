@@ -382,6 +382,34 @@ For status indicators, tags, and labels:
 | `.badge-error` | Red |
 | `.badge-info` | Primary/blue |
 
+## Help Popup
+
+A small "?" beside a label that opens an explainer panel. `<details>`-based —
+no JavaScript, keyboard-operable out of the box (the summary is focusable,
+Enter/Space toggles), palette-correct. Use it where a form control needs more
+explanation than a `help_text` line carries (grammar, examples), not for a
+sentence that fits inline. First shipped on the webhooks event-filter picker.
+
+```django
+<details class="help-pop">
+  <summary aria-label="Help: what event patterns look like">?</summary>
+  <div class="help-pop-panel">
+    <p>Patterns match the full event name — <code>app.model.action</code>.</p>
+    <div class="help-pop-examples">
+      <div><code>support.ticket.*</code><span>every Ticket event</span></div>
+      <div><code>*.deleted</code><span>any record is deleted</span></div>
+    </div>
+  </div>
+</details>
+```
+
+- Always give the `<summary>` an `aria-label` — the visible "?" is not a name.
+- `.help-pop-panel` is absolutely positioned below the trigger (`z-index: 30`,
+  `width: min(330px, 80vw)`); place the component at the END of a label row so
+  the panel opens over content, not off-screen.
+- `.help-pop-examples` renders `<code>` + `<span>` pairs as an aligned
+  pattern/description list.
+
 ## Forms
 
 All forms use the `.crud-form` class. This handles input styling, labels, error states, and layout.

@@ -45,9 +45,7 @@ class UserProfileAdmin(admin.ModelAdmin):
         ),
     )
 
+    @admin.display(description="Username", ordering="user__username")
     def get_username(self, obj):
         """Display the username from the related User."""
         return obj.user.username
-
-    get_username.short_description = "Username"
-    get_username.admin_order_field = "user__username"

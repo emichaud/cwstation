@@ -10,6 +10,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from django.views.generic import TemplateView
@@ -288,7 +289,7 @@ def _run_timeline(*, hours: int) -> list[dict]:
     """
     now = timezone.now()
     start = now - timedelta(hours=hours)
-    buckets = {}
+    buckets: dict[datetime, dict[str, int]] = {}
     rows = (
         ScheduledJobRun.objects.filter(created_at__gte=start)
         .values_list("created_at", "status")
@@ -333,7 +334,7 @@ def scheduler_stat_detail(request: HttpRequest, stat_type: str) -> HttpResponse:
 
     if stat_type in {"failed", "skipped"}:
         status = ScheduledJobRun.Status.FAILED if stat_type == "failed" else ScheduledJobRun.Status.SKIPPED
-        qs = (
+        run_qs = (
             ScheduledJobRun.objects.select_related("job")
             .filter(status=status, created_at__gte=now - timedelta(hours=24))
             .order_by("-created_at")
@@ -344,7 +345,7 @@ def scheduler_stat_detail(request: HttpRequest, stat_type: str) -> HttpResponse:
                 href=reverse("scheduler/jobs-update", args=[r.job_id]),
                 meta=r.message or f"{r.created_at:%H:%M}",
             )
-            for r in qs
+            for r in run_qs
         ]
         return render_stat_list(rows, empty=f"No {stat_type} runs in the last 24h.")
 
@@ -370,7 +371,12 @@ def scheduler_stat_detail(request: HttpRequest, stat_type: str) -> HttpResponse:
 
 @require_POST
 def run_now(request: HttpRequest, pk: int) -> HttpResponse:
-    """Enqueue a job immediately, off-schedule (staff-only)."""
+    """Enqueue a job immediately, off-schedule (staff-only).
+
+    Honors a ``next`` form param so callers return where the operator was
+    (the job's control page posts it); same-origin-validated to keep this
+    from becoming an open redirect. Falls back to the dashboard.
+    """
     if not (request.user.is_authenticated and request.user.is_staff):
         return HttpResponse(status=403)
     job = get_object_or_404(ScheduledJob, pk=pk)
@@ -379,6 +385,11 @@ def run_now(request: HttpRequest, pk: int) -> HttpResponse:
         messages.success(request, f"“{job.name}” enqueued.")
     except Exception as exc:  # noqa: BLE001 — surface the failure to the operator
         messages.error(request, f"Could not enqueue “{job.name}”: {exc}")
+    next_url = request.POST.get("next", "")
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return redirect(next_url)
     return redirect("scheduler_dashboard")
 
 

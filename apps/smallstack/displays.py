@@ -17,9 +17,14 @@ Dashboard widgets (rendered on /smallstack/):
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from django.http import HttpRequest
+
+# A display "field" reference resolved by _resolve_field(): a field/dotted-path
+# name, or a callable(obj) computing the value. None means "unset".
+FieldRef = str | Callable[[Any], Any] | None
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -288,7 +293,7 @@ def _resolve_field(obj: Any, path: Any) -> Any:
     return value
 
 
-def _resolve_image_url(obj: Any, path: str) -> str | None:
+def _resolve_image_url(obj: Any, path: FieldRef) -> str | None:
     """Resolve an ImageField-style reference to its .url (or None)."""
     image = _resolve_field(obj, path)
     if not image:
@@ -441,10 +446,10 @@ class AvatarCardDisplay(CardDisplay):
 
     def __init__(
         self,
-        title_field: str | None = None,
-        subtitle_field: str | None = None,
-        image_field: str | None = None,
-        pill_field: str | None = None,
+        title_field: FieldRef = None,
+        subtitle_field: FieldRef = None,
+        image_field: FieldRef = None,
+        pill_field: FieldRef = None,
         pill_label: str | None = None,
         show_avatar: bool | None = None,
     ) -> None:
@@ -502,10 +507,21 @@ class CalendarDisplay(ListDisplay):
 
     URL navigation:
         ?display=calendar&month=YYYY-MM
+        ?display=calendar&month=YYYY-MM&day=YYYY-MM-DD   # one day, expanded
 
     The display filters the queryset to the visible month, so very large
     datasets don't blow up. Bulk-select is disabled (doesn't fit the
     calendar cell layout).
+
+    Volume guard — `max_per_day` (default 5):
+        A busy month used to render every record as its own chip, each with a
+        hover-tooltip subtree. A few thousand records meant tens of thousands of
+        DOM nodes and a page that took seconds to paint (or never usefully did).
+        Each cell now renders at most `max_per_day` chips followed by a
+        "+N more" link that drills into a single-day panel listing that day in
+        full. Counts stay exact — only the rendering is capped.
+
+        Pass `max_per_day=None` to render every event (the old behavior).
     """
 
     name = "calendar"
@@ -523,10 +539,12 @@ class CalendarDisplay(ListDisplay):
         self,
         date_field: str,
         end_field: str | None = None,
-        title_field: str | None = None,
-        status_field: str | None = None,
+        title_field: FieldRef = None,
+        status_field: FieldRef = None,
         variant: str = "chip",
         month_param: str = "month",
+        max_per_day: int | None = 5,
+        day_param: str = "day",
     ) -> None:
         self.date_field = date_field
         self.end_field = end_field
@@ -534,6 +552,8 @@ class CalendarDisplay(ListDisplay):
         self.status_field = status_field
         self.variant = variant
         self.month_param = month_param
+        self.max_per_day = max_per_day
+        self.day_param = day_param
 
     def get_context(self, queryset: Any, crud_config: Any, request: HttpRequest) -> dict[str, Any]:
         import calendar as pycal
@@ -559,21 +579,50 @@ class CalendarDisplay(ListDisplay):
         month_end = cursor.replace(day=last_day)
         next_day_after = month_end + timedelta(days=1)
 
-        # Filter queryset to events overlapping the visible month
+        # Filter queryset to events overlapping the visible month.
+        #
+        # Boundaries are coerced to the bound type each field expects — an aware
+        # midnight for DateTimeFields, the plain date for DateFields — so a
+        # DateTimeField is never compared against a naive datetime (see
+        # _day_boundary). The two fields are resolved independently: a model may
+        # pair a DateTimeField start with a DateField end.
+        model = queryset.model
+        start_is_dt = _is_datetime_field(model, self.date_field)
+        upper_bound = _day_boundary(next_day_after, start_is_dt)
         if self.end_field:
+            end_is_dt = _is_datetime_field(model, self.end_field)
             filtered = queryset.filter(
-                **{f"{self.date_field}__lt": next_day_after},
-                **{f"{self.end_field}__gte": month_start},
+                **{f"{self.date_field}__lt": upper_bound},
+                **{f"{self.end_field}__gte": _day_boundary(month_start, end_is_dt)},
             )
         else:
             filtered = queryset.filter(
-                **{f"{self.date_field}__gte": month_start},
-                **{f"{self.date_field}__lt": next_day_after},
+                **{f"{self.date_field}__gte": _day_boundary(month_start, start_is_dt)},
+                **{f"{self.date_field}__lt": upper_bound},
             )
 
-        # Bucket events onto each day they touch
+        # The expanded single day (?day=YYYY-MM-DD), if it falls in this month.
+        selected_day = None
+        day_str = request.GET.get(self.day_param, "")
+        if day_str:
+            try:
+                sel_year, sel_month, sel_dom = (int(x) for x in day_str.split("-"))
+                candidate = date_cls(sel_year, sel_month, sel_dom)
+            except (ValueError, TypeError):
+                candidate = None
+            if candidate and month_start <= candidate <= month_end:
+                selected_day = candidate
+
+        # Bucket events onto each day they touch.
+        #
+        # Cells hold at most `max_per_day` events; the rest are counted, not
+        # materialised, so a pathological month costs a counter instead of
+        # thousands of chip+tooltip subtrees. The expanded day (if any) keeps an
+        # uncapped list, which is what the "+N more" drill-down renders.
         has_detail = Action.DETAIL in crud_config.actions
-        events_by_day = {}
+        events_by_day: dict[Any, list[dict[str, Any]]] = {}
+        overflow_by_day: dict[Any, int] = {}
+        selected_day_events: list[dict[str, Any]] = []
         for obj in filtered:
             start = _to_local_date(_resolve_field(obj, self.date_field))
             end = (
@@ -610,21 +659,31 @@ class CalendarDisplay(ListDisplay):
             day = max(start, month_start)
             last = min(end, month_end)
             while day <= last:
-                events_by_day.setdefault(day, []).append(event)
+                bucket = events_by_day.setdefault(day, [])
+                if self.max_per_day is None or len(bucket) < self.max_per_day:
+                    bucket.append(event)
+                else:
+                    overflow_by_day[day] = overflow_by_day.get(day, 0) + 1
+                if day == selected_day:
+                    selected_day_events.append(event)
                 day += timedelta(days=1)
 
         # Build Monday-start 7-column week grid
         first_weekday = month_start.weekday()  # 0 = Monday
         weeks = []
-        current_week = [None] * first_weekday
+        current_week: list[Any] = [None] * first_weekday
         for day_num in range(1, last_day + 1):
             d = month_start.replace(day=day_num)
             current_week.append(
                 {
                     "day": day_num,
                     "date": d,
+                    "date_iso": d.isoformat(),
                     "is_today": d == today,
+                    "is_selected": d == selected_day,
                     "events": events_by_day.get(d, []),
+                    "overflow_count": overflow_by_day.get(d, 0),
+                    "total_count": len(events_by_day.get(d, [])) + overflow_by_day.get(d, 0),
                 }
             )
             if len(current_week) == 7:
@@ -648,9 +707,69 @@ class CalendarDisplay(ListDisplay):
             "today_month": f"{today.year}-{today.month:02d}",
             "is_current_month": month_start.year == today.year and month_start.month == today.month,
             "month_param": self.month_param,
-            "event_count": sum(len(v) for v in events_by_day.values()),
+            # Exact totals — the per-day render cap must never distort the count.
+            "event_count": sum(len(v) for v in events_by_day.values())
+            + sum(overflow_by_day.values()),
             "variant": self.variant,
+            "max_per_day": self.max_per_day,
+            "day_param": self.day_param,
+            "selected_day": selected_day,
+            "selected_day_iso": selected_day.isoformat() if selected_day else "",
+            "selected_day_label": selected_day.strftime("%A, %B %-d") if selected_day else "",
+            "selected_day_events": selected_day_events,
         }
+
+
+def _is_datetime_field(model: Any, path: str) -> bool:
+    """True if ``path`` (an ORM lookup, possibly spanning relations) ends at a
+    DateTimeField. Unresolvable paths return False, which keeps the caller on
+    its previous behavior rather than guessing."""
+    from django.core.exceptions import FieldDoesNotExist
+    from django.db import models as dj_models
+
+    field = None
+    for part in path.split("__"):
+        try:
+            field = model._meta.get_field(part)
+        except (FieldDoesNotExist, AttributeError):
+            return False
+        if field.is_relation and field.related_model is not None:
+            model = field.related_model
+    # DateTimeField subclasses DateField, so test the narrower type.
+    return isinstance(field, dj_models.DateTimeField)
+
+
+def _day_boundary(day: Any, is_datetime: bool) -> Any:
+    """Coerce a calendar day into the bound type its field expects.
+
+    A DateTimeField compared against a plain ``date`` makes Django build a NAIVE
+    datetime at midnight, which under ``USE_TZ`` emits "received a naive
+    datetime while time zone support is active" and is then silently coerced
+    using the *default* timezone. The bucketing side uses ``localtime()`` — the
+    *current* timezone — so the two halves of this display were reasoning about
+    boundaries through different clocks. They coincide today (nothing activates
+    a per-request timezone; the profile's timezone is applied by a template
+    filter), so this removes the warning without moving any event. It also keeps
+    filtering aligned with display if a timezone-activating middleware is ever
+    added.
+
+    DateFields are left as dates — that comparison is already exact.
+    """
+    if not is_datetime:
+        return day
+
+    from datetime import datetime, time
+
+    from django.conf import settings
+    from django.utils import timezone
+
+    naive = datetime.combine(day, time.min)
+    if not getattr(settings, "USE_TZ", False):
+        return naive
+    try:
+        return timezone.make_aware(naive, timezone.get_current_timezone())
+    except Exception:  # pragma: no cover — imaginary local midnight (DST edge)
+        return day
 
 
 def _to_local_date(value: Any) -> Any:

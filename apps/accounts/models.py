@@ -3,6 +3,7 @@ Custom User model for authentication.
 """
 
 from datetime import timedelta
+from typing import cast
 
 from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
@@ -21,7 +22,7 @@ class UserManager(BaseUserManager):
             raise ValueError("The username must be set")
 
         email = self.normalize_email(email) if email else None
-        user = self.model(username=username, email=email, **extra_fields)
+        user = cast("User", self.model(username=username, email=email, **extra_fields))
         user.set_password(password)
         user.save(using=self._db)
         return user
@@ -109,7 +110,7 @@ class LoginCode(models.Model):
 
         from .emails import generate_numeric_code
 
-        ttl = ttl_seconds or getattr(settings, "SMALLSTACK_LOGIN_CODE_TTL", 600)
+        ttl = cast("int", ttl_seconds or getattr(settings, "SMALLSTACK_LOGIN_CODE_TTL", 600))
         code = generate_numeric_code(length)
         obj = cls.objects.create(
             user=user,

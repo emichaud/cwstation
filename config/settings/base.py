@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     "apps.help",
     "apps.tasks",
     "apps.activity",
+    "apps.telemetry",  # Telemetry: DB-backed log capture + time-boxed capture windows
     "apps.heartbeat",
     "apps.usermanager",
     "apps.website",  # Project-specific pages (customize freely)
@@ -259,6 +260,17 @@ CORS_ALLOW_HEADERS = [
     "origin",
     "x-requested-with",
 ]
+# Response headers a cross-origin JS client is allowed to *read* (a different
+# list from CORS_ALLOW_HEADERS above, which is what the browser may *send*).
+# Per the Fetch spec, only the CORS-safelisted response headers (Cache-Control,
+# Content-Language, Content-Type, Expires, Last-Modified, Pragma) are visible
+# to response.headers.get(...) across origins unless explicitly listed here.
+# X-Request-ID (RequestIDMiddleware) is the one custom header SmallStack sets
+# on every response and the one a frontend legitimately needs to read — e.g.
+# to surface "your request ID for support" in its own error UI. There are no
+# pagination headers to add here: paginated endpoints put page/count metadata
+# in the JSON body, not in response headers.
+CORS_EXPOSE_HEADERS = ["X-Request-ID"]
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

@@ -563,7 +563,7 @@ def _build_maintenance_calendar(
         weeks: list[list] = []
         count = 0
         for week in cal.monthdatescalendar(yy, mm):
-            cells = []
+            cells: list[Any] = []
             for d in week:
                 if d.month != mm:
                     cells.append(None)
@@ -757,7 +757,7 @@ def _build_calendar_months(
         weeks: list[list] = []
         month_upts: list[float] = []
         for week in cal.monthdatescalendar(yy, mm):
-            cells = []
+            cells: list[Any] = []
             for d in week:
                 if d.month != mm:
                     cells.append(None)

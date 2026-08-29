@@ -10,7 +10,7 @@ target the caller can't view returns 404 (existence is never leaked).
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Optional
+from typing import Any, Callable, Optional, Union
 
 from django.db.models import Count, Q
 from django.http import HttpRequest, JsonResponse
@@ -19,6 +19,10 @@ from apps.smallstack.api import api_error, api_view
 
 from . import permissions, service
 from .models import Document
+
+# Handlers return a dict (auto-wrapped into JsonResponse by ``api_view``) or an
+# already-built response (e.g. ``api_error(...)``).
+ApiResult = Union[JsonResponse, dict[str, Any]]
 
 
 def _json_safe(value: Any) -> Any:
@@ -60,7 +64,7 @@ def _require_write(request: HttpRequest) -> Optional[JsonResponse]:
 
 
 @api_view(methods=["GET"])
-def api_list_documents(request: HttpRequest) -> JsonResponse:
+def api_list_documents(request: HttpRequest) -> ApiResult:
     """GET api/documents/?runbook=&source=&q=&limit=
 
     ``q`` is BM25-ranked full-text (via the shared search engine); results come
@@ -94,7 +98,7 @@ def _result_summary(summary: service.DocumentSummary) -> dict[str, Any]:
 
 
 @api_view(methods=["GET"])
-def api_document_by_uid(request: HttpRequest, uid: str) -> JsonResponse:
+def api_document_by_uid(request: HttpRequest, uid: str) -> ApiResult:
     """GET api/documents/by-uid/<uid>/ — read by canonical uid."""
     try:
         return _result(service.get_document(uid=uid, with_body=True, viewer=request.user))
@@ -103,12 +107,12 @@ def api_document_by_uid(request: HttpRequest, uid: str) -> JsonResponse:
 
 
 @api_view(methods=["POST"])
-def api_document_move(request: HttpRequest, runbook: str, key: str) -> JsonResponse:
+def api_document_move(request: HttpRequest, runbook: str, key: str) -> ApiResult:
     """POST api/documents/<runbook>/<key>/move/ — re-place (or detach if to_runbook omitted)."""
     write_error = _require_write(request)
     if write_error is not None:
         return write_error
-    data = request.json or {}
+    data = getattr(request, "json", None) or {}
     try:
         result = service.move_document(
             runbook=runbook, key=key,
@@ -122,7 +126,7 @@ def api_document_move(request: HttpRequest, runbook: str, key: str) -> JsonRespo
 
 
 @api_view(methods=["GET", "PUT", "DELETE"])
-def api_document(request: HttpRequest, runbook: str, key: str) -> JsonResponse:
+def api_document(request: HttpRequest, runbook: str, key: str) -> ApiResult:
     """GET/PUT/DELETE api/documents/<runbook>/<key>/ — read, upsert, or delete."""
     if request.method == "GET":
         try:
@@ -142,7 +146,7 @@ def api_document(request: HttpRequest, runbook: str, key: str) -> JsonResponse:
             return _error_for(exc)
         return {"deleted": True, "force": force}
 
-    data = request.json or {}
+    data = getattr(request, "json", None) or {}
     if "body" not in data:
         return api_error("body is required", 400)
     try:
@@ -164,13 +168,13 @@ def api_document(request: HttpRequest, runbook: str, key: str) -> JsonResponse:
 
 
 @api_view(methods=["POST"])
-def api_document_append(request: HttpRequest, runbook: str, key: str) -> JsonResponse:
+def api_document_append(request: HttpRequest, runbook: str, key: str) -> ApiResult:
     """POST api/documents/<runbook>/<key>/append/ — accumulate in place."""
     write_error = _require_write(request)
     if write_error is not None:
         return write_error
 
-    data = request.json or {}
+    data = getattr(request, "json", None) or {}
     if "body" not in data:
         return api_error("body is required", 400)
     try:
@@ -183,7 +187,7 @@ def api_document_append(request: HttpRequest, runbook: str, key: str) -> JsonRes
 
 
 @api_view(methods=["POST"])
-def api_document_archive(request: HttpRequest, runbook: str, key: str) -> JsonResponse:
+def api_document_archive(request: HttpRequest, runbook: str, key: str) -> ApiResult:
     """POST api/documents/<runbook>/<key>/archive/ — soft-delete."""
     write_error = _require_write(request)
     if write_error is not None:
@@ -195,7 +199,7 @@ def api_document_archive(request: HttpRequest, runbook: str, key: str) -> JsonRe
 
 
 @api_view(methods=["POST"])
-def api_document_unarchive(request: HttpRequest, runbook: str, key: str) -> JsonResponse:
+def api_document_unarchive(request: HttpRequest, runbook: str, key: str) -> ApiResult:
     """POST api/documents/<runbook>/<key>/unarchive/ — reverse a soft-delete."""
     write_error = _require_write(request)
     if write_error is not None:
@@ -207,7 +211,7 @@ def api_document_unarchive(request: HttpRequest, runbook: str, key: str) -> Json
 
 
 @api_view(methods=["POST"])
-def api_document_revert(request: HttpRequest, runbook: str, key: str) -> JsonResponse:
+def api_document_revert(request: HttpRequest, runbook: str, key: str) -> ApiResult:
     """POST api/documents/<runbook>/<key>/revert/ — roll back to a version.
 
     JSON body: ``{"to": N}`` (the version number). Snapshots that version's
@@ -216,7 +220,7 @@ def api_document_revert(request: HttpRequest, runbook: str, key: str) -> JsonRes
     write_error = _require_write(request)
     if write_error is not None:
         return write_error
-    data = request.json or {}
+    data = getattr(request, "json", None) or {}
     raw = data.get("to", data.get("version"))
     if raw is None:
         return api_error("'to' (version number) is required", 400)
@@ -232,7 +236,7 @@ def api_document_revert(request: HttpRequest, runbook: str, key: str) -> JsonRes
 
 
 @api_view(methods=["POST"])
-def api_document_copy(request: HttpRequest, runbook: str, key: str) -> JsonResponse:
+def api_document_copy(request: HttpRequest, runbook: str, key: str) -> ApiResult:
     """POST api/documents/<runbook>/<key>/copy/ — duplicate to another location.
 
     JSON body: ``{"to_runbook": …, "to_key": …, "title"?, "section"?, "on_exists"?}``.
@@ -241,7 +245,7 @@ def api_document_copy(request: HttpRequest, runbook: str, key: str) -> JsonRespo
     write_error = _require_write(request)
     if write_error is not None:
         return write_error
-    data = request.json or {}
+    data = getattr(request, "json", None) or {}
     if not data.get("to_runbook") or not data.get("to_key"):
         return api_error("'to_runbook' and 'to_key' are required", 400)
     try:
@@ -276,7 +280,7 @@ def _section_summary(sec: Any) -> dict[str, Any]:
 
 
 @api_view(methods=["GET", "POST"])
-def api_runbooks(request: HttpRequest) -> JsonResponse:
+def api_runbooks(request: HttpRequest) -> ApiResult:
     """GET api/runbooks/ — list runbooks the caller may see.
     POST api/runbooks/ — create one, owned by the caller."""
     if request.method == "GET":
@@ -288,7 +292,7 @@ def api_runbooks(request: HttpRequest) -> JsonResponse:
     write_error = _require_write(request)
     if write_error is not None:
         return write_error
-    data = request.json or {}
+    data = getattr(request, "json", None) or {}
     slug = data.get("slug") or data.get("name")
     if not slug:
         return api_error("slug (or name) is required", 400)
@@ -303,7 +307,7 @@ def api_runbooks(request: HttpRequest) -> JsonResponse:
 
 
 @api_view(methods=["GET"])
-def api_runbook_detail(request: HttpRequest, slug: str) -> JsonResponse:
+def api_runbook_detail(request: HttpRequest, slug: str) -> ApiResult:
     """GET api/runbooks/<slug>/ — runbook metadata + its table of contents
     (sections → viewable pages, sectionless grouped last)."""
     try:
@@ -331,7 +335,7 @@ def api_runbook_detail(request: HttpRequest, slug: str) -> JsonResponse:
 
 
 @api_view(methods=["GET", "POST"])
-def api_runbook_sections(request: HttpRequest, slug: str) -> JsonResponse:
+def api_runbook_sections(request: HttpRequest, slug: str) -> ApiResult:
     """GET api/runbooks/<slug>/sections/ — list sections.
     POST — create one (edit rights required)."""
     if request.method == "GET":
@@ -347,7 +351,7 @@ def api_runbook_sections(request: HttpRequest, slug: str) -> JsonResponse:
     write_error = _require_write(request)
     if write_error is not None:
         return write_error
-    data = request.json or {}
+    data = getattr(request, "json", None) or {}
     sec_slug = data.get("slug") or data.get("name")
     if not sec_slug:
         return api_error("slug (or name) is required", 400)
@@ -360,7 +364,7 @@ def api_runbook_sections(request: HttpRequest, slug: str) -> JsonResponse:
     return _section_summary(section)
 
 
-def _set_runbook_visibility(request: HttpRequest, slug: str, *, public: bool) -> JsonResponse:
+def _set_runbook_visibility(request: HttpRequest, slug: str, *, public: bool) -> ApiResult:
     write_error = _require_write(request)
     if write_error is not None:
         return write_error
@@ -372,13 +376,13 @@ def _set_runbook_visibility(request: HttpRequest, slug: str, *, public: bool) ->
 
 
 @api_view(methods=["POST"])
-def api_runbook_publish(request: HttpRequest, slug: str) -> JsonResponse:
+def api_runbook_publish(request: HttpRequest, slug: str) -> ApiResult:
     """POST api/runbooks/<slug>/publish/ — make it public (edit rights required)."""
     return _set_runbook_visibility(request, slug, public=True)
 
 
 @api_view(methods=["POST"])
-def api_runbook_unpublish(request: HttpRequest, slug: str) -> JsonResponse:
+def api_runbook_unpublish(request: HttpRequest, slug: str) -> ApiResult:
     """POST api/runbooks/<slug>/unpublish/ — make it private (edit rights required)."""
     return _set_runbook_visibility(request, slug, public=False)
 
@@ -387,6 +391,7 @@ def api_runbook_unpublish(request: HttpRequest, slug: str) -> JsonResponse:
 # Hand-rolled views don't self-register the way CRUDViews do, so advertise them
 # to /api/schema/openapi.json (Swagger/ReDoc) via the framework hook when present.
 
+register_api_path: Optional[Callable[..., Any]]
 try:
     from apps.smallstack.api import register_api_path
 except ImportError:  # pragma: no cover - older framework without the hook

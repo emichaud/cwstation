@@ -55,7 +55,7 @@ def register(visualization: Visualization) -> None:
 
 def get_visualizations(public_only: bool = False) -> list[Visualization]:
     """All registered visualizations, ordered. ``public_only`` drops non-public-safe panels."""
-    items = _visualizations.values()
+    items = list(_visualizations.values())
     if public_only:
         items = [v for v in items if v.public_safe]
     return sorted(items, key=lambda v: (v.order, v.key))

@@ -35,6 +35,8 @@ CORS_ALLOWED_ORIGINS=https://app.example.com
 
 Multiple origins are comma-separated. This is already wired in `config/settings/base.py` — no code changes needed.
 
+**Reading `X-Request-ID` from your frontend:** every response carries an `X-Request-ID` header (see `logging-audit.md`) for "quote this to support" error UIs. `response.headers.get("X-Request-ID")` only works cross-origin because `config/settings/base.py` sets `CORS_EXPOSE_HEADERS = ["X-Request-ID"]` — without it, the Fetch spec hides any non-safelisted response header from JS even though it's present on the wire. Already wired for you; if you add your own custom response headers, add them to `CORS_EXPOSE_HEADERS` too or your frontend won't be able to read them.
+
 ### 2. Enable Registration (if needed)
 
 ```bash

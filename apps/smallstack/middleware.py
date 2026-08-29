@@ -11,6 +11,8 @@ from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
 
+from .logging import bind_request_id, reset_request_id
+
 logger = logging.getLogger("smallstack")
 
 
@@ -62,8 +64,11 @@ class RequestIDMiddleware:
     (e.g. from a load balancer), that value is reused.  Otherwise a new
     UUID is generated.
 
-    The ID is stored on ``request.id`` for downstream code and returned
-    in the ``X-Request-ID`` response header so clients can reference it.
+    The ID is stored on ``request.id`` for downstream code, returned in the
+    ``X-Request-ID`` response header so clients can reference it, and bound
+    into the logging context so every log line emitted while handling this
+    request carries ``request_id`` — which is what makes "user reported an
+    error, here's their request ID" a one-search answer.
     """
 
     HEADER = "X-Request-ID"
@@ -73,9 +78,19 @@ class RequestIDMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         request_id = request.META.get("HTTP_X_REQUEST_ID") or f"req_{uuid.uuid4()}"
-        request.id = request_id
+        # Dynamic attribute read back by logging/templates — setattr keeps the
+        # type checker happy without a custom HttpRequest subclass.
+        setattr(request, "id", request_id)
 
-        response = self.get_response(request)
+        # Must be reset in `finally`: WSGI worker threads are reused, and a
+        # leaked value would tag the *next* request on this thread with the
+        # previous request's ID.
+        token = bind_request_id(request_id)
+        try:
+            response = self.get_response(request)
+        finally:
+            reset_request_id(token)
+
         response[self.HEADER] = request_id
         return response
 
@@ -109,10 +124,10 @@ class TimezoneMiddleware:
             # Log at debug and fall back to the server timezone set above.
             logger.debug("TimezoneMiddleware: falling back to server tz", exc_info=True)
 
-        # Cache on request for template tags
-        request._tz_user = user_tz
-        request._tz_server = server_tz
-        request._tz_differs = str(user_tz) != str(server_tz)
+        # Cache on request for template tags (dynamic attributes — see above).
+        setattr(request, "_tz_user", user_tz)
+        setattr(request, "_tz_server", server_tz)
+        setattr(request, "_tz_differs", str(user_tz) != str(server_tz))
 
         timezone.activate(user_tz)
 

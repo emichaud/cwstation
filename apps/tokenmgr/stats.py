@@ -7,13 +7,15 @@ it isn't.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from django.db.models import Avg, Count
 from django.utils import timezone
 
 
 def get_usage_stats(token, hours: int = 24) -> dict:
     """Per-token stats for the detail page."""
-    cutoff = timezone.now() - timezone.timedelta(hours=hours)
+    cutoff = timezone.now() - timedelta(hours=hours)
     try:
         logs = token.request_logs.filter(timestamp__gte=cutoff)
     except Exception:
@@ -51,7 +53,7 @@ def get_overview_stats(user=None) -> dict:
     revoked = qs.filter(is_active=False).count()
 
     # 24h request volume across the visible tokens.
-    cutoff_24h = timezone.now() - timezone.timedelta(hours=24)
+    cutoff_24h = timezone.now() - timedelta(hours=24)
     volume_24h = 0
     try:
         from apps.activity.models import RequestLog

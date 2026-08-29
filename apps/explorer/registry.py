@@ -64,7 +64,7 @@ class ModelInfo:
             readonly=self.readonly,
             group=self.group,
             namespace=self.namespace,
-            count=self.model_class.objects.count(),
+            count=self.model_class._default_manager.count(),
             list_url=self._reverse(f"{self.url_base}-list"),
         )
 
@@ -635,11 +635,13 @@ class ExplorerSite:
         if Action.CREATE in crud_cls.actions:
             create_url = crud_cls._reverse(f"{url_base}-create")
 
+        model = crud_cls.model
+        assert model is not None  # a registered CRUDView always declares a model
         return ModelContext(
             info=info.with_counts(),
             crud_class=crud_cls,
-            object_verbose_name=str(crud_cls.model._meta.verbose_name).capitalize(),
-            object_verbose_name_plural=str(crud_cls.model._meta.verbose_name_plural).capitalize(),
+            object_verbose_name=str(model._meta.verbose_name).capitalize(),
+            object_verbose_name_plural=str(model._meta.verbose_name_plural).capitalize(),
             url_base=url_base,
             list_fields=crud_cls._get_list_fields(),
             detail_fields=crud_cls._get_detail_fields(),

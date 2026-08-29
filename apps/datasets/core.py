@@ -21,7 +21,7 @@ from __future__ import annotations
 import inspect
 from typing import Any, Optional
 
-from django.db.models import QuerySet
+from django.db.models import Model, QuerySet
 from django.http import HttpRequest, QueryDict
 
 from .registry import DatasetDef, all_defs, get_def
@@ -94,9 +94,12 @@ def _fake_request(user: Any = None, query: str = "") -> HttpRequest:
     return req
 
 
-def _label_for(model: type, name: str) -> str:
+def _label_for(model: type[Model], name: str) -> str:
     try:
-        return str(model._meta.get_field(name).verbose_name).capitalize()
+        # get_field may return a reverse relation (ForeignObjectRel) with no
+        # verbose_name — getattr falls through to the humanized name for those.
+        field = model._meta.get_field(name)
+        return str(getattr(field, "verbose_name", name)).capitalize()
     except Exception:
         return name.replace("_", " ").capitalize()
 
@@ -128,7 +131,7 @@ class Dataset:
         return fn(request) if takes_arg else fn()
 
     @property
-    def model(self) -> type:
+    def model(self) -> type[Model]:
         return self._queryset().model
 
     # -- columns (DB-free) ---------------------------------------------------
@@ -181,7 +184,7 @@ class Dataset:
 
         model = self.model
         cols = self.columns()
-        columns = [
+        columns: list[dict[str, Any]] = [
             {
                 "name": name,
                 "label": _label_for(model, name),
@@ -485,7 +488,9 @@ class Dataset:
             )
 
         value_expr = (
-            _ratio_expr(declared[measure]) if is_ratio else _agg_func(agg, measure)
+            _ratio_expr(declared[measure])
+            if is_ratio and measure is not None
+            else _agg_func(agg, measure)
         )
 
         qs = self._filtered_qs(request, filters)
@@ -603,10 +608,15 @@ class Dataset:
             related = field.related_model
         except Exception:
             return {}
+        if related is None:
+            return {}
         pks = [r.get(dimension) for r in rows if r.get(dimension) is not None]
         if not pks:
             return {}
-        return {obj.pk: str(obj) for obj in related.objects.filter(pk__in=pks)}
+        # ``_default_manager`` (not ``objects``) so this works for related models
+        # that rename their manager, and is what django-stubs types on a dynamic
+        # ``type[Model]``.
+        return {obj.pk: str(obj) for obj in related._default_manager.filter(pk__in=pks)}
 
 
 class _ConfigAdapter:

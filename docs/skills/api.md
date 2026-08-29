@@ -922,6 +922,15 @@ For production, set the actual frontend domain:
 CORS_ALLOWED_ORIGINS=https://app.example.com
 ```
 
+**Reading response headers cross-origin:** `CORS_ALLOWED_ORIGINS` controls which origins may call the API at all, but it does **not** by itself make custom response headers readable by `fetch()`/`XMLHttpRequest`. Per the Fetch spec, a cross-origin response only exposes the CORS-safelisted headers (`Cache-Control`, `Content-Language`, `Content-Type`, `Expires`, `Last-Modified`, `Pragma`) to JS by default — anything else, like `X-Request-ID`, is on the wire but `response.headers.get(...)` returns `null` unless the server lists it in `Access-Control-Expose-Headers`. SmallStack sets this for you:
+
+```python
+# config/settings/base.py
+CORS_EXPOSE_HEADERS = ["X-Request-ID"]
+```
+
+If you add your own custom response header, add it to `CORS_EXPOSE_HEADERS` or cross-origin frontends won't be able to read it — this is easy to miss because same-origin requests (e.g. the admin UI itself) work fine without it, and only fail from an actual cross-origin JS client.
+
 ## Custom (Non-CRUD) Endpoints
 
 Not every endpoint fits the CRUD pattern. For actions, integrations, reports, and multi-model workflows, use the `api_view` decorator instead of `enable_api`. It provides the same auth, error handling, and JSON conventions without requiring a CRUDView.

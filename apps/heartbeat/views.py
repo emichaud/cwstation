@@ -822,7 +822,7 @@ def _monitor_overview_state(monitor: Monitor) -> dict[str, Any]:
     known = data.get("status") != "unknown"
     epoch = _get_epoch(monitor.key)
     warmup = timedelta(minutes=getattr(settings, "HEARTBEAT_WARMUP_MINUTES", 60))
-    warming_up = bool(epoch) and (now() - epoch) < warmup
+    warming_up = epoch is not None and (now() - epoch) < warmup
     return {
         "state": data.get("status", "unknown"),
         "response_time_ms": data.get("response_time_ms"),

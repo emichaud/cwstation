@@ -9,7 +9,7 @@ are testable without an MCP dispatch context.
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from . import service
 
@@ -52,7 +52,8 @@ def do_put(actor: service.Actor, *, runbook: str, key: str, body: str, title: Op
            source: str = "", section: Optional[str] = None, doc_type: str = "") -> dict:
     try:
         result = service.put_document(
-            runbook, key, body=body, title=title, on_exists=on_exists,
+            runbook, key, body=body, title=title,
+            on_exists=cast("service.OnExists", on_exists),
             expected_version=expected_version, source=source or "mcp", section=section,
             doc_type=doc_type, via="mcp", actor=actor,
         )

@@ -1,5 +1,6 @@
 """User Manager views — CRUDView config + bespoke overrides."""
 
+from datetime import timedelta
 from typing import Any
 
 from django.contrib import messages
@@ -275,7 +276,7 @@ class UserCRUDView(CRUDView):
 def _get_dashboard_stats() -> dict[str, int]:
     """Build dashboard stats for the user manager list page."""
     now = timezone.now()
-    thirty_days_ago = now - timezone.timedelta(days=30)
+    thirty_days_ago = now - timedelta(days=30)
     all_users = User.objects.filter(is_active=True)
     total = all_users.count()
     recent = all_users.filter(date_joined__gte=thirty_days_ago).count()
@@ -299,8 +300,8 @@ def _get_dashboard_stats() -> dict[str, int]:
 def _get_user_activity_stats(user_obj) -> dict[str, Any]:
     """Build activity stats dict for a user."""
     now = timezone.now()
-    thirty_days_ago = now - timezone.timedelta(days=30)
-    seven_days_ago = now - timezone.timedelta(days=7)
+    thirty_days_ago = now - timedelta(days=30)
+    seven_days_ago = now - timedelta(days=7)
 
     logs = RequestLog.objects.filter(user=user_obj)
     total = logs.count()
@@ -351,7 +352,7 @@ def _user_list_row(u):
 def user_stat_detail(request, stat_type: str) -> HttpResponse:
     """HTMX endpoint returning HTML for stat card drill-down modals."""
     now = timezone.now()
-    thirty_days_ago = now - timezone.timedelta(days=30)
+    thirty_days_ago = now - timedelta(days=30)
     users = User.objects.filter(is_active=True).order_by("username")
 
     rows: list = []

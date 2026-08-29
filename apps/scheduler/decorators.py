@@ -78,6 +78,9 @@ def scheduled(
     if sum(provided) != 1:
         raise ValueError("@scheduled needs exactly one of: every=, cron=, at=.")
 
+    # Heterogeneous cadence kwargs (str specs vs a datetime for `at`) — annotate
+    # so the branches don't fix `kw` to the first branch's value type.
+    kw: dict[str, Any]
     if every:
         stype, kw = "interval", {"interval_spec": every, "anchor": anchor}
     elif cron:

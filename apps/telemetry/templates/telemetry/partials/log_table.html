@@ -1,0 +1,83 @@
+{% load theme_tags %}
+{% comment %}Carries its own #log-table wrapper: the live refresh swaps
+outerHTML, so the polling attributes have to come back with each response.{% endcomment %}
+<div id="log-table"
+     {% if live %}hx-get="{% url 'telemetry:logs' %}?{% if querystring %}{{ querystring }}&{% endif %}live=1"
+     hx-trigger="every 5s"
+     hx-target="#log-table"
+     hx-swap="outerHTML"{% endif %}>
+
+<div class="card">
+    <div class="card-body" style="padding: 0; overflow-x: auto;">
+        {% if records %}
+        <table class="log-table">
+            <caption class="sr-only">Captured log records, newest first</caption>
+            <thead>
+                <tr>
+                    <th scope="col"><span class="sr-only">Expand</span></th>
+                    <th scope="col">Time</th>
+                    <th scope="col">Level</th>
+                    <th scope="col" class="log-hide-sm">Logger</th>
+                    <th scope="col">Message</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in records %}
+                {% comment %}One --log-rail per row drives both the left rail
+                and the level text, so severity is stated once.{% endcomment %}
+                <tr style="--log-rail: {% if log.level_no >= 40 %}var(--error-fg){% elif log.level_no >= 30 %}var(--warning-fg){% elif log.level_no >= 20 %}var(--body-quiet-color){% else %}var(--text-muted){% endif %};">
+                    <td style="width: 1%;">
+                        <button type="button"
+                                class="log-expand"
+                                aria-expanded="false"
+                                aria-controls="log-detail-row-{{ log.pk }}"
+                                onclick="toggleLogDetail(this)"
+                                hx-get="{% url 'telemetry:log_detail' log.pk %}"
+                                hx-target="#log-detail-{{ log.pk }}"
+                                hx-swap="innerHTML"
+                                hx-trigger="click once">
+                            <span class="sr-only">Show details for this record</span>
+                            <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true">
+                                <path d="M9 6l6 6-6 6z"/>
+                            </svg>
+                        </button>
+                    </td>
+                    <td class="log-time">{% localtime_tooltip log.ts "M d H:i:s" %}</td>
+                    <td class="log-level">{{ log.level }}</td>
+                    <td class="log-logger log-hide-sm" title="{{ log.logger }}">{{ log.logger }}</td>
+                    <td class="log-message" title="{{ log.message }}">
+                        {% if log.exc_type %}<span class="log-exc">{{ log.exc_type }}</span> {% endif %}{{ log.message }}
+                    </td>
+                </tr>
+                <tr id="log-detail-row-{{ log.pk }}" hidden>
+                    <td colspan="5" class="log-detail-cell">
+                        <div id="log-detail-{{ log.pk }}"></div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div style="padding: 32px 20px; text-align: center;">
+            {% if has_filters %}
+            <p style="color: var(--body-fg); margin-bottom: 4px;">No records match these filters.</p>
+            <p style="color: var(--body-quiet-color); font-size: 0.85rem; margin-bottom: 14px;">
+                Widen the time range, or drop the level filter to see everything captured.
+            </p>
+            <a href="{% url 'telemetry:logs' %}" class="btn-outline btn-sm" style="text-decoration: none;">Clear filters</a>
+            {% elif total_stored %}
+            <p style="color: var(--body-quiet-color);">No records stored.</p>
+            {% else %}
+            <p style="color: var(--body-fg); margin-bottom: 4px;">Nothing captured yet.</p>
+            <p style="color: var(--body-quiet-color); font-size: 0.85rem;">
+                Capture is set to <strong>{{ capture_baseline }}</strong> and above, so quieter activity isn't recorded.
+                Turn capture up to record everything for a few minutes.
+            </p>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+    {% if records %}{% render_paginator page_obj hx_target="#log-table" hx_swap="outerHTML" %}{% endif %}
+</div>
+
+</div>

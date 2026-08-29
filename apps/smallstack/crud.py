@@ -21,14 +21,16 @@ Usage:
 """
 
 import enum
+import logging
 import warnings
 from typing import Any
 
 from django import forms
 from django.contrib import messages
+from django.contrib.admin.models import LogEntry
 from django.core.exceptions import FieldDoesNotExist
 from django.db import IntegrityError
-from django.db.models import ProtectedError, QuerySet, RestrictedError
+from django.db.models import Model, ProtectedError, QuerySet, RestrictedError
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import redirect as _redirect
 from django.urls import path, reverse
@@ -41,6 +43,14 @@ from django.views.generic import (
 )
 
 from . import transforms as _transforms
+from .audit import CHANGE, DELETION
+
+logger = logging.getLogger(__name__)
+
+# Cap on how many row IDs a single bulk-action log line embeds in `extra`. The
+# count in the message text is always exact; this just bounds how large one
+# log/console line can get for a bulk action against thousands of rows.
+_BULK_LOG_ID_CAP = 200
 
 # ---------------------------------------------------------------------------
 # Field preview helpers (delegated to transforms module)
@@ -94,7 +104,7 @@ def _apply_list_search(qs, request: HttpRequest, crud_config) -> QuerySet:
         return qs
 
     # Pre-parse the query for date-like patterns
-    date_filters = None
+    date_filters: dict[str, Any] | None = None
     if re.fullmatch(r"\d{4}", q):
         date_filters = {"__year": int(q)}
     elif re.fullmatch(r"\d{4}-\d{1,2}", q):
@@ -294,7 +304,7 @@ def _build_filter_meta(model, field_name: str) -> dict[str, Any] | None:
     except Exception:
         return None
 
-    meta = {
+    meta: dict[str, Any] = {
         "name": field_name,
         "label": str(getattr(field, "verbose_name", field_name)).capitalize(),
     }
@@ -332,7 +342,7 @@ def _build_filter_meta(model, field_name: str) -> dict[str, Any] | None:
     if isinstance(field, _m.ForeignKey):
         related_model = field.related_model
         try:
-            objects = related_model.objects.all()[:100]
+            objects = related_model._default_manager.all()[:100]
             choices = [("", "All")]
             for obj in objects:
                 choices.append((str(obj.pk), str(obj)))
@@ -367,7 +377,7 @@ def _build_filter_meta(model, field_name: str) -> dict[str, Any] | None:
 class _CRUDContextMixin:
     """Injects CRUD metadata into template context for all generated views."""
 
-    crud_config = None  # Set by CRUDView._make_view()
+    crud_config: type["CRUDView"]  # injected by CRUDView._make_view() on every generated view
 
     # Reserved context variable names that Django's auth/template system uses.
     # If the model's default context_object_name would collide, we prefix it.
@@ -711,6 +721,79 @@ class _CRUDDeleteBase(_CRUDContextMixin, DeleteView):
         return _redirect(self.get_success_url())
 
 
+def _log_bulk_action(request, verb: str, model: type[Model], ok_ids: list, errors: dict, *, fields=None) -> None:
+    """One structured log line per bulk action — the log-viewer-visibility half of the fix.
+
+    Deliberately ONE line, not one per row: a bulk delete/update can touch
+    thousands of rows, and a `LogRecord` per row would be the "unbounded
+    growth under load" failure mode `DatabaseLogHandler` itself exists to
+    avoid (see its module docstring). The row count and error count are
+    always exact in the message text; the row IDs in `extra` are capped
+    (`_BULK_LOG_ID_CAP`) so one huge bulk action can't blow up a single log
+    line/row — this is a "was there activity, and roughly what" record, not a
+    substitute for the per-object audit trail `_audit_bulk_action` writes.
+    """
+    actor = request.user.get_username() if getattr(request.user, "is_authenticated", False) else "anonymous"
+    extra = {"ids": ok_ids[:_BULK_LOG_ID_CAP], "errors": errors}
+    if fields is not None:
+        extra["fields"] = fields
+    logger.info(
+        "Bulk %s: %s %s %d/%d %s row(s), %d error(s)",
+        verb,
+        actor,
+        "deleted" if verb == "delete" else "updated",
+        len(ok_ids),
+        len(ok_ids) + len(errors),
+        model.__name__,
+        len(errors),
+        extra=extra,
+    )
+
+
+def _audit_bulk_action(
+    request, model: type[Model], snapshots: list[tuple[Any, str]], action_flag: int, message: str
+) -> None:
+    """Per-object audit trail entries for a bulk action, written in one query.
+
+    Takes ``(pk, repr)`` snapshots rather than live model instances — for
+    delete specifically, ``obj.pk`` is set to ``None`` by Django the moment
+    ``obj.delete()`` succeeds, so building the entries from the
+    already-deleted instances afterward (as Django admin's own
+    ``LogEntry.objects.log_actions()`` batch helper does, by reading
+    ``obj.pk`` itself) would silently write every row with ``object_id=None``.
+    Capturing ``(pk, str(obj))`` *before* deleting sidesteps that; using the
+    same snapshot shape for bulk update too (where the object survives) keeps
+    one code path for both instead of two.
+
+    Still one ``bulk_create`` query for however many rows were touched — the
+    same "who touched exactly which record" answerability a single-object
+    write gets via `AuditMixin`, without paying N queries for it. Best-effort
+    and silent on failure — audit logging must never be why a bulk action
+    itself fails — and skipped entirely for an unauthenticated actor, since
+    `LogEntry.user` is required.
+    """
+    if not snapshots or getattr(request.user, "pk", None) is None:
+        return
+    try:
+        from django.contrib.contenttypes.models import ContentType
+
+        ct = ContentType.objects.get_for_model(model)
+        entries = [
+            LogEntry(
+                user_id=request.user.pk,
+                content_type_id=ct.pk,
+                object_id=str(pk),
+                object_repr=repr_str,
+                action_flag=action_flag,
+                change_message=message,
+            )
+            for pk, repr_str in snapshots
+        ]
+        LogEntry.objects.bulk_create(entries)
+    except Exception:
+        logger.exception("Bulk action audit trail write failed for %s", model.__name__)
+
+
 class _CRUDBulkActionView:
     """Handles bulk delete and bulk update operations via POST.
 
@@ -718,7 +801,7 @@ class _CRUDBulkActionView:
     and catch ProtectedError per row.
     """
 
-    crud_config = None
+    crud_config: type["CRUDView"]  # injected by CRUDView._make_bulk_action_view()
 
     @classmethod
     def as_view(cls):
@@ -790,6 +873,7 @@ class _CRUDBulkActionView:
                 qs = cfg._get_queryset().filter(pk__in=ids)
                 objects = {obj.pk: obj for obj in qs}
                 deleted_ids = []
+                deleted_snapshots = []  # (pk, repr) captured before delete() clears obj.pk
                 errors = {}
 
                 for pk in ids:
@@ -801,8 +885,13 @@ class _CRUDBulkActionView:
                         errors[str(pk)] = "Permission denied"
                         continue
                     try:
+                        # Captured before delete(): Django sets obj.pk to None
+                        # the moment the delete succeeds, so this must not be
+                        # read back off the object afterward.
+                        object_repr = str(obj)[:200]
                         obj.delete()
                         deleted_ids.append(pk)
+                        deleted_snapshots.append((pk, object_repr))
                     except (ProtectedError, RestrictedError) as e:
                         protected = getattr(e, "protected_objects", None) or getattr(e, "restricted_objects", set())
                         name = type(next(iter(protected))).__name__ if protected else "other records"
@@ -815,6 +904,8 @@ class _CRUDBulkActionView:
                         errors[str(pk)] = "Delete failed — an unexpected error occurred."
 
                 msg = f"Deleted {len(deleted_ids)} of {len(ids)}"
+                _log_bulk_action(request, "delete", cfg.model, deleted_ids, errors)
+                _audit_bulk_action(request, cfg.model, deleted_snapshots, DELETION, "Bulk delete via CRUDView")
 
                 return HttpResponse(
                     _json.dumps({"deleted": deleted_ids, "errors": errors, "message": msg}),
@@ -851,6 +942,7 @@ class _CRUDBulkActionView:
                 qs = cfg._get_queryset().filter(pk__in=ids)
                 objects = {obj.pk: obj for obj in qs}
                 updated = []
+                updated_snapshots = []  # (pk, repr) captured just after form.save()
                 errors = {}
 
                 for pk in ids:
@@ -877,12 +969,21 @@ class _CRUDBulkActionView:
                         obj = form.save()
                         cfg.on_form_valid(request, form, obj, is_create=False)
                         updated.append(pk)
+                        updated_snapshots.append((obj.pk, str(obj)[:200]))
                     else:
                         errors[str(pk)] = {k: [str(e) for e in v] for k, v in form.errors.items()}
 
                 total = len(ids)
                 updated_count = len(updated)
                 msg = f"Updated {updated_count} of {total}"
+                _log_bulk_action(request, "update", cfg.model, updated, errors, fields=sorted(fields_data))
+                _audit_bulk_action(
+                    request,
+                    cfg.model,
+                    updated_snapshots,
+                    CHANGE,
+                    f"Bulk update via CRUDView (fields: {', '.join(sorted(fields_data))})",
+                )
 
                 return HttpResponse(
                     _json.dumps({"updated": updated, "errors": errors, "message": msg}),
@@ -1007,7 +1108,23 @@ class _CRUDRelatedTabBase(_CRUDContextMixin, DetailView):
         return self.crud_config._get_queryset()
 
     def get_template_names(self) -> list[str]:
-        return ["smallstack/crud/includes/related_tab_content.html"]
+        """Instance → app → default chain, like every sibling view.
+
+        This alone hardcoded its template, so a project could override every
+        other CRUD surface per model but not the related-tab partial — an
+        inconsistency rather than a decision (`_CRUDFieldPreviewBase`, directly
+        above, resolves the same way).
+
+        The shipped partial lives at ``crud/includes/related_tab_content.html``,
+        which does not fit ``_get_template_names``'s ``crud/object_{suffix}``
+        default, so it is appended as the final fallback instead of being moved:
+        the loader takes the first template that exists, so behavior is
+        unchanged when no override is present.
+        """
+        return [
+            *self.crud_config._get_template_names("related_tab"),
+            "smallstack/crud/includes/related_tab_content.html",
+        ]
 
     def get(self, request, *args, **kwargs) -> HttpResponse:
         self.object = self.get_object()
@@ -1047,6 +1164,24 @@ class _CRUDRelatedTabBase(_CRUDContextMixin, DetailView):
             related_qs, request, page_size=cfg.related_tabs_paginate_by
         )
 
+        # Row-link intent for {% crud_table %}, and ONLY that: exactly one action
+        # is forwarded, so a related tab renders clickable rows without growing
+        # an Edit/Delete action column.
+        #
+        # This was hardcoded to [Action.DETAIL], so crud_table reversed
+        # "<url_base>-detail" for views whose `actions` omit DETAIL — those routes
+        # are never generated (see get_urls), giving NoReverseMatch → 500. Because
+        # the tab loads lazily over HTMX, that surfaced as a tab with a count badge
+        # and an empty body rather than a visible error.
+        #
+        # Preferring DETAIL then UPDATE matches crud_table's own documented
+        # fallback ("no DETAIL ⇒ link the row to the edit view"); with neither, rows
+        # render unlinked rather than erroring. Slicing to one keeps a tab whose
+        # target routes BOTH from gaining an Edit column it never had. DELETE is
+        # never forwarded — a related tab must not become a destructive surface.
+        related_actions = list(getattr(related_crud, "actions", None) or [])
+        tab_actions = [a for a in (Action.DETAIL, Action.UPDATE) if a in related_actions][:1]
+
         related_model = tab["related_model"]
         content_url = cfg._reverse(
             f"{cfg._get_url_base()}-related-tab",
@@ -1063,7 +1198,14 @@ class _CRUDRelatedTabBase(_CRUDContextMixin, DetailView):
                 "link_field": link_field,
                 "url_base": url_base,
                 "url_namespace": related_crud.namespace,
-                "crud_actions": [Action.DETAIL],
+                "crud_actions": tab_actions,
+                # The rows in this tab belong to the RELATED model, so the table
+                # must be rendered through the related view's config. _CRUDContextMixin
+                # seeded this with the PARENT's config, and {% crud_table %} reads
+                # row_link_url(), row_actions() and column_widths off it — so parent
+                # hooks were applied to child rows, silently pointing a row at an
+                # unrelated record that merely shared its pk.
+                "crud_config": related_crud,
                 "field_transforms": related_crud._get_effective_transforms(),
                 "enable_bulk": False,
                 # Related tab metadata (for custom templates)
@@ -1158,27 +1300,30 @@ class CRUDView:
     # class from any code that walks _registry at runtime (mcp_doctor's
     # orphan detector, related-tabs URL resolution, etc.), pointing them at
     # Explorer's clone instead.
-    _registry: dict[type, type["CRUDView"]] = {}
+    _registry: dict[type[Model], type["CRUDView"]] = {}
 
-    def __init_subclass__(cls, **kwargs):
+    def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        if getattr(cls, "model", None) is not None:
-            CRUDView._registry.setdefault(cls.model, cls)
+        model = getattr(cls, "model", None)
+        if model is not None:
+            CRUDView._registry.setdefault(model, cls)
 
     # Config source
-    admin_class = None  # ModelAdmin subclass — the standard Django config DSL
+    admin_class: Any = None  # ModelAdmin subclass — the standard Django config DSL
 
-    # Model/data
-    model = None
-    fields = None
-    list_fields = None
+    # Model/data. These are `None`-defaulted config slots that subclasses
+    # override with concrete values; the explicit Optional annotations let the
+    # type checker accept those overrides (a bare `= None` infers type `None`).
+    model: type[Any] | None = None
+    fields: list[str] | None = None
+    list_fields: list[str] | None = None
     # UI-only override: narrower column set for list template. API/CSV still use list_fields.
-    list_columns = None
-    detail_fields = None
-    link_field = None
+    list_columns: list[str] | None = None
+    detail_fields: list[str] | None = None
+    link_field: str | None = None
 
     # View/routing
-    url_base = None
+    url_base: str | None = None
     namespace: str | None = None  # URL namespace for child ExplorerSite instances
     paginate_by = 25
     # Auth mixins wrapped around every generated view (HTML + REST). SECURE BY
@@ -1187,25 +1332,25 @@ class CRUDView:
     # (e.g. [StaffRequiredMixin], or [] for a fully public view). To make a view
     # anonymous, prefer the readable `public = True` flag below. Resolved via
     # `_resolved_mixins()`.
-    mixins = None
+    mixins: list[Any] | None = None
     public = False  # opt into anonymous access (only when `mixins` is unset)
     actions = [Action.LIST, Action.CREATE, Action.DETAIL, Action.UPDATE, Action.DELETE]
-    breadcrumb_parent = None  # Optional (label, url_name) for parent breadcrumb
+    breadcrumb_parent: Any = None  # Optional (label, url_name) for parent breadcrumb
 
     # Display
-    displays = []  # List of ListDisplay classes/instances. Empty = legacy auto-detect.
-    default_display = None  # Defaults to first in displays
-    detail_displays = []  # List of DetailDisplay classes/instances
-    list_accessories = []  # ListAccessory instances rendered above the toolbar
+    displays: list[Any] = []  # List of ListDisplay classes/instances. Empty = legacy auto-detect.
+    default_display: Any = None  # Defaults to first in displays
+    detail_displays: list[Any] = []  # List of DetailDisplay classes/instances
+    list_accessories: list[Any] = []  # ListAccessory instances rendered above the toolbar
 
     # Form displays
-    form_displays = []  # FormDisplay classes/instances (both create + edit)
-    create_displays = []  # Create-only (overrides form_displays for create)
-    edit_displays = []  # Edit-only (overrides form_displays for edit)
-    default_form_display = None  # Defaults to first in resolved list
+    form_displays: list[Any] = []  # FormDisplay classes/instances (both create + edit)
+    create_displays: list[Any] = []  # Create-only (overrides form_displays for create)
+    edit_displays: list[Any] = []  # Edit-only (overrides form_displays for edit)
+    default_form_display: Any = None  # Defaults to first in resolved list
 
     # Bulk operations
-    bulk_actions = []  # Opt-in: [BulkAction.DELETE, BulkAction.UPDATE]
+    bulk_actions: list[Any] = []  # Opt-in: [BulkAction.DELETE, BulkAction.UPDATE]
 
     # RSS/Atom feeds (apps.feeds). Opt-in: publish this model as a feed at
     # /feed/<slug>.rss (+ .atom). Item fields fall back to the search
@@ -1224,14 +1369,14 @@ class CRUDView:
 
     # API
     enable_api = False  # Opt-in: generate JSON API endpoints alongside HTML views
-    api_extra_fields = []  # Extra read-only fields appended to API responses (e.g. ["created_at", "updated_at"])
-    api_expand_fields = []  # FK fields always expanded as {"id": pk, "name": str(obj)} (e.g. ["category"])
-    api_aggregate_fields = []  # Numeric fields that support sum/avg/min/max aggregation
-    ordering_fields = []  # Fields allowed for ?ordering= (defaults to sortable list_fields)
-    search_fields = []  # Fields for ?q= search (reads from admin_class.search_fields)
-    filter_fields = []  # Fields for query-param filtering (reads from admin_class.list_filter)
-    filter_class = None  # Optional django-filters FilterSet class
-    export_formats = []  # e.g. ["csv", "json"] — enables ?format= on API list
+    api_extra_fields: list[str] = []  # Read-only fields appended to API responses (e.g. ["created_at", "updated_at"])
+    api_expand_fields: list[str] = []  # FK fields always expanded as {"id": pk, "name": str(obj)} (e.g. ["category"])
+    api_aggregate_fields: list[str] = []  # Numeric fields that support sum/avg/min/max aggregation
+    ordering_fields: list[str] = []  # Fields allowed for ?ordering= (defaults to sortable list_fields)
+    search_fields: list[str] = []  # Fields for ?q= search (reads from admin_class.search_fields)
+    filter_fields: list[str] = []  # Fields for query-param filtering (reads from admin_class.list_filter)
+    filter_class: Any = None  # Optional django-filters FilterSet class
+    export_formats: list[str] = []  # e.g. ["csv", "json"] — enables ?format= on API list
 
     # Search exposure — opt-in keyword search via FTS5 (SQLite) /
     # SearchVector+GIN (Postgres) / __icontains (fallback). When
@@ -1285,25 +1430,31 @@ class CRUDView:
     webhook_events: list[str] | None = None
 
     # Related object tabs (reverse FK relations on detail page)
-    related_tabs = None  # None=auto-discover, list=explicit accessor names, False=disabled
-    related_tabs_exclude = []  # Accessor names to exclude from auto-discovery
+    related_tabs: Any = None  # None=auto-discover, list=explicit accessor names, False=disabled
+    related_tabs_exclude: list[str] = []  # Accessor names to exclude from auto-discovery
     related_tabs_paginate_by = 10
 
     # Legacy/direct config
-    form_class = None
-    queryset = None
-    field_formatters = {}  # Deprecated — use field_transforms
-    preview_fields = []  # Deprecated — use field_transforms
-    field_transforms = {}  # {field_name: "transform_name" | ("name", {opts}) | callable}
-    column_widths = None  # Optional {field_name: "30%"} for custom column proportions
+    form_class: type[Any] | None = None
+    queryset: Any = None
+    field_formatters: dict[str, Any] = {}  # Deprecated — use field_transforms
+    preview_fields: list[str] = []  # Deprecated — use field_transforms
+    field_transforms: dict[str, Any] = {}  # {field_name: "transform_name" | ("name", {opts}) | callable}
+    column_widths: dict[str, str] | None = None  # Optional {field_name: "30%"} for custom column proportions
 
     # -- Config resolution: admin_class → legacy attrs → defaults --
+
+    @classmethod
+    def _model(cls) -> type[Model]:
+        """The configured model, asserted non-None (every routed CRUDView has one)."""
+        assert cls.model is not None, f"{cls.__name__} has no model configured"
+        return cls.model
 
     @classmethod
     def _get_url_base(cls) -> str:
         if cls.url_base:
             return cls.url_base
-        return cls.model._meta.model_name
+        return cls._model()._meta.model_name or ""
 
     @classmethod
     def _reverse(cls, url_name: str, **kwargs) -> str:
@@ -1321,11 +1472,11 @@ class CRUDView:
         if cls.admin_class:
             ld = getattr(cls.admin_class, "list_display", ["__str__"])
             if list(ld) != ["__str__"]:
-                model_field_names = {f.name for f in cls.model._meta.get_fields()}
+                model_field_names = {f.name for f in cls._model()._meta.get_fields()}
                 fields = [f for f in ld if f in model_field_names and f != "pk"]
                 if fields:
                     return fields
-        return cls.fields
+        return cls.fields or []
 
     @classmethod
     def _get_list_columns(cls) -> list[str]:
@@ -1359,13 +1510,13 @@ class CRUDView:
         from django.db.models import AutoField, BigAutoField, Field, ForeignKey
 
         all_fields = []
-        for f in cls.model._meta.get_fields():
+        for f in cls._model()._meta.get_fields():
             if not isinstance(f, (Field, ForeignKey)):
                 continue
             if isinstance(f, (AutoField, BigAutoField)):
                 continue
             all_fields.append(f.name)
-        return all_fields or cls.fields
+        return all_fields or cls.fields or []
 
     @classmethod
     def _get_link_field(cls) -> str | None:
@@ -1460,13 +1611,18 @@ class CRUDView:
         if cls.related_tabs is False:
             return []
 
+        from django.db.models.fields.reverse_related import ForeignObjectRel
         from django.urls import NoReverseMatch
 
         tabs = []
-        for rel in cls.model._meta.get_fields():
-            if not rel.one_to_many:
+        for rel in cls._model()._meta.get_fields():
+            # Reverse FK relations only — narrows rel to ForeignObjectRel, which
+            # carries get_accessor_name()/field (a plain Field does not).
+            if not isinstance(rel, ForeignObjectRel) or not rel.one_to_many:
                 continue
             related_model = rel.related_model
+            if related_model is None:
+                continue
             related_crud = CRUDView._registry.get(related_model)
             if not related_crud:
                 continue

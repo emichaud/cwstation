@@ -69,7 +69,7 @@ def render_markdown(content: str) -> RenderedMarkdown:
 
 def render_document(document: Document) -> RenderedContent:
     """Render a document to HTML based on its file_type."""
-    if document.is_markdown:
+    if document.is_markdown and document.file is not None:
         raw = document.file.read().decode("utf-8")
         document.file.seek(0)
         content = strip_frontmatter(raw)

@@ -16,7 +16,7 @@ import json
 import os
 import posixpath
 import zipfile
-from typing import Optional
+from typing import TYPE_CHECKING, Optional, cast
 
 from django.contrib.auth.models import AbstractBaseUser
 from django.core.files.base import ContentFile
@@ -26,6 +26,14 @@ from django.utils import timezone
 
 from . import service
 from .models import Document, DocumentImage, Runbook, Section
+
+if TYPE_CHECKING:
+    from apps.accounts.models import User
+
+
+def _as_user(actor: Optional[AbstractBaseUser]) -> "User | None":
+    """Narrow an actor to the concrete User FKs accept (type-only cast)."""
+    return cast("User | None", actor)
 
 FORMAT = "smallstack-runbook-bundle/1"
 
@@ -82,7 +90,7 @@ def export_bundle(runbook: Runbook) -> bytes:
             .order_by("section__order", "title")
         )
         for doc in docs:
-            dir_parts = [doc.section.slug] if doc.section_id else []
+            dir_parts = [doc.section.slug] if doc.section else []
             doc_path = posixpath.join(*(dir_parts + [f"{_doc_key(doc)}.md"]))
             content = service.read_head(doc)
 
@@ -94,7 +102,7 @@ def export_bundle(runbook: Runbook) -> bytes:
                 img.image.open("rb")
                 data = img.image.read()
                 img.image.close()
-                ext = os.path.splitext(img.image.name)[1] or ".png"
+                ext = os.path.splitext(img.image.name or "")[1] or ".png"
                 digest = hashlib.sha256(data).hexdigest()[:16]
                 rel_ref = f"images/{digest}{ext}"  # relative to the doc's folder
                 content = content.replace(serve_url, rel_ref)
@@ -107,7 +115,7 @@ def export_bundle(runbook: Runbook) -> bytes:
             manifest["documents"].append({
                 "key": _doc_key(doc),
                 "title": doc.title,
-                "section": doc.section.slug if doc.section_id else None,
+                "section": doc.section.slug if doc.section else None,
                 "description": doc.description,
                 "doc_type": doc.doc_type,
                 "path": doc_path,
@@ -169,23 +177,23 @@ def import_bundle(
         key = spec["key"]
         seen.add(key)
         content = zf.read(spec["path"]).decode("utf-8")
-        section = sections.get(spec.get("section"))
+        section_obj: Optional[Section] = sections.get(spec.get("section"))
         doc_dir = posixpath.dirname(spec["path"])
 
         doc = Document.objects.filter(runbook=runbook, key=key).first()
         is_new = doc is None
-        if is_new:
+        if doc is None:
             doc = Document.objects.create(
-                runbook=runbook, key=key, section=section,
+                runbook=runbook, key=key, section=section_obj,
                 title=spec.get("title", key), description=spec.get("description", ""),
                 doc_type=spec.get("doc_type", ""), is_generated=True, source=source,
-                locked=locked, via="import", created_by=actor,
+                locked=locked, via="import", created_by=_as_user(actor),
             )
             meta_changed = True
         else:
             before = (doc.section_id, doc.title, doc.description, doc.doc_type,
                       doc.is_generated, doc.source, doc.locked)
-            doc.section = section
+            doc.section = section_obj
             doc.title = spec.get("title", doc.title)
             doc.description = spec.get("description", doc.description)
             doc.doc_type = spec.get("doc_type", doc.doc_type)
@@ -223,7 +231,7 @@ def import_bundle(
             for rel_ref, alt, blob, _digest in desired:
                 image = DocumentImage.objects.create(
                     document=doc, image=ContentFile(blob, name=posixpath.basename(rel_ref)),
-                    alt=alt, uploaded_by=actor,
+                    alt=alt, uploaded_by=_as_user(actor),
                 )
                 serve_url = reverse("runbook:serve_image", kwargs={"pk": image.pk})
                 content = content.replace(rel_ref, serve_url)

@@ -1,6 +1,6 @@
 [project]
 name = "django-smallstack"
-version = "0.15.1"
+version = "0.20.0"
 description = "A minimal Django stack for building and deploying admin-style apps"
 requires-python = ">=3.12"
 dependencies = [
@@ -67,24 +67,27 @@ select = ["E", "F", "I", "W"]
 "*/migrations/*.py" = ["E501"]  # Migrations are auto-generated
 
 [tool.mypy]
-# Lenient by design: locks in the already-strongly-typed apps and stops type
-# drift there, without requiring the ~29%-typed core to be fully annotated
-# first. Run with `make typecheck`. No CI lane — CI is intentionally absent
-# upstream; this is a local / pre-commit guard. Widen `files` as core modules
-# gain annotations.
+# Lenient by design: locks in type-clean apps and stops drift there. Bodies of
+# untyped functions aren't checked (check_untyped_defs=false), so this catches
+# signature/attribute/annotation errors without demanding full annotation.
+# Run with `make typecheck`. No CI lane — CI is intentionally absent upstream;
+# this is a local / pre-commit guard. Widen `files` as more apps go green.
 python_version = "3.12"
 plugins = ["mypy_django_plugin.main"]
 ignore_missing_imports = true
 follow_imports = "silent"
 check_untyped_defs = false
+# Silence the per-file "note: ...untyped functions are not checked" chatter that
+# check_untyped_defs=false emits — it's informational, not a finding, and would
+# spam the pre-commit hook output.
+disable_error_code = ["annotation-unchecked"]
 warn_redundant_casts = true
 warn_unused_ignores = false
 exclude = '(/migrations/|/tests/|test_[^/]*\.py$)'
-# Baseline scope: apps/feeds is type-clean under mypy + django-stubs. Widen one
-# app at a time (datasets/scheduler/webhooks next) as each is brought to green.
-files = [
-    "apps/feeds",
-]
+# Type-clean under mypy + django-stubs: every app is covered. Migrations and
+# tests are excluded (see `exclude`). New apps should be added here and kept
+# green.
+files = ["apps"]
 
 [tool.django-stubs]
 django_settings_module = "config.settings.test"

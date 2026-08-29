@@ -41,7 +41,7 @@ class FallbackBackend:
     def rebuild(self, view: IndexedView) -> int:
         # Nothing to rebuild; return current row count so the doctor /
         # admin can still show "N indexable rows".
-        return view.model.objects.count()
+        return view.model._default_manager.count()
 
     def query(
         self,
@@ -62,7 +62,7 @@ class FallbackBackend:
         for field_name in view.fields:
             filt |= Q(**{f"{field_name}__icontains": q})
 
-        qs = view.model.objects.filter(filt).distinct()[:limit]
+        qs = view.model._default_manager.filter(filt).distinct()[:limit]
         return [_make_hit(view, obj, rank=1.0, variant=variant) for obj in qs]
 
 

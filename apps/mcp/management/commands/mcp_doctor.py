@@ -7,7 +7,6 @@ Claude.ai's Connectors UI fails to attach. Each section prints PASS / WARN
 
 from __future__ import annotations
 
-import ast
 import json as jsonlib
 import sys
 from io import StringIO
@@ -18,6 +17,7 @@ from django.test import Client
 from django.urls import get_resolver
 
 from apps.mcp.server import TOOL_REGISTRY
+from apps.smallstack.autodiscover import has_enable_classvar, is_test_module
 from apps.smallstack.models import APIToken
 
 GREEN = "\033[32m"
@@ -29,32 +29,13 @@ RESET = "\033[0m"
 def _has_enable_mcp_classvar(source: str) -> bool:
     """True if ``source`` contains a real ``enable_mcp = True`` class attribute.
 
-    AST-based, not a substring match: the marker must be an ``Assign`` /
-    ``AnnAssign`` to a name ``enable_mcp`` with the constant ``True`` in a
-    ``ClassDef`` body. This ignores the same characters when they appear inside
-    a string literal, comment, or docstring — e.g. the runbook seed command
-    embeds a ``enable_mcp = True`` teaching example in its markdown content,
-    which the old substring scan flagged as an unregistered opt-in.
+    Thin wrapper over the shared AST check so this doctor and ``api_doctor``
+    agree on what counts as an opt-in. See ``has_enable_classvar`` — the marker
+    must be a class attribute, not the same characters in a string literal,
+    comment, or docstring (e.g. the runbook seed command embeds an
+    ``enable_mcp = True`` teaching example in its markdown content).
     """
-    try:
-        tree = ast.parse(source)
-    except SyntaxError:
-        return False
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ClassDef):
-            continue
-        for stmt in node.body:
-            if isinstance(stmt, ast.Assign):
-                names = [t.id for t in stmt.targets if isinstance(t, ast.Name)]
-                value = stmt.value
-            elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
-                names = [stmt.target.id]
-                value = stmt.value
-            else:
-                continue
-            if "enable_mcp" in names and isinstance(value, ast.Constant) and value.value is True:
-                return True
-    return False
+    return has_enable_classvar(source, "enable_mcp")
 
 
 class Command(BaseCommand):
@@ -297,7 +278,8 @@ class Command(BaseCommand):
     def _scan_for_enable_mcp_optins(self) -> list[tuple]:
         """Return (absolute_path, display_path) tuples for every .py file
         in an installed app containing `enable_mcp = True`, excluding
-        tests/ and migrations/. Used by _find_unregistered_optins to
+        test modules (see is_test_module) and migrations. Used by
+        _find_unregistered_optins to
         diff against the registered CRUDView source files."""
         from pathlib import Path
 
@@ -312,8 +294,7 @@ class Command(BaseCommand):
             except Exception:
                 continue
             for py_file in app_path.rglob("*.py"):
-                parts = py_file.parts
-                if "tests" in parts or "migrations" in parts:
+                if is_test_module(py_file) or "migrations" in py_file.parts:
                     continue
                 try:
                     source = py_file.read_text(encoding="utf-8", errors="ignore")

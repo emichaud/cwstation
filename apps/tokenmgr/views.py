@@ -15,6 +15,8 @@ the `is_owner_or_staff` helper.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -312,7 +314,7 @@ def token_stat_detail(request, stat_type: str) -> HttpResponse:
         try:
             from apps.activity.models import RequestLog
 
-            cutoff = timezone.now() - timezone.timedelta(hours=24)
+            cutoff = timezone.now() - timedelta(hours=24)
             counts = dict(
                 RequestLog.objects.filter(api_token__in=qs, timestamp__gte=cutoff)
                 .values_list("api_token")

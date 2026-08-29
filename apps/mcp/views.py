@@ -211,6 +211,9 @@ class McpHttpView(View):
             logger.warning("MCP AUTH failed method=%s reason=%s", method, auth_err)
             return resp
 
+        # auth_err is None ⇒ authenticate() returned a bound token/user pair.
+        assert token is not None
+
         # Bind a per-request ToolContext for any tool callback.
         ctx_token = set_context(ToolContext(user=user, token=token))
         try:
@@ -254,7 +257,7 @@ class McpHttpView(View):
 
             if method == "tools/call":
                 name = (params.get("name") or "").strip()
-                args = params.get("arguments") or {}
+                tool_args = params.get("arguments") or {}
                 tdef = TOOL_REGISTRY.get(name)
                 if tdef is None:
                     return _rpc_error(rpc_id, _RPC_METHOD_NOT_FOUND, f"Unknown tool: {name}")
@@ -272,9 +275,9 @@ class McpHttpView(View):
                 tool_started = time.perf_counter()
                 try:
                     if inspect.iscoroutinefunction(handler):
-                        result_value = asyncio.run(handler(args))
+                        result_value = asyncio.run(handler(tool_args))
                     else:
-                        result_value = handler(args)
+                        result_value = handler(tool_args)
                 except Exception as exc:
                     logger.exception("MCP TOOL exception tool=%s", name)
                     return _rpc_error(

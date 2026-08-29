@@ -1,7 +1,7 @@
 # Makefile for Django SmallStack
 # Run 'make help' to see available commands
 
-.PHONY: help run sim services migrate migrations superuser shell test coverage collectstatic docker-up docker-down lint lint-fix typecheck clean deploy logs backup screenshot-auth optimize-images mcp-doctor mcp-test api-test
+.PHONY: help run sim devices monitor services migrate migrations superuser shell test coverage collectstatic docker-up docker-down lint lint-fix typecheck install-hooks clean deploy logs backup screenshot-auth optimize-images mcp-doctor mcp-test api-test
 
 # Default port for development server
 PORT ?= 8010
@@ -27,8 +27,9 @@ help:
 	@echo "  make mcp-doctor   - Diagnose the MCP server (settings, URLs, registry, self-test)"
 	@echo "  make mcp-test     - End-to-end MCP smoke test (requires \`make run\` in another shell)"
 	@echo "  make api-test     - End-to-end REST API smoke test (requires \`make run\` in another shell)"
-	@echo "  make lint         - Run ruff linter"
-	@echo "  make typecheck    - Run mypy (scoped to typed apps; see [tool.mypy])"
+	@echo "  make lint         - Run ruff + mypy (the full static gate)"
+	@echo "  make typecheck    - Run mypy alone (lint already includes it)"
+	@echo "  make install-hooks - Install the git pre-commit hook (ruff + mypy)"
 	@echo "  make screenshot-auth - Generate shot-scraper auth JSON"
 	@echo "  make optimize-images - Optimize PNG images with pngquant"
 	@echo "  make clean        - Clean up generated files"
@@ -124,12 +125,19 @@ screenshot-auth:
 lint:
 	uv run ruff check .
 	uv run python scripts/check_django_comments.py
+	uv run mypy
 
 lint-fix:
 	uv run ruff check --fix .
 
 typecheck:
 	uv run mypy
+
+# Point git at the tracked .githooks/ dir so `git commit` runs ruff + mypy first.
+# One-time per clone; safe to re-run. Bypass a commit with `git commit --no-verify`.
+install-hooks:
+	git config core.hooksPath .githooks
+	@echo "Installed: core.hooksPath -> .githooks (pre-commit runs ruff + mypy)"
 
 # Kamal deployment (optional - requires Kamal to be installed and configured)
 # See /help/smallstack/kamal-deployment/ for setup guide

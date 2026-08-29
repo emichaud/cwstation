@@ -1,5 +1,7 @@
 """Explorer registration for the custom User model."""
 
+from datetime import timedelta
+
 from django.utils import timezone
 
 from apps.explorer.registry import explorer
@@ -29,28 +31,36 @@ class UsersDashboardWidget(DashboardWidget):
     def get_data(self, model_class=None):
         cls = model_class or User
         active_count = cls.objects.filter(is_active=True).count()
-        thirty_days_ago = timezone.now() - timezone.timedelta(days=30)
+        thirty_days_ago = timezone.now() - timedelta(days=30)
         new_count = cls.objects.filter(date_joined__gte=thirty_days_ago).count()
         return {"headline": f"{active_count} active", "detail": f"{new_count} new (30d)"}
 
 
-UserAdmin.explorer_list_fields = ("username", "email", "is_staff", "is_active")
-UserAdmin.explorer_column_widths = {
-    "username": "20%",
-    "email": "50%",
-    "is_staff": "15%",
-    "is_active": "15%",
-}
-UserAdmin.explorer_dashboard_widgets = [UsersDashboardWidget()]
-UserAdmin.explorer_displays = [
-    TableDisplay,
-    AvatarCardDisplay(
-        title_field="username",
-        subtitle_field="email",
-        show_avatar=True,  # no photo on User — initials only
-        pill_field=lambda u: u.date_joined.strftime("%Y") if u.date_joined else None,
-        pill_label="joined",
-    ),
-]
+setattr(UserAdmin, "explorer_list_fields", ("username", "email", "is_staff", "is_active"))
+setattr(
+    UserAdmin,
+    "explorer_column_widths",
+    {
+        "username": "20%",
+        "email": "50%",
+        "is_staff": "15%",
+        "is_active": "15%",
+    },
+)
+setattr(UserAdmin, "explorer_dashboard_widgets", [UsersDashboardWidget()])
+setattr(
+    UserAdmin,
+    "explorer_displays",
+    [
+        TableDisplay,
+        AvatarCardDisplay(
+            title_field="username",
+            subtitle_field="email",
+            show_avatar=True,  # no photo on User — initials only
+            pill_field=lambda u: u.date_joined.strftime("%Y") if u.date_joined else None,
+            pill_label="joined",
+        ),
+    ],
+)
 
 explorer.register(User, UserAdmin, group="Accounts")

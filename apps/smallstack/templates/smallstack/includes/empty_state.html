@@ -15,12 +15,18 @@
     secondary_label (str)
     no_card (bool)      — if true, skip the wrapping .card (caller already provides one)
 
-  Usage:
-    {% include "smallstack/includes/empty_state.html" with
-       title="No dashboard widgets available"
-       body="Register a DashboardWidget in your app's apps.py or use one of the built-in widgets."
-       cta_url=help_url
-       cta_label="See widget docs" %}
+  Usage — KEEP THE WHOLE TAG ON ONE LINE:
+    {% include "smallstack/includes/empty_state.html" with title="No widgets" body="Register a DashboardWidget in your app's apps.py." cta_url=help_url cta_label="See widget docs" %}
+
+  Django's tokenizer matches tags with `{%.*?%}` and no DOTALL, so a tag split
+  across lines is never parsed — it renders as literal template source in the
+  page. This example used to be wrapped for readability, and every caller that
+  copied it (the CRUD empty states, the dashboard, the MCP tools admin) shipped
+  raw `{% include ... %}` text to users. Long `body` copy is worth the long line.
+
+  Note also: passing `body="No "|add:noun` style strings makes `noun` a filter
+  ARGUMENT, which raises VariableDoesNotExist if it is missing instead of
+  rendering empty. Resolve such values via {% with %} with a default first.
 {% endcomment %}
 {% load static %}
 

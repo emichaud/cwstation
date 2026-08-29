@@ -1,0 +1,57 @@
+{% load theme_tags %}
+{% comment %}Everything the row had to truncate. Loaded on demand — a
+traceback can be 20 KB, and fifty inlined would dominate the page.{% endcomment %}
+<div style="padding: 12px 14px 14px 21px; border-top: 1px solid var(--card-border);">
+
+    <div style="font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 0.8125rem; color: var(--body-fg); white-space: pre-wrap; word-break: break-word; margin-bottom: 10px;">{{ log.message }}</div>
+
+    {% if log.exc_text %}
+    <div style="margin-bottom: 12px;">
+        <div style="font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 0.72rem; color: var(--error-fg); font-weight: 700; margin-bottom: 4px;">
+            {{ log.exc_type|default:"Traceback" }}
+        </div>
+        <pre style="margin: 0; padding: 10px 12px; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 6px; overflow-x: auto; max-height: 22rem; overflow-y: auto; font-size: 0.75rem; line-height: 1.45; color: var(--body-fg);">{{ log.exc_text }}</pre>
+    </div>
+    {% endif %}
+
+    {% if extra_items %}
+    <div style="margin-bottom: 12px;">
+        <div style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--body-quiet-color); font-weight: 600; margin-bottom: 4px;">Fields</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+            {% for key, value in extra_items %}
+            <span style="font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; background: var(--card-bg); border: 1px solid var(--card-border);">
+                <span style="color: var(--body-quiet-color);">{{ key }}</span>
+                <span style="color: var(--body-fg);">{{ value }}</span>
+            </span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <dl style="display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; font-size: 0.75rem;">
+        <dt style="color: var(--body-quiet-color);">Source</dt>
+        <dd style="margin: 0; font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);">{{ log.logger }} · {{ log.module }}.{{ log.func }}:{{ log.line }}</dd>
+
+        <dt style="color: var(--body-quiet-color);">Time</dt>
+        <dd style="margin: 0; font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);">{% localtime_tooltip log.ts "M d, Y H:i:s T" %}</dd>
+
+        {% if log.request_id %}
+        <dt style="color: var(--body-quiet-color);">Request</dt>
+        <dd style="margin: 0;">
+            {% comment %}The payoff of stamping request IDs onto records: one
+            click gives you every line that request produced, in order.{% endcomment %}
+            <a href="{% url 'telemetry:logs' %}?request_id={{ log.request_id|urlencode }}"
+               style="font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);">{{ log.request_id }}</a>
+            <span style="color: var(--body-quiet-color);">— see every line from this request</span>
+        </dd>
+        {% endif %}
+
+        {% if log.trace_id %}
+        <dt style="color: var(--body-quiet-color);">Trace</dt>
+        <dd style="margin: 0;">
+            <a href="{% url 'telemetry:logs' %}?trace_id={{ log.trace_id|urlencode }}"
+               style="font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);">{{ log.trace_id }}</a>
+        </dd>
+        {% endif %}
+    </dl>
+</div>

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any, Optional
 
 from django.contrib import messages
@@ -10,6 +11,7 @@ from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q, QuerySet
 from django.http import FileResponse, Http404, HttpRequest, HttpResponse, JsonResponse
+from django.http.response import HttpResponseBase
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -44,7 +46,7 @@ class RunbookDashboardView(LoginRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         user = self.request.user
         docs = permissions.viewable_documents(user, _current_docs())
-        seven_days_ago = timezone.now() - timezone.timedelta(days=7)
+        seven_days_ago = timezone.now() - timedelta(days=7)
 
         annotated = permissions.viewable_runbooks(user, Runbook.objects.annotate(
             section_count=Count("sections", distinct=True),
@@ -129,6 +131,7 @@ class RunbookCreateView(LoginRequiredMixin, CreateView):
         return super().form_valid(form)
 
     def get_success_url(self) -> str:
+        assert self.object is not None
         messages.success(self.request, f'Runbook "{self.object.name}" created.')
         return self.object.get_absolute_url()
 
@@ -338,7 +341,7 @@ class SectionCreateView(LoginRequiredMixin, CreateView):
     form_class = SectionForm
     template_name = "runbook/section_form.html"
 
-    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
         self.runbook = get_object_or_404(Runbook, slug=kwargs["slug"])
         if request.user.is_authenticated:
             _require_edit(request.user, self.runbook)
@@ -354,6 +357,7 @@ class SectionCreateView(LoginRequiredMixin, CreateView):
         return super().form_valid(form)
 
     def get_success_url(self) -> str:
+        assert self.object is not None
         messages.success(self.request, f'Section "{self.object.name}" created.')
         return self.object.get_absolute_url()
 
@@ -513,7 +517,7 @@ class DocumentCreateView(LoginRequiredMixin, CreateView):
     form_class = DocumentForm
     template_name = "runbook/document_form.html"
 
-    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
         self.runbook = get_object_or_404(Runbook, slug=kwargs["slug"])
         if request.user.is_authenticated:
             _require_edit(request.user, self.runbook)
@@ -545,6 +549,7 @@ class DocumentCreateView(LoginRequiredMixin, CreateView):
         return redirect(self.get_success_url())
 
     def get_success_url(self) -> str:
+        assert self.object is not None
         return self.object.get_absolute_url()
 
 
@@ -555,7 +560,7 @@ class DocumentCreateFromScratchView(LoginRequiredMixin, CreateView):
     form_class = DocumentCreateFromScratchForm
     template_name = "runbook/document_form.html"
 
-    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
         self.runbook = get_object_or_404(Runbook, slug=kwargs["slug"])
         if request.user.is_authenticated:
             _require_edit(request.user, self.runbook)
@@ -620,7 +625,7 @@ class DocumentUpdateView(LoginRequiredMixin, UpdateView):
     form_class = DocumentForm
     template_name = "runbook/document_form.html"
 
-    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
         doc = get_object_or_404(Document, pk=kwargs["pk"])
         if request.user.is_authenticated:
             _require_edit(request.user, doc)
@@ -797,7 +802,7 @@ class NewVersionView(LoginRequiredMixin, FormView):
     form_class = NewVersionForm
     template_name = "runbook/new_version_form.html"
 
-    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
         self.parent_doc = get_object_or_404(Document, pk=kwargs["pk"])
         if request.user.is_authenticated:
             _require_edit(request.user, self.parent_doc)
@@ -864,6 +869,8 @@ class DocumentEditContentView(LoginRequiredMixin, View):
         _require_edit(request.user, doc)
         if not _editable(request.user, doc):
             return _lock_redirect(request, doc)
+        if doc.file is None:
+            raise Http404("Document has no content.")
         raw = doc.file.read().decode("utf-8")
         doc.file.seek(0)
         return render(request, "runbook/document_edit_content.html", {
@@ -917,9 +924,11 @@ class ServeFileView(LoginRequiredMixin, View):
     def get(self, request: HttpRequest, pk: int) -> FileResponse:
         doc = get_object_or_404(Document, pk=pk)
         _require_view(request.user, doc)
+        if doc.file is None:
+            raise Http404("Document has no content.")
         download = request.GET.get("download")
         as_attachment = download is not None
-        filename = f"{doc.slug}.{doc.file_type}" if as_attachment else None
+        filename = f"{doc.slug}.{doc.file_type}" if as_attachment else ""
         return FileResponse(
             doc.file.open("rb"),
             content_type="text/markdown",
@@ -936,7 +945,7 @@ class ServeVersionView(LoginRequiredMixin, View):
         _require_view(request.user, version.document)
         download = request.GET.get("download")
         as_attachment = download is not None
-        filename = f"{version.document.slug}-v{version.version}.{version.file_type}" if as_attachment else None
+        filename = f"{version.document.slug}-v{version.version}.{version.file_type}" if as_attachment else ""
         return FileResponse(
             version.file.open("rb"),
             content_type="text/markdown",
@@ -1036,6 +1045,8 @@ class DownloadZipView(LoginRequiredMixin, View):
                     parts.append(rb.slug)
                 if sec:
                     parts.append(sec.slug)
+                if doc.file is None or not doc.file.name:
+                    continue
                 filename = os.path.basename(doc.file.name)
                 dir_parts = list(parts)  # folder the markdown lives in
                 parts.append(filename)
@@ -1085,7 +1096,7 @@ def _collect_doc_images(doc: Document, content: str, dir_parts: list[str]) -> tu
         serve_url = reverse("runbook:serve_image", kwargs={"pk": img.pk})
         if serve_url not in content:
             continue
-        ext = os.path.splitext(img.image.name)[1] or ".png"
+        ext = os.path.splitext(img.image.name or "")[1] or ".png"
         rel_ref = f"images/{img.pk}{ext}"
         content = content.replace(serve_url, rel_ref)
         zip_path = "/".join(dir_parts + [rel_ref]) if dir_parts else rel_ref
@@ -1156,11 +1167,11 @@ def _stat_link(url: str, text: str) -> str:
 
 
 def _rb_name(doc: Document) -> str:
-    return escape(doc.runbook.name) if doc.runbook_id else "—"
+    return escape(doc.runbook.name) if doc.runbook else "—"
 
 
 def _sec_name(doc: Document) -> str:
-    return escape(doc.section.name) if doc.section_id else "—"
+    return escape(doc.section.name) if doc.section else "—"
 
 
 def _get_stat_table(
@@ -1206,7 +1217,7 @@ def _get_stat_table(
         return columns, rows, "No documents yet."
 
     if stat_type == "recent":
-        seven_days_ago = timezone.now() - timezone.timedelta(days=7)
+        seven_days_ago = timezone.now() - timedelta(days=7)
         items = docs.filter(created_at__gte=seven_days_ago).order_by("-created_at")
         columns = [("Document", "left"), ("Runbook", "left"), ("Section", "left"), ("Added", "right")]
         rows = [

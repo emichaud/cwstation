@@ -24,11 +24,15 @@ def attach_display_helpers(page_obj: Page) -> Page:
           generator that silently empties on second iteration)
     """
     paginator = page_obj.paginator
-    page_obj.showing_start = page_obj.start_index()
-    page_obj.showing_end = page_obj.end_index()
-    page_obj.total_count = paginator.count
-    page_obj.page_range_display = list(
-        paginator.get_elided_page_range(page_obj.number, on_each_side=2, on_ends=1)
+    # Dynamic display attributes read by the pager templates — setattr keeps the
+    # type checker happy without subclassing Page.
+    setattr(page_obj, "showing_start", page_obj.start_index())
+    setattr(page_obj, "showing_end", page_obj.end_index())
+    setattr(page_obj, "total_count", paginator.count)
+    setattr(
+        page_obj,
+        "page_range_display",
+        list(paginator.get_elided_page_range(page_obj.number, on_each_side=2, on_ends=1)),
     )
     return page_obj
 
@@ -59,6 +63,7 @@ def paginate_queryset(queryset: Any, request: HttpRequest, page_size: int = 20, 
 class PaginationMixin:
     """CBV mixin providing a paginate() helper method."""
 
+    request: HttpRequest  # supplied by the View this mixin is combined with
     page_size = 20
 
     def paginate(self, queryset: Any, page_size: int | None = None) -> Page:

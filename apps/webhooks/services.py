@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import ipaddress
 import logging
+import re
 import socket
 from datetime import datetime
 from typing import Any
@@ -300,6 +301,104 @@ def available_events() -> list[str]:
     return ["*", "*.created", "*.updated", "*.deleted", *sorted(set(events))]
 
 
+_WILDCARD_HINTS = {
+    "*": "everything this instance emits",
+    "*.created": "any record is created",
+    "*.updated": "any record is updated",
+    "*.deleted": "any record is deleted",
+}
+
+
+_PATTERN_RE = re.compile(r"^[A-Za-z0-9_*?\[\]!-]+(\.[A-Za-z0-9_*?\[\]!-]+)*$")
+
+
+def validate_event_patterns(patterns: Any) -> list[str]:
+    """Shape-check an event_filter value; returns human-readable errors.
+
+    A malformed pattern is still valid JSON, so without this a typo (a pasted
+    `["*"]`, a space, a stray quote) sailed through every surface and became a
+    pattern that silently matches nothing — an endpoint that just never fires.
+    Shared by the endpoint form (HTML + REST + MCP + CLI all validate through
+    it) and the pairing view.
+
+    Only the SHAPE is checked: dot-separated tokens of word characters and
+    fnmatch wildcards (`*`, `?`, `[seq]`). A well-formed pattern matching no
+    known event is NOT an error — it may target custom or future events; use
+    ``unmatched_patterns`` to warn about those.
+    """
+    if not isinstance(patterns, list):
+        return ["event_filter must be a list of patterns."]
+    errors: list[str] = []
+    for p in patterns:
+        if not isinstance(p, str) or not p.strip():
+            errors.append(f"{p!r} is not an event pattern.")
+        elif not _PATTERN_RE.match(p):
+            errors.append(
+                f"“{p}” is not a valid pattern — patterns are dot-separated names "
+                "with * wildcards, e.g. support.ticket.* (no spaces, quotes, or brackets)."
+            )
+    return errors
+
+
+def unmatched_patterns(patterns: Any) -> list[str]:
+    """Well-formed patterns that match nothing this instance currently emits.
+
+    Advisory, never blocking: the pattern may target an event that appears
+    later (a model not yet opted in, a custom emitter). Returns [] when no
+    concrete events are known at all — on such an instance every pattern is
+    "unmatched" and the warning would be noise.
+    """
+    from fnmatch import fnmatch
+
+    known = [e for e in available_events() if "*" not in e]
+    if not known or not isinstance(patterns, list):
+        return []
+    return [
+        p
+        for p in patterns
+        if isinstance(p, str)
+        and _PATTERN_RE.match(p)
+        and not any(fnmatch(event, p) for event in known)
+    ]
+
+
+def describe_event_pattern(pattern: str) -> str:
+    """Plain-English hint for one event-filter pattern, for the picker UI.
+
+    Glob syntax reads as line noise to an operator ("what does *. mean?"), so
+    each option carries a description of when it fires. Model patterns resolve
+    the model's verbose name from the CRUDView registry; anything unrecognised
+    returns "" and the picker shows the bare pattern.
+    """
+    hint = _WILDCARD_HINTS.get(pattern)
+    if hint:
+        return hint
+    parts = pattern.split(".")
+    if len(parts) != 3:
+        return ""
+    app_label, model_name, action = parts
+    verbose = model_name
+    try:
+        from apps.smallstack.crud import CRUDView
+
+        for view in CRUDView._registry.values():
+            model = getattr(view, "model", None)
+            if (
+                model is not None
+                and model._meta.app_label == app_label
+                and model._meta.model_name == model_name
+            ):
+                verbose = str(model._meta.verbose_name)
+                break
+    except Exception:  # noqa: BLE001 — a hint must never break the form
+        pass
+    if action == "*":
+        return f"anything happens to a {verbose}"
+    if action in ("created", "updated", "deleted"):
+        return f"a {verbose} is {action}"
+    return f"{verbose}: {action}"
+
+
 def pairing_slug(target_url: str) -> str:
     """A **stable** default receiver slug for a pairing to ``target_url``.
 
@@ -360,7 +459,7 @@ def pair_smallstack(
     # --- outbound endpoint (A→B), idempotent among PAIRED objects only -------------------
     # Keyed on (target_url, is_paired=True): a re-pair adopts the paired endpoint it
     # created, but a hand-made endpoint to the same URL (is_paired=False) is never touched.
-    endpoint_defaults = {
+    endpoint_defaults: dict[str, Any] = {
         "name": f"{base} (out)",
         "event_filter": events,
         "transform": "smallstack",
@@ -397,7 +496,7 @@ def pair_smallstack(
             receiver_slug = f"{receiver_slug}-p"
         # Keyed on (slug, is_paired=True): same strictness — a hand-made receiver on the
         # same slug is not adopted.
-        receiver_defaults = {
+        receiver_defaults: dict[str, Any] = {
             "name": f"{base} (in)",
             "verifier": "hmac",
             "require_signature": True,

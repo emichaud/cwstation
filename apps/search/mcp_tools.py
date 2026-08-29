@@ -36,6 +36,7 @@ documentation).
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from asgiref.sync import sync_to_async
 
@@ -94,7 +95,7 @@ def register_search_tools(only_view=None) -> int:
     # one view when invoked as a late-registration hook).
     for view in ([only_view] if only_view is not None else all_views()):
         # Generate tools for each variant if view has SearchBuilder
-        variants = {}
+        variants: dict[str, Any] = {}
         if view.has_search_builder and hasattr(view.view_cls, 'get_search_variants'):
             try:
                 variants = view.view_cls().get_search_variants() or {}
