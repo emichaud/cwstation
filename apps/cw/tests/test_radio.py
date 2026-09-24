@@ -174,6 +174,39 @@ class TestOrphanReaping:
         finally:
             bystander.kill()
 
+    def test_probe_is_skipped_when_another_process_holds_the_dongle(
+        self, tmp_path, monkeypatch
+    ):
+        """A receiver started before an autoreload (or by a shell, or a second
+        runserver) is invisible to `_state`. Probing then can only fail to
+        claim the interface and return [] — and an empty scan is precisely the
+        false "No SDR detected" this page must never show."""
+        pidfile = tmp_path / "pid"
+        pidfile.write_text("4242")
+        monkeypatch.setattr(radiodaemon, "_PIDFILE", pidfile)
+        monkeypatch.setattr(radiodaemon, "_process_command", lambda pid: "rtl_fm")
+        monkeypatch.setattr(radiodaemon, "_devices_cache", [{"index": 0}])
+        monkeypatch.setattr(radiodaemon, "_state", {**radiodaemon._state, "proc": None})
+
+        def boom(*a, **k):  # pragma: no cover - must never run
+            raise AssertionError("rtl_test probed while a receiver was playing")
+
+        monkeypatch.setattr(radiodaemon.subprocess, "run", boom)
+        assert radiodaemon.list_devices(refresh=True) == [{"index": 0}]
+
+    def test_probe_runs_when_the_pidfile_process_is_not_rtl_fm(
+        self, tmp_path, monkeypatch
+    ):
+        """PIDs get recycled — a stale pidfile pointing at some unrelated
+        process must not lock the page out of ever rescanning."""
+        pidfile = tmp_path / "pid"
+        pidfile.write_text("4242")
+        monkeypatch.setattr(radiodaemon, "_PIDFILE", pidfile)
+        monkeypatch.setattr(radiodaemon, "_process_command", lambda pid: "Safari")
+        monkeypatch.setattr(radiodaemon, "_devices_cache", None)
+        monkeypatch.setattr(radiodaemon, "_state", {**radiodaemon._state, "proc": None})
+        assert radiodaemon._foreign_rtl_fm() is False
+
     def test_reaper_survives_garbage_pidfile(self, tmp_path, monkeypatch):
         pidfile = tmp_path / "pid"
         pidfile.write_text("not a pid")
@@ -196,6 +229,28 @@ class TestReceiverLifecycle:
         radiodaemon.start(100.3, sink=fake_sink([]))
         with pytest.raises(RadioError, match="already running"):
             radiodaemon.start(99.5, sink=fake_sink([]))
+
+    def test_a_sink_that_wont_open_fails_the_start_and_frees_the_dongle(self):
+        """The silent failure: rtl_fm tunes fine, the sound device doesn't
+        open, and the faceplate shows a healthy receiver playing nothing while
+        rtl_fm blocks on a full pipe still holding the exclusive dongle."""
+        @contextmanager
+        def _dead_sink():
+            raise OSError("Error opening RawOutputStream: Internal PortAudio error")
+            yield  # pragma: no cover - unreachable, makes this a generator
+
+        with pytest.raises(RadioError, match="no audio out"):
+            radiodaemon.start(100.3, sink=lambda: _dead_sink())
+
+        state = radiodaemon.status()
+        assert state["running"] is False, "the dongle must not stay claimed"
+        assert state["audio"] is False
+
+    def test_status_separates_tuned_from_playing(self):
+        radiodaemon.start(100.3, sink=fake_sink([]))
+        assert radiodaemon.status()["audio"] is True
+        radiodaemon.stop()
+        assert radiodaemon.status()["audio"] is False
 
 
 @pytest.mark.django_db

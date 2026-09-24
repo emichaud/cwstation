@@ -63,6 +63,11 @@ Sink = Callable[[bytes], None]
 
 _op_lock = threading.Lock()  # serialises whole operations (tune/stop/seek)
 _lock = threading.Lock()  # guards _state mutation
+# The sink opens in the pump thread, so a start can't tell on its own whether
+# audio actually came up. These two say so: _sink_open means PCM is flowing,
+# _sink_gone means the only reader of rtl_fm's stdout has quit.
+_sink_open = threading.Event()
+_sink_gone = threading.Event()
 _state: dict[str, Any] = {
     "proc": None,
     "freq_mhz": None,
@@ -107,6 +112,15 @@ def list_devices(refresh: bool = False) -> list[dict[str, Any]]:
         return _devices_cache
     if _state["proc"] is not None and _state["proc"].poll() is None:
         # Busy with our own rtl_fm — report what we last enumerated.
+        return _devices_cache or []
+    if _foreign_rtl_fm():
+        # Someone *else's* rtl_fm has the dongle: a receiver spawned before an
+        # autoreload, a `manage.py shell`, a second dev server. `_state` is
+        # blind to those. Probing anyway doesn't hurt the receiver (rtl_test
+        # just fails to claim the interface — verified), but it burns a
+        # subprocess to return [], and an empty result here is what strands the
+        # page on "No SDR detected". Same reason as the cache: never let a busy
+        # device masquerade as a missing one.
         return _devices_cache or []
     if not shutil.which("rtl_test"):
         return []
@@ -213,6 +227,17 @@ def nearest_gain(wanted: float, gains: list[float]) -> float:
     return min(gains, key=lambda g: abs(g - float(wanted)))
 
 
+def _open_output(sd: Any) -> Any:
+    """One attempt at an output stream, cleaned up if it won't start."""
+    stream = sd.RawOutputStream(samplerate=AUDIO_RATE, channels=1, dtype="int16")
+    try:
+        stream.start()
+    except Exception:
+        stream.close()
+        raise
+    return stream
+
+
 @contextmanager
 def _speaker_sink() -> Iterator[Sink]:
     """Play PCM out the machine's default sound device."""
@@ -223,8 +248,35 @@ def _speaker_sink() -> Iterator[Sink]:
             "Radio audio needs the 'sounddevice' package and PortAudio: "
             "uv sync --extra dev --extra live"
         ) from e
-    stream = sd.RawOutputStream(samplerate=AUDIO_RATE, channels=1, dtype="int16")
-    stream.start()
+
+    # PortAudio enumerates the sound devices once, when it initialises, and
+    # holds that list for the life of the process. A dev server stays up for
+    # days across sleeps, headphones, and a call grabbing the default output —
+    # and then opening a stream fails with paInternalError (-9986) while a
+    # freshly started process opens the very same speakers fine. That's the
+    # "faceplate says playing, nothing comes out" report: the sink throws, the
+    # pump thread dies, and rtl_fm keeps happily tuning to nobody.
+    #
+    # Re-initialising is the documented way to refresh that list. It's a
+    # process-global reset, so it would disturb a live-monitor capture or TX
+    # sidetone stream open at the same moment — hence only after a plain retry
+    # has also failed, by which point there is no audio to protect anyway.
+    try:
+        stream = _open_output(sd)
+    except Exception:
+        time.sleep(0.2)
+        try:
+            stream = _open_output(sd)
+        except Exception as first:
+            _log(f"audio device wouldn't open ({first}) — reinitialising PortAudio")
+            try:
+                sd._terminate()
+                sd._initialize()
+            except Exception as e:  # pragma: no cover - PortAudio internals
+                raise RadioError(f"The audio system wouldn't restart: {e}") from e
+            stream = _open_output(sd)
+            _log("audio device list refreshed")
+
     try:
         yield stream.write
     finally:
@@ -246,6 +298,7 @@ def _pump(proc: subprocess.Popen, sink_cm: Any) -> None:
     """Feed rtl_fm's stdout into the sink until the process ends."""
     try:
         with sink_cm() as write:
+            _sink_open.set()
             assert proc.stdout is not None
             while True:
                 chunk = proc.stdout.read(_CHUNK_BYTES)
@@ -255,6 +308,11 @@ def _pump(proc: subprocess.Popen, sink_cm: Any) -> None:
     except Exception as e:  # a dead sound device must not kill the process
         _state["error"] = str(e)
         _log(f"audio sink stopped: {e}")
+    finally:
+        # Whether it opened or not, this thread is the only reader of rtl_fm's
+        # stdout. Once it's gone the pipe fills and rtl_fm blocks forever,
+        # holding the exclusive dongle while producing nothing.
+        _sink_gone.set()
 
 
 def _drain_stderr(proc: subprocess.Popen) -> None:
@@ -276,6 +334,24 @@ def _process_command(pid: int) -> str:
     except (OSError, subprocess.TimeoutExpired):
         return ""
     return out.stdout.strip()
+
+
+def _foreign_rtl_fm() -> bool:
+    """Is there a live rtl_fm this process didn't spawn?
+
+    `_state` only knows about our own child. After an autoreload — or next to a
+    `manage.py shell`, or a second `runserver` someone left up — a receiver can
+    be playing with `_state["proc"]` set to None. The pidfile is the only
+    cross-process record of it, which is what makes this answerable at all.
+    """
+    try:
+        pid = int(_PIDFILE.read_text().strip())
+    except (OSError, ValueError):
+        return False
+    proc = _state["proc"]
+    if proc is not None and proc.poll() is None and proc.pid == pid:
+        return False  # that one's ours
+    return pid > 0 and _process_command(pid).endswith("rtl_fm")
 
 
 def _reap_stale() -> None:
@@ -368,6 +444,8 @@ def _start_locked(
         argv.append("-")
         _state["log"].clear()
         _state["error"] = ""
+        _sink_open.clear()
+        _sink_gone.clear()
         _log("$ " + " ".join(argv))
         try:
             proc = subprocess.Popen(
@@ -398,6 +476,16 @@ def _start_locked(
                 "Close it and try again."
             )
         raise RadioError("rtl_fm exited immediately — " + (tail or "no output"))
+
+    # rtl_fm is alive, but that only means it tuned. If the sink never opened,
+    # the receiver would sit there "playing" in silence — the one failure this
+    # page used to hide, because the poll only reports an error once the
+    # process dies and this process is perfectly healthy. Fail the start
+    # instead, and let go of the dongle on the way out.
+    if not _sink_open.wait(2.0):
+        reason = _state["error"] or "the audio device wouldn't open"
+        _stop_locked()
+        raise RadioError(f"Tuned {freq:g} MHz, but there's no audio out — {reason}")
     return status()
 
 
@@ -465,6 +553,9 @@ def status() -> dict[str, Any]:
     running = proc is not None and proc.poll() is None
     return {
         "running": running,
+        # Tuned and playing are different things: rtl_fm can be perfectly alive
+        # while the sound device is gone. The faceplate needs to tell them apart.
+        "audio": running and _sink_open.is_set() and not _sink_gone.is_set(),
         "pid": proc.pid if running else None,
         "freq_mhz": _state["freq_mhz"] if running else None,
         "band": {"low": FM_BAND_MHZ[0], "high": FM_BAND_MHZ[1]},

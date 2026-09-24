@@ -127,6 +127,13 @@
         if (!s.running && state.running) {
           say("The receiver stopped." + (s.error ? " " + s.error : ""), "warn");
         }
+        // Tuned but silent: rtl_fm is fine and the sound device isn't. Worth
+        // saying out loud — this used to look identical to working.
+        if (s.running && !s.audio && state.audio !== false) {
+          say("Tuned, but no audio is coming out." +
+              (s.error ? " " + s.error : "") +
+              " Check the output device, then press Stop and tune again.", "error");
+        }
         state = Object.assign({}, state, s);
         if (!s.running) { renderState(s); }
       });

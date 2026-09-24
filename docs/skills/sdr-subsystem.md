@@ -119,6 +119,50 @@ constant by the chip count), and the **instant check skips bands slower than
 `QUICK_DWELL_S`** — always-on isn't enough to earn a place in a button called
 instant.
 
+### 7b. Tuned is not playing — and PortAudio's device list goes stale
+
+A real report: the faceplate said playing, the dongle was tuned, and there was
+no sound. The log had it — `audio sink stopped: Error opening RawOutputStream:
+Internal PortAudio error [PaErrorCode -9986]`.
+
+**PortAudio enumerates the sound devices once, when it initialises, and holds
+that list for the life of the process.** A dev server that has been up for days
+— across sleeps, headphones, a call grabbing the default output — then fails to
+open a stream, while a freshly started process opens the very same speakers
+fine. That asymmetry is the fingerprint; if a restart "fixes" the audio, this
+was it.
+
+Three things follow, all in `radiodaemon.py`:
+
+- `_speaker_sink` retries once plainly, then re-initialises PortAudio
+  (`sd._terminate()` / `sd._initialize()`) to refresh the list and tries again.
+  That reset is **process-global** — it would disturb a live-monitor capture or
+  TX sidetone stream — so it only happens after a plain retry has also failed,
+  by which point there is no audio to protect.
+- The sink opens on the **pump thread**, so `start()` can't see the failure
+  inline. `_sink_open` / `_sink_gone` bridge that: a start that never gets
+  audio stops `rtl_fm` and raises, rather than leaving it blocked on a full
+  pipe holding the exclusive dongle.
+- `status()` reports **`audio`** separately from `running`, and `radio.js` says
+  so while running. The old poll only reported errors once the process died —
+  and in this failure the process is perfectly healthy, which is precisely why
+  the one mode that produces silence was the one the UI couldn't show.
+
+### 7c. `_reap_stale()` reaps across processes — mind the second server
+
+The pidfile is global to the machine, and `_reap_stale()` cannot distinguish a
+live receiver owned by *another* process from an orphan. So **any second
+process that starts a receiver kills the first one's** — a `manage.py shell`, a
+pytest run, a second `runserver` someone left up. That's by design (it's what
+makes Stop work across an autoreload), but it means a stray dev server turns
+into mysterious mid-song deaths. Check `lsof -nP -iTCP:8010 -sTCP:LISTEN`
+against `ps` before blaming the code.
+
+Relatedly, `list_devices()` skips probing when `_foreign_rtl_fm()` sees one.
+Probing wouldn't hurt the receiver — `rtl_test` just fails to claim the
+interface — but it returns `[]`, and an empty scan is the false "No SDR
+detected" rule 6 exists to prevent.
+
 ### 8. Only RTL sticks are detected
 
 Everything goes through `rtl_test`/`rtl_fm`/`rtl_power`. SDRplay, Airspy and
