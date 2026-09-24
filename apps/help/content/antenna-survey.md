@@ -10,9 +10,11 @@ table puts the numbers side by side.
 
 ## The two buttons
 
-**⚡ Instant check** — sweeps the always-on bands (~7 s) and shows the result.
-No name, nothing saved. This is the one to use while you're physically holding an
-antenna, or to see whether a band is worth listening to right now.
+**⚡ Instant check** — sweeps the quick always-on bands (~7 s) and shows the
+result. No name, nothing saved. This is the one to use while you're physically
+holding an antenna, or to see whether a band is worth listening to right now.
+UHF TV is always-on too but too wide to sweep quickly, so it sits out of this
+button — tick it and use **Save as a run** when you want it.
 
 **Save as a run** — sweeps the bands you ticked, under an antenna name, and keeps
 it. Saved runs are what the comparison table is built from.
@@ -51,6 +53,8 @@ Bands tagged **always on** carry transmitters that never stop:
 - **10 m beacons** (28.2–28.3 MHz) — the IBP beacon network, around the clock.
 - **WWV 10 MHz** — the time station, 24/7. The best HF check, if your hardware
   reaches HF at all.
+- **UHF TV** (470–608 MHz) — broadcast television, channels 14–36. High power,
+  never signs off, and the only band in the list above 200 MHz.
 
 A change in one of these **is** a change in your antenna.
 
@@ -94,9 +98,33 @@ judge an antenna by it.
 | Airband | 118–137 MHz | Bursty — a low reading may just mean no traffic |
 | 2 m ham | 144–148 MHz | |
 | NOAA weather | 162.4–162.56 MHz | Always on |
+| UHF TV | 470–608 MHz | Always on. Wide — ~14 s on its own |
 
 Bands tagged **HF** sit below the ~24 MHz tuner floor. They're swept if you ask,
 but a plain RTL stick will read flat — see [SDR Hardware](sdr-hardware).
+
+### About the UHF TV band
+
+It's here as a **measurement**, not a receiver. The dongle can't watch or decode
+television: its built-in demodulator is DVB-T, while US broadcast is ATSC, and a
+6 MHz TV channel is wider than the ~2.4 MHz an RTL stick can sample. What it can
+do is see the transmitters, and they're excellent test signals — high power,
+on the air permanently, and usually all on one tower cluster, so the reading is
+directional as well as strong.
+
+Its value is that it's the **only band here above 200 MHz**. Coax loss, connector
+problems and a too-short element all get worse with frequency: an antenna can
+look fine on FM and 2 m and still fall apart at UHF. If your UHF TV number is
+weak while NOAA is strong, suspect the feedline before the antenna.
+
+Two quirks of a band this wide, both handled for you:
+
+- **It dwells longer.** 138 MHz takes ~58 retunes to cover, so it gets a 12 s
+  integration instead of the usual 2 s. The estimate on the page accounts for it.
+- **Its noise floor is measured differently.** In a strong TV market most of the
+  band *is* signal, so the usual median would land inside a station and report
+  "nothing heard" on the loudest thing your dongle can hear. This band uses a
+  lower percentile instead. Numbers on every other band are unchanged.
 
 ---
 
@@ -125,7 +153,8 @@ progress.
 ## Notes
 
 - Surveys are **per operator** — yours are yours.
-- A sweep takes about **2 seconds per band**; the estimate updates as you tick.
+- A sweep takes about **2 seconds per band** — more for a wide one like UHF TV;
+  the estimate updates as you tick.
 - The dongle does one thing at a time: a survey is refused while the
   [FM Radio](fm-radio) is playing. Press Stop there first.
 - Press **rescan** after swapping dongles — the device list is cached.

@@ -21,7 +21,11 @@
   var selected = [];
   var poll = null;
   var lastSaved = true;
-  var SECONDS_PER_BAND = 2.4;  // measured; keeps the estimate honest
+  var SWEEP_OVERHEAD = 1.2;   // measured: a sweep costs ~20% over its dwell
+  var DEFAULT_DWELL_S = 2;    // matches bandscan.DWELL_S
+  // A band that dwells longer than this is too slow to belong in the instant
+  // check, however always-on it is. UHF TV is 138 MHz wide and takes ~14 s.
+  var QUICK_DWELL_S = 4;
 
   function get(query) {
     return fetch(cfg.url + (query || ""), { credentials: "same-origin" })
@@ -168,8 +172,24 @@
     $("sv-gain-val").textContent = Number(gainValue()).toFixed(1) + " dB";
   }
 
+  function bandByKey(key) {
+    for (var i = 0; i < bands.length; i++) {
+      if (bands[i].key === key) return bands[i];
+    }
+    return null;
+  }
+
+  function bandSeconds(b) {
+    return (b.dwell_s || DEFAULT_DWELL_S) * SWEEP_OVERHEAD;
+  }
+
+  /* Bands no longer cost the same — a wide one dwells longer — so the estimate
+     sums their dwells instead of counting chips. */
   function updateEstimate() {
-    var secs = Math.round(selected.length * SECONDS_PER_BAND);
+    var secs = Math.round(selected.reduce(function (total, key) {
+      var b = bandByKey(key);
+      return total + (b ? bandSeconds(b) : DEFAULT_DWELL_S * SWEEP_OVERHEAD);
+    }, 0));
     $("sv-est").textContent = selected.length ? "~" + secs + " s" : "pick a band";
   }
 
@@ -403,11 +423,13 @@
     }, "Sweeping…");
   });
 
-  // Instant check: the always-on bands only. They're the ones whose reading
-  // actually tracks the antenna, and limiting to them keeps it quick.
+  // Instant check: the always-on bands only, and only the quick ones. They're
+  // the ones whose reading actually tracks the antenna; skipping the slow ones
+  // is what keeps this button worth its name (tick UHF TV to include it).
   $("sv-quick").addEventListener("click", function () {
-    var refs = bands.filter(function (b) { return b.reference; })
-                    .map(function (b) { return b.key; });
+    var refs = bands.filter(function (b) {
+      return b.reference && bandSeconds(b) <= QUICK_DWELL_S * SWEEP_OVERHEAD;
+    }).map(function (b) { return b.key; });
     launch({
       action: "start", save: false,
       bands: refs.length ? refs : selected, gain_db: gainValue(),

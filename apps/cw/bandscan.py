@@ -31,8 +31,10 @@ from typing import Any
 
 from .radiodaemon import RadioError
 
-# Integration time per band. 2 s is enough for a stable median floor at these
-# step sizes and keeps a full survey under ~20 s.
+# Default integration time per band. 2 s is enough for a stable median floor at
+# these step sizes and keeps a full survey under ~20 s. `rtl_power` splits the
+# interval across the ~2.4 MHz hops it needs to cover a range, so a band wider
+# than a few MHz has to raise it — see `Band.dwell_s`.
 DWELL_S = 2
 DEFAULT_GAIN_DB = 40.0
 # Above this much over the band's median floor, a bin counts as a real signal.
@@ -46,7 +48,7 @@ class Band:
     def __init__(
         self, key: str, label: str, low_mhz: float, high_mhz: float,
         step_khz: float, reference: bool = False, note: str = "",
-        hf: bool = False,
+        hf: bool = False, dwell_s: int = DWELL_S, floor_pct: int = 50,
     ) -> None:
         self.key = key
         self.label = label
@@ -59,13 +61,22 @@ class Band:
         # RTL-SDR Blog V3/V4) or an upconverter. Swept anyway when asked —
         # a flat result is how an operator learns their stick can't go there.
         self.hf = hf
+        # `rtl_power` divides one integration interval across every ~2.4 MHz
+        # hop in the range and warns it goes "buggy if a full sweep takes
+        # longer than the interval". A 138 MHz band is ~58 hops, so it needs a
+        # dwell to match or each hop gets milliseconds and the floor is noise.
+        self.dwell_s = dwell_s
+        # Which percentile of the bins counts as the noise floor. 50 (median)
+        # is right for a mostly-empty band and is what every stored survey was
+        # scored with. A mostly-*occupied* band needs lower — see `_floor_db`.
+        self.floor_pct = floor_pct
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "key": self.key, "label": self.label,
             "low_mhz": self.low_mhz, "high_mhz": self.high_mhz,
             "step_khz": self.step_khz, "reference": self.reference,
-            "note": self.note, "hf": self.hf,
+            "note": self.note, "hf": self.hf, "dwell_s": self.dwell_s,
         }
 
 
@@ -98,6 +109,15 @@ BANDS: list[Band] = [
     Band("2m", "2 m ham", 144.0, 148.0, 5),
     Band("noaa", "NOAA weather", 162.4, 162.56, 2, reference=True,
          note="Transmits 24/7 — the single best antenna comparison signal"),
+    # US ATSC channels 14–36. The dongle cannot *decode* this (its demodulator
+    # is DVB-T, and one 6 MHz channel is wider than the ~2.4 MHz an RTL stick
+    # can sample) but it measures it fine, and each channel is a high-power
+    # transmitter that never signs off. It's the only band here above 200 MHz,
+    # so it's the one that catches an antenna falling apart at UHF.
+    Band("uhf_tv", "UHF TV", 470.0, 608.0, 250, reference=True,
+         dwell_s=12, floor_pct=20,
+         note="TV channels 14–36 — always on, and the only UHF check here. "
+              "Wide, so it takes ~14 s on its own"),
 ]
 
 BANDS_BY_KEY = {b.key: b for b in BANDS}
@@ -142,7 +162,7 @@ def sweep_band(
     argv = [
         "rtl_power",
         "-f", f"{band.low_mhz:g}M:{band.high_mhz:g}M:{band.step_khz:g}k",
-        "-i", str(DWELL_S), "-1",
+        "-i", str(band.dwell_s), "-1",
         "-d", str(int(device_index)),
         "-g", f"{gain_db:.1f}",
     ]
@@ -152,7 +172,9 @@ def sweep_band(
         argv.append("-D")
     argv.append(str(out_path))
     try:
-        subprocess.run(argv, capture_output=True, text=True, timeout=DWELL_S + 40)
+        subprocess.run(
+            argv, capture_output=True, text=True, timeout=band.dwell_s + 40
+        )
     except subprocess.TimeoutExpired as e:
         raise RadioError(f"{band.label}: sweep timed out") from e
     except OSError as e:
@@ -192,11 +214,29 @@ def _parse_in_band(text: str, band: Band) -> list[tuple[float, float]]:
     return bins
 
 
+def _floor_db(dbs: list[float], pct: int) -> float:
+    """The band's noise floor, as a percentile of its bins.
+
+    `pct == 50` takes `statistics.median` verbatim — that is what every stored
+    survey was scored with, and changing it by a fraction of a dB would quietly
+    break comparisons against runs already in the table.
+
+    A band that is mostly *occupied* needs a lower percentile. Over UHF TV in a
+    dense market the majority of bins sit inside a 6 MHz haystack, so the median
+    lands on signal and the strongest thing the stick can hear scores as
+    "nothing heard" — the one false reading this tool must not produce.
+    """
+    if pct == 50:
+        return statistics.median(dbs)
+    ordered = sorted(dbs)
+    return ordered[min(len(ordered) - 1, len(ordered) * pct // 100)]
+
+
 def summarize(band: Band, bins: list[tuple[float, float]]) -> dict[str, Any]:
     """Score one band: floor, strongest peak, and how many bins clear the gate.
 
-    `snr_db` — peak minus median floor — is the number to compare between
-    antennas. The absolute floor is reported too because a bigger antenna
+    `snr_db` — peak minus the band's noise floor — is the number to compare
+    between antennas. The absolute floor is reported too because a bigger antenna
     hearing more atmospheric noise is itself a signal that it's working.
     """
     if len(bins) < 4:
@@ -206,7 +246,7 @@ def summarize(band: Band, bins: list[tuple[float, float]]) -> dict[str, Any]:
             "peak_mhz": None, "signals": 0, "bins": len(bins),
         }
     dbs = [db for _, db in bins]
-    floor = statistics.median(dbs)
+    floor = _floor_db(dbs, band.floor_pct)
     peak_mhz, peak_db = max(bins, key=lambda pair: pair[1])
     return {
         **band.as_dict(),

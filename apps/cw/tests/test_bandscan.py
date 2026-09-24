@@ -49,6 +49,34 @@ class TestScoring:
         assert out["snr_db"] < 1.0
         assert out["signals"] == 0
 
+    def test_a_mostly_occupied_band_still_reports_its_signal(self):
+        """UHF TV is contiguous 6 MHz channels, so in a strong market most bins
+        *are* signal and a median floor lands inside a haystack — scoring the
+        loudest thing the stick can hear as "nothing heard". The low floor
+        percentile on that band is what stops it."""
+        band = bandscan.BANDS_BY_KEY["uhf_tv"]
+        # 70% of the range occupied at -20 dB, the rest noise at -50 dB
+        bins = [(470.0 + i * 0.25, -20.0 if i % 10 < 7 else -50.0)
+                for i in range(400)]
+        out = bandscan.summarize(band, bins)
+        assert out["floor_db"] == pytest.approx(-50.0, abs=0.1)
+        assert out["snr_db"] == pytest.approx(30.0, abs=0.1)
+        assert bandscan.verdict(out["snr_db"]) == "strong"
+
+    def test_the_median_floor_is_unchanged_for_every_other_band(self):
+        """Stored surveys were scored with `statistics.median`; any drift would
+        silently invalidate comparisons against runs already in the table."""
+        import statistics
+
+        dbs = [-30.0, -29.0, -31.0, -28.0, -32.0, -27.0]
+        for b in bandscan.BANDS:
+            if b.floor_pct != 50:
+                continue
+            bins = [(b.low_mhz + i * 0.001, db) for i, db in enumerate(dbs)]
+            assert bandscan.summarize(b, bins)["floor_db"] == round(
+                statistics.median(dbs), 1
+            ), b.key
+
     def test_too_few_bins_is_no_data_not_a_crash(self):
         out = bandscan.summarize(bandscan.BANDS_BY_KEY["fm"], [(88.1, -20.0)])
         assert out["snr_db"] is None and out["floor_db"] is None
@@ -74,7 +102,7 @@ class TestBandTable:
         """Reference bands are what make an antenna comparison valid; if one
         stops being always-on it should be demoted deliberately, not silently."""
         refs = {b.key for b in bandscan.BANDS if b.reference}
-        assert refs == {"fm", "noaa", "10m_beacon", "wwv"}
+        assert refs == {"fm", "noaa", "10m_beacon", "wwv", "uhf_tv"}
 
     def test_defaults_include_a_reference_band(self):
         default = set(bandscan.DEFAULT_BAND_KEYS)
@@ -84,6 +112,24 @@ class TestBandTable:
         for b in bandscan.BANDS:
             assert b.low_mhz < b.high_mhz, b.key
             assert b.step_khz > 0, b.key
+
+    def test_wide_bands_dwell_long_enough_to_hop_the_range(self):
+        """rtl_power splits one interval across every ~2.4 MHz hop and goes
+        "buggy if a full sweep takes longer than the interval". A band left on
+        the 2 s default while spanning 100+ MHz measures nothing but retune
+        overhead, and it would look exactly like a dead antenna."""
+        hop_mhz = 2.4
+        for b in bandscan.BANDS:
+            hops = max(1, round((b.high_mhz - b.low_mhz) / hop_mhz))
+            # 100 ms a hop is the floor for a settled, meaningful reading
+            assert b.dwell_s >= hops * 0.1, f"{b.key}: {hops} hops in {b.dwell_s}s"
+
+    def test_step_keeps_every_band_under_a_few_thousand_bins(self):
+        """The stored survey and the comparison matrix are per band, not per
+        bin, but a runaway bin count makes a sweep crawl for no added detail."""
+        for b in bandscan.BANDS:
+            bins = (b.high_mhz - b.low_mhz) * 1000 / b.step_khz
+            assert bins <= 2000, f"{b.key}: {bins:.0f} bins"
 
     def test_hf_flag_matches_the_tuner_floor(self):
         """`hf` decides whether direct sampling is applied to a band, so it has
@@ -317,6 +363,32 @@ class TestDeviceAndDirectSampling:
         assert argv[argv.index("-d") + 1] == "3"
         assert "-D" in argv
         assert "-E" not in argv, "that's rtl_fm's spelling, not rtl_power's"
+
+    def test_sweep_uses_the_bands_own_dwell(self, monkeypatch):
+        """`-i` is per band, not global: a wide band needs a long interval or
+        rtl_power spends it all hopping."""
+        seen: dict[str, list[str]] = {}
+
+        class _Done:
+            stdout = ""
+            stderr = ""
+
+        def fake_run(argv, **kw):
+            seen["argv"] = argv
+            from pathlib import Path
+            Path(argv[-1]).write_text(
+                "2026-08-29, 16:00:00, 470000000, 608000000, 250000, 64, "
+                "-30, -30, -30, -30, -30, -30, -30, -30\n"
+            )
+            return _Done()
+
+        monkeypatch.setattr(bandscan.subprocess, "run", fake_run)
+        monkeypatch.setattr(bandscan.shutil, "which", lambda n: "/usr/bin/" + n)
+        wide = bandscan.BANDS_BY_KEY["uhf_tv"]
+        bandscan.sweep_band(wide, 40.0)
+        argv = seen["argv"]
+        assert argv[argv.index("-i") + 1] == str(wide.dwell_s)
+        assert wide.dwell_s > bandscan.DWELL_S
 
 
 @pytest.mark.django_db

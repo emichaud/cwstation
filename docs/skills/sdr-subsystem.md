@@ -88,8 +88,36 @@ The antenna survey is a *measurement tool*, so its numbers have to be honest:
 - SNR (peak over median floor) is the metric, **not** absolute power — a bigger
   antenna raises the noise floor too.
 - Bands carry a `reference` flag for always-on transmitters (FM, NOAA, 10 m
-  beacons, WWV). A quiet ham band measures propagation, not hardware, and the UI
-  says so. If you add a band, set `reference` only if it truly never stops.
+  beacons, WWV, UHF TV). A quiet ham band measures propagation, not hardware,
+  and the UI says so. If you add a band, set `reference` only if it truly never
+  stops.
+
+### 7a. A wide band needs `dwell_s` and `floor_pct` — the defaults are for narrow ones
+
+Both defaults on `Band` are tuned for the ≤20 MHz bands that came first. A wide
+band (UHF TV is 138 MHz) breaks them in ways that look exactly like a bad antenna:
+
+- **`dwell_s`.** `rtl_power` splits one `-i` interval across every ~2.4 MHz hop
+  in the range, and its own help says it is "buggy if a full sweep takes longer
+  than the interval". 138 MHz is ~58 hops; on the 2 s default each hop gets
+  ~34 ms, which is retune overhead, not a measurement. UHF TV uses 12 s.
+  `test_wide_bands_dwell_long_enough_to_hop_the_range` pins ≥100 ms a hop.
+- **`floor_pct`.** `summarize()` scores peak-over-floor, and the floor is the
+  median. That assumes the band is mostly empty. UHF TV is contiguous 6 MHz
+  channels, so in a strong market most bins *are* signal — the median lands
+  inside a haystack and the loudest thing the stick can hear scores "nothing
+  heard". UHF TV uses the 20th percentile.
+
+`floor_pct == 50` takes `statistics.median` **verbatim**, not an equivalent
+percentile — stored `AntennaSurvey` rows were scored that way and a fraction of
+a dB of drift would silently invalidate comparison against them. Don't
+"simplify" that branch away; `test_the_median_floor_is_unchanged_for_every_other_band`
+guards it.
+
+Also: the survey page's time estimate sums `dwell_s` (it used to multiply a flat
+constant by the chip count), and the **instant check skips bands slower than
+`QUICK_DWELL_S`** — always-on isn't enough to earn a place in a button called
+instant.
 
 ### 8. Only RTL sticks are detected
 
