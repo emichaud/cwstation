@@ -164,6 +164,7 @@ class ScheduledJobCRUDView(CRUDView):
         "enabled",
         "allow_overlap",
         "catch_up",
+        "max_retries",
     ]
     list_fields = ["name", "cadence", "enabled", "last_status", "next_run_at", "total_runs"]
     link_field = "name"

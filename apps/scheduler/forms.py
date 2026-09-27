@@ -32,12 +32,14 @@ class ScheduledJobForm(forms.ModelForm):
             "enabled",
             "allow_overlap",
             "catch_up",
+            "max_retries",
         ]
         widgets = {
             "description": forms.Textarea(attrs={"rows": 2, "class": "vTextField"}),
             "kwargs": forms.Textarea(attrs={"rows": 3, "class": "vTextField", "spellcheck": "false"}),
             "interval_spec": forms.TextInput(attrs={"placeholder": "5m, 2h, 1d, 90d, 1mo, 1y"}),
             "cron_expression": forms.TextInput(attrs={"placeholder": "0 6 * * *"}),
+            "max_retries": forms.NumberInput(attrs={"min": 0, "max": 10}),
         }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:

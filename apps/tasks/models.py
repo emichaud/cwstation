@@ -1,0 +1,76 @@
+"""Worker liveness for the django-tasks-db queue.
+
+``django-tasks-db`` records which worker claimed a task (``worker_ids[-1]``)
+but not whether that worker is still alive, so a task whose worker is
+SIGKILLed / OOM-killed / replaced mid-run stays ``RUNNING`` forever.
+SmallStack's ``db_worker`` (``management/commands/db_worker.py``) writes one
+:class:`WorkerHeartbeat` row per worker process and refreshes it on a timer;
+``reaper.reap_lost_tasks()`` uses those rows to tell a long task from a dead one.
+"""
+
+from __future__ import annotations
+
+from django.db import models
+
+
+class WorkerHeartbeat(models.Model):
+    """One row per ``db_worker`` process, keyed by its ``--worker-id``."""
+
+    worker_id = models.CharField(max_length=64, unique=True)
+    hostname = models.CharField(max_length=255, blank=True)
+    pid = models.PositiveIntegerField(null=True, blank=True)
+    queues = models.CharField(max_length=255, blank=True, help_text="The worker's --queue-name value.")
+    started_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(db_index=True)
+    # Set on clean exit (and on a forced second-signal exit). A RUNNING task
+    # whose worker has stopped_at is lost immediately, no staleness wait.
+    stopped_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-last_seen_at"]
+        verbose_name = "Worker heartbeat"
+        verbose_name_plural = "Worker heartbeats"
+
+    def __str__(self) -> str:
+        state = "stopped" if self.stopped_at else "running"
+        return f"{self.worker_id} ({self.hostname or '?'}:{self.pid or '?'}, {state})"
+
+
+class TaskAttempt(models.Model):
+    """Links one ``DBTaskResult`` to the attempt chain it belongs to.
+
+    Every retry is a fresh ``DBTaskResult`` (so each attempt keeps its own
+    traceback); this row records which result it retried (``parent_id``) and
+    the chain's first result (``root_id``). The first attempt has no row unless
+    something needs to pin a per-chain override (``max_attempts``) — a result
+    id with no row is attempt 1 of a chain rooted at itself.
+
+    ``parent_id`` is unique: whichever of the worker's signal receiver, the
+    reaper, or the repair sweep retries a failed attempt first wins, and any
+    other path's insert rolls back with its enqueue — never two retries.
+    """
+
+    class Cause(models.TextChoices):
+        FIRST = "first", "First attempt"
+        FAILED = "failed", "Task raised"
+        LOST = "lost", "Worker lost"
+        INTERRUPTED = "interrupted", "Worker force-stopped"
+        MANUAL = "manual", "Manual retry"
+
+    result_id = models.UUIDField(unique=True)
+    root_id = models.UUIDField(db_index=True)
+    parent_id = models.UUIDField(unique=True, null=True, blank=True)
+    attempt = models.PositiveSmallIntegerField(default=1)
+    cause = models.CharField(max_length=16, choices=Cause.choices, default=Cause.FIRST)
+    # Per-chain override of the task's retry policy (e.g. a scheduled job's
+    # max_retries + 1). Copied onto each retry so the chain keeps it.
+    max_attempts = models.PositiveSmallIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["root_id", "attempt"]
+        verbose_name = "Task attempt"
+        verbose_name_plural = "Task attempts"
+
+    def __str__(self) -> str:
+        return f"{self.result_id} (attempt {self.attempt} of chain {self.root_id}, {self.cause})"

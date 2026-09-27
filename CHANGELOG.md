@@ -9,6 +9,64 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+### Added
+- **Lost tasks no longer stay `RUNNING` forever.** `django-tasks-db` never
+  finished a task whose worker was SIGKILLed, OOM-killed or replaced mid-run.
+  SmallStack now ships its own `db_worker`, which shadows the upstream command
+  (same arguments; every existing entrypoint, compose, Kamal and dev-script
+  invocation picks it up unchanged). Each worker writes a `WorkerHeartbeat` row
+  (`apps.tasks`), refreshes it every `SMALLSTACK_TASKS_HEARTBEAT_SECONDS` (15),
+  and runs a reaper at startup and about once a minute. The reaper fails a
+  `RUNNING` task as `apps.tasks.exceptions.WorkerLost` when its worker exited, or
+  hasn't heartbeated for `SMALLSTACK_TASKS_LOST_AFTER_SECONDS` (90), or has no
+  heartbeat row at all and the task started more than
+  `SMALLSTACK_TASKS_ORPHAN_SECONDS` (86400) ago. The traceback's last line
+  explains why (host, pid, last seen), and the scheduler's run summary shows it.
+  The update is conditional on `status=RUNNING`, so a late finish always wins
+  and concurrent reapers are safe. `manage.py reap_tasks [--dry-run]` runs a
+  pass by hand. `SMALLSTACK_TASKS_HEARTBEAT_ENABLED=False` turns the worker back
+  into a plain pass-through. New migration: `tasks.0001_initial`; run
+  `migrate`.
+- **Task retries with backoff** (`apps/tasks/reliability.py`). Put
+  `@retry_policy(max_attempts=3, backoff=5, backoff_max=600, retry_on=(OSError,))`
+  above `@task`. When an attempt fails, a fresh copy of the task is enqueued
+  with `run_after` set by exponential backoff with jitter. It keeps the same
+  args, queue, priority and backend. Every attempt is its own result row, so
+  every traceback is kept. A `TaskAttempt` row links each retry to its chain.
+  Its `parent_id` is unique, so the three paths that can retry (the worker's
+  `task_finished` signal, the reaper for lost tasks, and a repair sweep for
+  retries a crash skipped) never produce two retries. By default a lost or
+  force-stopped attempt is retried too (`retry_lost=True`). **Retries are
+  opt-in**: `SMALLSTACK_TASKS_DEFAULT_MAX_ATTEMPTS` defaults to 1 because
+  execution is at-least-once. The built-in email tasks (`send_email_task`,
+  `send_html_email_task`, `send_welcome_email`) now retry up to 3 attempts on
+  `OSError` (SMTP and socket errors). `SMALLSTACK_TASKS_BACKOFF_SECONDS` (5) and
+  `SMALLSTACK_TASKS_BACKOFF_MAX_SECONDS` (600) set the defaults. Retries only
+  happen on the database backend; `ImmediateBackend` behaves as before.
+- **Scheduled jobs retry: `ScheduledJob.max_retries` is live.** It was
+  "Reserved" until now. It's editable in the scheduler form, REST and MCP, and
+  capped at 10. When greater than 0, each run's first attempt is enqueued in
+  the same transaction as a pinned budget of `max_retries + 1` attempts. This
+  overrides the task's own `@retry_policy` for that run. 0 (the default) means
+  the task's policy applies unchanged. The scheduler now reads a run's outcome
+  from the **latest attempt** of its retry chain
+  (`apps.tasks.reliability.chain_outcome`). A run stays `QUEUED` while a retry
+  is pending, so the overlap guard keeps waiting for it. The run ends `SUCCESS`
+  with an "(attempt N)" suffix if a retry succeeds. The failure email goes out
+  once, after the last attempt, with an "after N attempts:" message. A failed
+  attempt with budget left that no retry ever picks up is treated as final
+  after an hour. Migration: `scheduler.0004_max_retries_live` (help text and
+  validator only).
+- **Explorer → System** now also lists **Worker heartbeats** (which workers are
+  alive, when each was last seen or stopped) and **Task attempts** (retry
+  chains). Both are read-only.
+- **Scheduler failure emails include the error** ("Error: after 3 attempts:
+  …"), not just the first attempt's result id.
+- Docs: a Reliability section in `docs/skills/background-tasks.md` and in the
+  help page. Also updated the scheduler skill and help pages (retries), the CLI
+  reference (`db_worker`, `reap_tasks`), `cli-tools.md`, the settings
+  reference, and `UPGRADING.md`.
+
 ## [0.21.6] - 2026-09-27
 
 ### Fixed

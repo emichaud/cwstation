@@ -106,8 +106,20 @@ running two on purpose only wastes work.
   absorbs normal tick jitter — and a job's failure rate is only judged once it has
   `SMALLSTACK_SCHEDULER_FAILURE_MIN_SAMPLE` (default 5) recorded runs, so one
   failure on a brand-new job doesn't turn the card red.
-- **Retries**: currently lean on `django.tasks`' own retry semantics. Per-schedule
-  `max_retries` is a reserved field (not yet enforced).
+- **Retries**: `ScheduledJob.max_retries` (0–10; form, REST, MCP). When > 0, each
+  run's first attempt is enqueued together with a pinned budget of
+  `max_retries + 1` attempts (`apps.tasks.reliability.pin_max_attempts`, in one
+  transaction), which overrides the task's own `@retry_policy` for that run.
+  0 = the task's policy applies (none unless decorated). It is operator-owned,
+  **not** a `@scheduled` argument: `@scheduled`'s extra kwargs are task kwargs,
+  so for code-declared jobs put `@retry_policy` on the task instead. See
+  `docs/skills/background-tasks.md` → Reliability.
+- **Runs follow the retry chain**: reconcile reads a run's outcome from the
+  *latest* attempt (`chain_outcome`), not the first. A run stays `queued` while
+  it's `RETRYING` (and the overlap guard counts it as unfinished). It ends
+  `success` with "(attempt N)" or `failed` with "after N attempts: …", and
+  there's one failure email, after the final attempt. A failed attempt that
+  still has budget but that no retry picked up within an hour is final.
 
 ## Run lifecycle (why a just-run job shows `queued`)
 

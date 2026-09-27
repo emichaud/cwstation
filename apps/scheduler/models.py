@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any
 
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -89,7 +90,14 @@ class ScheduledJob(models.Model):
         help_text="If off, skip a fire while the previous run is still unfinished.",
     )
     catch_up = models.CharField(max_length=10, choices=CatchUp.choices, default=CatchUp.RUN_ONCE)
-    max_retries = models.PositiveSmallIntegerField(default=0, help_text="Reserved (Phase 3).")
+    max_retries = models.PositiveSmallIntegerField(
+        default=0,
+        validators=[MaxValueValidator(10)],
+        help_text=(
+            "Retries after a failed run, each waiting longer than the last. "
+            "0 = use the task's own @retry_policy (none by default)."
+        ),
+    )
 
     source = models.CharField(max_length=8, choices=Source.choices, default=Source.UI)
     # An operator changed the cadence in the UI. Code sync keeps their value

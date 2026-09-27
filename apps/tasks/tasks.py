@@ -34,9 +34,19 @@ from django.conf import settings
 from django.core.mail import send_mail
 from django.tasks import task
 
+from .reliability import retry_policy
+
 logger = logging.getLogger(__name__)
 
+# Transient mail failures (SMTP server down, connection reset, timeouts) are
+# worth retrying; OSError covers smtplib.SMTPException and socket errors.
+# Template/programming errors are not, so they fail on the first attempt. A
+# retry can in rare cases send twice (the SMTP server accepted the message,
+# then the connection dropped before the reply). For mail that's acceptable.
+_email_retry = retry_policy(max_attempts=3, backoff=30, backoff_max=600, retry_on=(OSError,))
 
+
+@_email_retry
 @task(queue_name="email")
 def send_email_task(
     recipient: str | list[str],
@@ -81,6 +91,7 @@ def send_email_task(
     )
 
 
+@_email_retry
 @task(queue_name="email")
 def send_html_email_task(
     recipient: str | list[str],
@@ -154,6 +165,7 @@ def send_html_email_task(
     return email.send()
 
 
+@_email_retry
 @task(queue_name="email")
 def send_welcome_email(user_id: int) -> int:
     """

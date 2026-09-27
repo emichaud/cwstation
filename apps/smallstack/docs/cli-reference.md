@@ -17,6 +17,7 @@ Every command-line tool SmallStack provides — `manage.py` commands, Make targe
 | Auth | `manage.py create_api_token` | Mint a token for a user |
 | DB | `make backup` | SQLite backup with retention |
 | Search | `manage.py rebuild_search_index` / `search_doctor` | Rebuild FTS index / diagnose search |
+| Tasks | `manage.py db_worker` / `reap_tasks` | Run the task worker (with worker heartbeat) / fail tasks whose worker died |
 | Webhooks | `manage.py webhook` / `webhook_doctor` / `run_due_deliveries` | Webhook ops (status/test/replay/bulk-replay/pair) / diagnose / retry tick |
 | Visual | `manage.py screenshot_auth` + `shot-scraper` | Authenticated browser screenshots |
 | CLI | `manage.py sc` (`sc` shim) | Framework CLI: CRUD over any CRUDView (`ls/get/describe/new/set/rm`) + ops verbs (`doctor/backup/token/status/index/webhook/commands`) — see [`docs/skills/sc-cli.md`](../../../docs/skills/sc-cli.md) |
@@ -216,6 +217,35 @@ uv run python manage.py prune_logs --keep-days 3 --max-rows 5000
 | `--max-rows` | `TELEMETRY_LOG_MAX_ROWS` (20000) | Hard cap; oldest beyond it are deleted |
 
 Both limits exist because either alone fails somewhere: age alone won't survive an incident logging a million lines in ten minutes, and a row cap alone keeps stale records forever on a quiet deployment. Wired into `scripts/smallstack-cron` every 15 minutes.
+
+### Background tasks
+
+#### `db_worker`
+
+Runs the background-task worker. This is SmallStack's version: it takes the same arguments as django-tasks-db's `db_worker` and replaces it. It adds a **worker heartbeat** row, fails tasks left `RUNNING` by dead workers (at startup and about once a minute), and marks the worker stopped on exit. `SMALLSTACK_TASKS_HEARTBEAT_ENABLED=False` makes it a plain pass-through. See [`background-tasks.md`](background-tasks.md).
+
+```bash
+uv run python manage.py db_worker --queue-name "*"
+uv run python manage.py db_worker --queue-name email --worker-id mail-1
+uv run python manage.py db_worker --batch        # drain the queue, then exit
+```
+
+| Flag | What it does |
+|---|---|
+| `--queue-name` | Comma-separated queues, or `*` for all |
+| `--worker-id` | Stable id (≤ 64 chars); default is random per process |
+| `--batch` | Exit when nothing is ready (cron / job runners) |
+| `--reload` / `--no-reload` | Autoreload on code change (default: on under `DEBUG`) |
+| `--max-tasks N` | Exit after N tasks |
+
+#### `reap_tasks`
+
+Runs one lost-task pass by hand. It fails `RUNNING` tasks whose worker stopped, went silent past `SMALLSTACK_TASKS_LOST_AFTER_SECONDS`, or never sent a heartbeat and started more than `SMALLSTACK_TASKS_ORPHAN_SECONDS` ago. It retries them if their `@retry_policy` allows, then sweeps for missed retries. Workers already do this about once a minute; use it to inspect, or when workers run with the heartbeat disabled.
+
+```bash
+uv run python manage.py reap_tasks --dry-run   # list what would be reaped
+uv run python manage.py reap_tasks
+```
 
 ### Monitoring
 

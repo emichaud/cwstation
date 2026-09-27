@@ -1,0 +1,294 @@
+"""Worker heartbeat + lost-task reaper (``heartbeat.py``, ``reaper.py``, ``db_worker``).
+
+The suite's ``TASKS`` backend is ``ImmediateBackend``, which never leaves a
+row ``RUNNING`` — so the reaper tests build ``DBTaskResult`` rows directly, and
+the worker tests switch ``TASKS`` to the real ``DatabaseBackend`` and run
+SmallStack's ``db_worker`` in ``--batch`` mode in-process.
+"""
+
+from __future__ import annotations
+
+import time
+import uuid
+from datetime import timedelta
+from unittest import mock
+
+import pytest
+from django.core.management import call_command
+from django.utils import timezone
+from django_tasks_db.management.commands.db_worker import Worker
+from django_tasks_db.models import DBTaskResult
+
+from apps.tasks import heartbeat, reaper
+from apps.tasks.exceptions import WORKER_LOST_PATH, WorkerLost
+from apps.tasks.models import WorkerHeartbeat
+from apps.tasks.reaper import reap_lost_tasks
+
+TASK_PATH = "apps.tasks.tasks.process_data_task"
+DB_TASKS = {
+    "default": {
+        "BACKEND": "django_tasks_db.DatabaseBackend",
+        "QUEUES": ["default", "email"],
+    }
+}
+
+
+def _running(worker_id: str = "w1", *, started_ago: float = 5, status: str = "RUNNING") -> DBTaskResult:
+    now = timezone.now()
+    return DBTaskResult.objects.create(
+        status=status,
+        args_kwargs={"args": [], "kwargs": {"data": {"x": 1}}},
+        task_path=TASK_PATH,
+        backend_name="default",
+        queue_name="default",
+        run_after=now,
+        started_at=now - timedelta(seconds=started_ago),
+        worker_ids=[worker_id] if worker_id else [],
+    )
+
+
+def _heartbeat(worker_id: str = "w1", *, seen_ago: float = 1, stopped: bool = False) -> WorkerHeartbeat:
+    now = timezone.now()
+    return WorkerHeartbeat.objects.create(
+        worker_id=worker_id,
+        hostname="host-a",
+        pid=4242,
+        last_seen_at=now - timedelta(seconds=seen_ago),
+        stopped_at=now if stopped else None,
+    )
+
+
+@pytest.mark.django_db
+class TestReaper:
+    def test_task_of_stopped_worker_is_failed_as_worker_lost(self):
+        _heartbeat(stopped=True)
+        row = _running()
+
+        result = reap_lost_tasks()
+
+        row.refresh_from_db()
+        assert [t.result_id for t in result.reaped] == [str(row.id)]
+        assert row.status == "FAILED"
+        assert row.finished_at is not None
+        assert row.exception_class_path == WORKER_LOST_PATH
+        assert "exited at" in row.traceback and "host-a" in row.traceback
+
+    def test_task_of_stale_worker_is_reaped(self):
+        _heartbeat(seen_ago=reaper.lost_after_seconds() + 30)
+        row = _running()
+
+        reap_lost_tasks()
+
+        row.refresh_from_db()
+        assert row.status == "FAILED"
+        assert "stopped heartbeating" in row.traceback
+
+    def test_long_task_on_live_worker_is_left_alone(self):
+        _heartbeat(seen_ago=1)
+        row = _running(started_ago=10 * 86_400)
+
+        result = reap_lost_tasks()
+
+        row.refresh_from_db()
+        assert row.status == "RUNNING"
+        assert result.running == 1 and result.reaped == []
+
+    def test_no_heartbeat_uses_the_conservative_orphan_threshold(self):
+        recent = _running("legacy-a", started_ago=60)
+        old = _running("legacy-b", started_ago=reaper.orphan_seconds() + 60)
+
+        reap_lost_tasks()
+
+        recent.refresh_from_db()
+        old.refresh_from_db()
+        assert recent.status == "RUNNING"
+        assert old.status == "FAILED"
+        assert "no heartbeat record" in old.traceback
+
+    def test_row_without_worker_ids_falls_back_to_orphan_rule(self):
+        row = _running("", started_ago=reaper.orphan_seconds() + 60)
+        reap_lost_tasks()
+        row.refresh_from_db()
+        assert row.status == "FAILED"
+        assert "worker unknown" in row.traceback
+
+    def test_finished_and_ready_rows_are_never_touched(self):
+        _heartbeat(stopped=True)
+        done = _running(status="SUCCESSFUL")
+        ready = _running(status="READY")
+
+        result = reap_lost_tasks()
+
+        assert result.running == 0
+        assert DBTaskResult.objects.get(id=done.id).status == "SUCCESSFUL"
+        assert DBTaskResult.objects.get(id=ready.id).status == "READY"
+
+    def test_dry_run_reports_without_changing(self):
+        _heartbeat(stopped=True)
+        row = _running()
+
+        result = reap_lost_tasks(dry_run=True)
+
+        row.refresh_from_db()
+        assert len(result.reaped) == 1
+        assert row.status == "RUNNING"
+
+    def test_a_concurrent_finish_wins_the_race(self):
+        """Found lost, but the worker finished it before the UPDATE: not overwritten."""
+        _heartbeat(stopped=True)
+        row = _running()
+        running, lost = reaper.find_lost_tasks()
+        DBTaskResult.objects.filter(id=row.id).update(status="SUCCESSFUL")
+
+        with mock.patch.object(reaper, "find_lost_tasks", return_value=(running, lost)):
+            result = reap_lost_tasks()
+
+        row.refresh_from_db()
+        assert row.status == "SUCCESSFUL"
+        assert row.exception_class_path == ""
+        assert result.raced == 1 and result.reaped == []
+
+    def test_reaped_row_is_a_valid_failed_task_result(self, settings):
+        """The engine can rebuild the result, and WorkerLost is importable."""
+        settings.TASKS = DB_TASKS  # rebuilding validates the task against the backend
+        _heartbeat(stopped=True)
+        row = _running()
+        reap_lost_tasks()
+        row.refresh_from_db()
+
+        task_result = row.task_result
+        assert task_result.status.name == "FAILED"
+        assert task_result.errors[0].exception_class is WorkerLost
+
+    def test_scheduler_summary_shows_the_reason(self):
+        from apps.scheduler.services import _summarize_error
+
+        _heartbeat(stopped=True)
+        row = _running()
+        reap_lost_tasks()
+        row.refresh_from_db()
+        assert _summarize_error(row.traceback).startswith("WorkerLost: worker w1")
+
+    def test_old_heartbeats_are_pruned(self):
+        old = _heartbeat("gone", seen_ago=8 * 86_400)
+        live = _heartbeat("live")
+
+        result = reap_lost_tasks()
+
+        assert result.heartbeats_pruned == 1
+        assert not WorkerHeartbeat.objects.filter(pk=old.pk).exists()
+        assert WorkerHeartbeat.objects.filter(pk=live.pk).exists()
+
+    def test_reap_tasks_command(self, capsys):
+        _heartbeat(stopped=True)
+        row = _running()
+
+        call_command("reap_tasks", "--dry-run")
+        assert f"would reap {row.id}" in capsys.readouterr().out
+        assert DBTaskResult.objects.get(id=row.id).status == "RUNNING"
+
+        call_command("reap_tasks")
+        assert f"reaped {row.id}" in capsys.readouterr().out
+        assert DBTaskResult.objects.get(id=row.id).status == "FAILED"
+
+
+@pytest.mark.django_db
+class TestHeartbeat:
+    def test_register_creates_then_revives(self):
+        heartbeat.register_worker("w9", "default,email")
+        hb = WorkerHeartbeat.objects.get(worker_id="w9")
+        assert hb.queues == "default,email" and hb.pid and hb.stopped_at is None
+
+        heartbeat.mark_stopped("w9")
+        assert WorkerHeartbeat.objects.get(worker_id="w9").stopped_at is not None
+
+        heartbeat.register_worker("w9", "*")
+        hb = WorkerHeartbeat.objects.get(worker_id="w9")
+        assert hb.stopped_at is None and hb.queues == "*"
+
+    def test_beat_and_reap_errors_never_escape(self):
+        thread = heartbeat.HeartbeatThread("w1", interval=0.01)
+        with mock.patch.object(heartbeat, "beat", side_effect=RuntimeError("db gone")):
+            thread._beat()
+        with mock.patch.object(heartbeat, "reap_lost_tasks", side_effect=RuntimeError("db gone")):
+            thread._reap()
+
+    def test_mark_stopped_swallows_errors(self):
+        with mock.patch.object(WorkerHeartbeat.objects, "filter", side_effect=RuntimeError("db gone")):
+            heartbeat.mark_stopped("w1")
+
+
+@pytest.mark.django_db(transaction=True)
+class TestHeartbeatThread:
+    def test_thread_beats_and_reaps_until_stopped(self):
+        heartbeat.register_worker("me", "*")
+        WorkerHeartbeat.objects.filter(worker_id="me").update(last_seen_at=timezone.now() - timedelta(seconds=30))
+        before = WorkerHeartbeat.objects.get(worker_id="me").last_seen_at
+        _heartbeat("dead", stopped=True)
+        lost = _running("dead")
+
+        thread = heartbeat.HeartbeatThread("me", interval=0.02, reap_every=1)
+        thread.start()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if WorkerHeartbeat.objects.get(worker_id="me").last_seen_at > before:
+                break
+            time.sleep(0.02)
+        thread.stop()
+
+        assert not thread.is_alive()
+        assert WorkerHeartbeat.objects.get(worker_id="me").last_seen_at > before
+        assert DBTaskResult.objects.get(id=lost.id).status == "FAILED"
+
+
+@pytest.mark.django_db(transaction=True)
+class TestDbWorkerCommand:
+    """SmallStack's db_worker shadows upstream and wraps it with a heartbeat."""
+
+    @pytest.fixture(autouse=True)
+    def _database_backend(self, settings):
+        settings.TASKS = DB_TASKS
+
+    def _run_worker(self, worker_id: str) -> None:
+        # Upstream installs SIGINT/SIGTERM handlers; keep pytest's.
+        with mock.patch.object(Worker, "configure_signals"):
+            call_command(
+                "db_worker",
+                batch=True,
+                startup_delay=False,
+                queue_name="*",
+                worker_id=worker_id,
+                verbosity=0,
+            )
+
+    def test_worker_registers_runs_tasks_and_marks_stopped(self):
+        from apps.tasks.tasks import process_data_task
+
+        result = process_data_task.enqueue(data={"k": "v"})
+        assert DBTaskResult.objects.get(id=result.id).status == "READY"
+
+        self._run_worker("cmd-worker")
+
+        assert DBTaskResult.objects.get(id=result.id).status == "SUCCESSFUL"
+        hb = WorkerHeartbeat.objects.get(worker_id="cmd-worker")
+        assert hb.stopped_at is not None
+
+    def test_worker_reaps_a_dead_predecessors_task_at_startup(self):
+        _heartbeat("predecessor", seen_ago=reaper.lost_after_seconds() + 60)
+        lost = _running("predecessor")
+
+        self._run_worker("successor")
+
+        row = DBTaskResult.objects.get(id=lost.id)
+        assert row.status == "FAILED"
+        assert row.exception_class_path == WORKER_LOST_PATH
+
+    def test_marks_stopped_even_when_the_worker_exits_via_sys_exit(self):
+        with mock.patch.object(Worker, "run", side_effect=SystemExit(1)), pytest.raises(SystemExit):
+            self._run_worker("forced")
+        assert WorkerHeartbeat.objects.get(worker_id="forced").stopped_at is not None
+
+    def test_disabled_is_a_pure_pass_through(self, settings):
+        settings.SMALLSTACK_TASKS_HEARTBEAT_ENABLED = False
+        self._run_worker(f"plain-{uuid.uuid4().hex[:6]}")
+        assert not WorkerHeartbeat.objects.exists()

@@ -231,6 +231,60 @@ For model instances, pass the ID instead:
 send_welcome_email.enqueue(user_id=user.id)
 ```
 
+## When Workers Die: Lost Tasks and Retries
+
+A worker process can die mid-task: a deploy replaces the container, the machine
+runs out of memory, someone runs `kill -9`. On its own, the task engine would
+leave that task marked **Running** forever. SmallStack's `db_worker` prevents that:
+
+- Every worker records a **worker heartbeat** every 15 seconds (not the same
+  thing as the uptime heartbeat on the status page).
+- About once a minute, and whenever a worker starts, workers check for tasks
+  whose worker has stopped or gone quiet for 90 seconds. Those tasks are marked
+  **Failed** with the error `WorkerLost` and a message saying which worker died
+  and when it was last seen.
+
+You don't need to set anything up. The `db_worker` you already run does this.
+
+### Retrying failed tasks
+
+A task can ask to be retried when it fails. Put `@retry_policy` above `@task`:
+
+```python
+from django.tasks import task
+from apps.tasks.reliability import retry_policy
+
+@retry_policy(max_attempts=3, retry_on=(OSError,))
+@task
+def sync_invoice(invoice_id):
+    ...
+```
+
+A failed attempt is then queued again after a delay that grows each time
+(5s, 10s, 20s…, capped at 10 minutes). Each attempt keeps its own record and
+error, so you can see the whole history. The built-in email tasks already retry
+up to 3 times on connection and SMTP errors.
+
+**Only retry tasks that are safe to run twice.** A retried task may repeat work
+that partly happened the first time, so retries are off unless a task asks for
+them. Scheduled jobs have their own **Retries on failure** setting (see the
+[Scheduler](/smallstack/help/smallstack/scheduler/) page).
+
+### Settings
+
+| Setting | Default | What it controls |
+|---|---|---|
+| `SMALLSTACK_TASKS_HEARTBEAT_ENABLED` | `True` | Turn the worker heartbeat and lost-task checks off |
+| `SMALLSTACK_TASKS_HEARTBEAT_SECONDS` | `15` | How often each worker checks in |
+| `SMALLSTACK_TASKS_LOST_AFTER_SECONDS` | `90` | How long a worker can be silent before its tasks are failed |
+| `SMALLSTACK_TASKS_ORPHAN_SECONDS` | `86400` | Same, for workers that never sent a heartbeat |
+| `SMALLSTACK_TASKS_DEFAULT_MAX_ATTEMPTS` | `1` | Attempts for tasks with no retry policy (1 = no retries) |
+| `SMALLSTACK_TASKS_BACKOFF_SECONDS` | `5` | First retry delay |
+| `SMALLSTACK_TASKS_BACKOFF_MAX_SECONDS` | `600` | Longest retry delay |
+
+Staff can see workers and retry chains in **Explorer → System → Worker
+heartbeats** and **Task attempts**.
+
 ## Task Maintenance
 
 Clean up old completed tasks periodically:
@@ -399,6 +453,18 @@ if result.status == "FAILED":
     for error in result.errors:
         print(f"Exception: {error.exception_class}")
         print(error.traceback)
+```
+
+### A task has been "Running" for a long time
+
+If its worker died, the task is marked **Failed** (`WorkerLost`) within about
+a few minutes, as long as some worker is running. If it's still Running, its worker is alive and
+the task itself is slow or stuck. Check **Explorer → System → Worker
+heartbeats** to see which is the case. To check now instead of waiting:
+
+```bash
+uv run python manage.py reap_tasks --dry-run   # show what would be failed
+uv run python manage.py reap_tasks             # fail them (and retry if allowed)
 ```
 
 ### Worker not picking up code changes

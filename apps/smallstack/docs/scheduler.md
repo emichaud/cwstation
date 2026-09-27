@@ -56,6 +56,10 @@ A per-minute **tick** selects enabled jobs whose next run is due, atomically cla
 
 A run is recorded as **queued** when enqueued; a later reconcile pass (each tick, and every dashboard load) reads the task engine's result and promotes it to **success**/**failed** with the return value or exception on the run row. So a just-fired job showing "queued" for a minute is normal — open the dashboard and it flips.
 
+## Retries
+
+Set **Retries on failure** on a job's control page (or `max_retries` over REST/MCP, up to 10) to run it again when it fails, waiting a little longer each time. A run that's retrying stays **queued**. The overlap guard treats it as still running, and it ends **success** ("(attempt 2)") if a retry works or **failed** ("after 3 attempts: …") if none does. The failure email is sent once, after the last attempt. `0` (the default) leaves it to the task: a task with its own `@retry_policy` still retries. See [Background Tasks](/smallstack/help/smallstack/background-tasks/) for how retries work.
+
 ## Trying it locally
 
 ```bash

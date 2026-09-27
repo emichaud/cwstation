@@ -211,6 +211,23 @@ TASKS = {
 }
 ```
 
+### Background Task Reliability (smallstack.py)
+
+```python
+# Worker heartbeat + lost-task reaper (SmallStack's db_worker)
+SMALLSTACK_TASKS_HEARTBEAT_ENABLED = True     # False => plain upstream worker
+SMALLSTACK_TASKS_HEARTBEAT_SECONDS = 15       # beat interval; reaper every 4 beats
+SMALLSTACK_TASKS_LOST_AFTER_SECONDS = 90      # silent this long => its RUNNING tasks fail (WorkerLost)
+SMALLSTACK_TASKS_ORPHAN_SECONDS = 86_400      # same, for workers with no heartbeat row
+
+# Retries (@retry_policy in apps/tasks/reliability.py)
+SMALLSTACK_TASKS_DEFAULT_MAX_ATTEMPTS = 1     # attempts for undecorated tasks (1 = no retries)
+SMALLSTACK_TASKS_BACKOFF_SECONDS = 5          # first retry delay, doubles per attempt
+SMALLSTACK_TASKS_BACKOFF_MAX_SECONDS = 600    # delay cap
+```
+
+See `docs/skills/background-tasks.md` → Reliability.
+
 ### Inline Worker (env var, not a Django setting)
 
 `WORKER_INLINE` is a **deployment env var** checked in `docker-entrypoint.sh` (not in Django settings). It follows the same pattern as `BACKUP_CRON_ENABLED`.

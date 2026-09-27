@@ -9,6 +9,22 @@ listed, no downstream migration is required.
 
 ---
 
+## Unreleased — task reliability: lost-task reaper + retries (additive)
+
+Run `make migrate`. It adds two migrations: `tasks.0001_initial` (the first models in
+`apps/tasks`) and `scheduler.0004_max_retries_live`. You don't need to change any code. Check
+the table if one of these applies to you.
+
+| If you… | What changes | What to do |
+|---|---|---|
+| Run `manage.py db_worker` anywhere | It's now SmallStack's `db_worker`, which replaces django-tasks-db's. It takes the same arguments and adds a worker heartbeat plus a reaper for tasks whose worker died | Nothing. To opt out, set `SMALLSTACK_TASKS_HEARTBEAT_ENABLED=False`. |
+| Have your **own** `db_worker` command in an app | Django uses the first app in `INSTALLED_APPS` that defines it | If your app comes before `apps.tasks`, yours wins and you get no heartbeat. Subclass `apps.tasks.management.commands.db_worker.Command` instead. |
+| Replaced or edited `apps/tasks/tasks.py` | Upstream's email tasks now carry `@retry_policy(max_attempts=3, retry_on=(OSError,))` | When you merge, keep the decorators if you want SMTP errors retried. Keep `send_email_task` itself, because the scheduler and approvals import it. |
+| See tasks go `FAILED` with `apps.tasks.exceptions.WorkerLost` | Their worker died mid-run. Before this change they would have stayed `RUNNING` forever | Expected. Add `@retry_policy` to tasks that are safe to repeat if you want them re-run. |
+| Poll a task's first result id to learn its outcome | With retries, a later attempt is a **new** result | Use `apps.tasks.reliability.chain_outcome(result_id)` to follow the chain. |
+
+---
+
 ## v0.21.0 — 2026-09-13 audit fixes (behaviour tightened, no code changes required)
 
 These are security/correctness fixes. Most projects need to do nothing; check the list only if

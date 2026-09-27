@@ -15,11 +15,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import F
 from django.tasks import Task
 from django.utils import timezone
 
 from apps.smallstack.logging import bind_trace_id, reset_trace_id
+from apps.tasks.reliability import RETRYING, chain_outcome, pin_max_attempts
 
 from . import schedules
 from .models import ScheduledJob, ScheduledJobRun
@@ -27,8 +29,10 @@ from .models import ScheduledJob, ScheduledJobRun
 logger = logging.getLogger("smallstack.scheduler")
 
 # Engine statuses that mean "this run hasn't finished". Anything else (or a
-# missing result) counts as finished for overlap purposes.
-_UNFINISHED = {"READY", "RUNNING"}
+# missing result) counts as finished for overlap purposes. A run is followed
+# through its retries (apps.tasks.reliability.chain_outcome): RETRYING means
+# the latest attempt failed and another is on its way.
+_UNFINISHED = {"READY", "RUNNING", RETRYING}
 
 # Longest run-return summary stored on ScheduledJobRun.message (the field is 255).
 _SUMMARY_MAX = 240
@@ -179,7 +183,12 @@ def enqueue_and_record(job: ScheduledJob, *, scheduled_for: datetime, now: datet
     ``total_runs`` count. Returns the enqueued DBTaskResult id.
     """
     now = now or timezone.now()
-    task_result_id = _enqueue(job)
+    # One transaction, so no worker can claim (and fail) the task before its
+    # retry budget is pinned.
+    with transaction.atomic():
+        task_result_id = _enqueue(job)
+        if job.max_retries and task_result_id:
+            pin_max_attempts(task_result_id, job.max_retries + 1)
     _record(job, ScheduledJobRun.Status.QUEUED, scheduled_for, task_result_id=task_result_id)
     ScheduledJob.objects.filter(pk=job.pk).update(
         last_enqueued_at=now,
@@ -226,35 +235,27 @@ def _previous_run_active(job: ScheduledJob, *, now: datetime) -> bool:
 
 
 def _engine_status(task_result_id: str) -> str | None:
-    """Read the django.tasks backend status for a result id (best-effort)."""
+    """The run's status, followed through its retries (best-effort)."""
+    return _engine_result(task_result_id)[0]
+
+
+def _engine_result(task_result_id: str) -> tuple[str | None, object, str, int]:
+    """Return (status, return_value, traceback, attempt) for a run (best-effort).
+
+    Read from the *latest* attempt of the run's retry chain, so a run whose
+    first attempt failed but whose retry succeeded reports SUCCESSFUL, and one
+    still retrying reports RETRYING (not finished).
+    """
     if not task_result_id:
-        return None
+        return None, None, "", 1
     try:
-        from django_tasks_db.models import DBTaskResult
-
-        row = DBTaskResult.objects.filter(id=task_result_id).values_list("status", flat=True).first()
-        return row
+        outcome = chain_outcome(task_result_id)
     except Exception:  # noqa: BLE001 — backend shape may vary; treat as unknown
-        return None
-
-
-def _engine_result(task_result_id: str) -> tuple[str | None, object, str]:
-    """Return (status, return_value, traceback) for a result id (best-effort)."""
-    if not task_result_id:
-        return None, None, ""
-    try:
-        from django_tasks_db.models import DBTaskResult
-
-        row = (
-            DBTaskResult.objects.filter(id=task_result_id)
-            .values("status", "return_value", "traceback")
-            .first()
-        )
-        if not row:
-            return None, None, ""
-        return row["status"], row.get("return_value"), row.get("traceback") or ""
-    except Exception:  # noqa: BLE001 — backend shape may vary; treat as unknown
-        return None, None, ""
+        return None, None, "", 1
+    if outcome is None:
+        return None, None, "", 1
+    row = outcome.row
+    return outcome.status, row.return_value, row.traceback or "", outcome.attempt
 
 
 def _summarize_result(return_value: object) -> str:
@@ -309,7 +310,7 @@ def reconcile_run_outcomes(*, limit: int = 200) -> int:
     )
     terminal = {"SUCCESSFUL": ScheduledJobRun.Status.SUCCESS, "FAILED": ScheduledJobRun.Status.FAILED}
     for run in queued:
-        status, return_value, tb = _engine_result(run.task_result_id)
+        status, return_value, tb, attempt = _engine_result(run.task_result_id)
         new = terminal.get(status or "")
         if not new:
             continue
@@ -319,8 +320,12 @@ def reconcile_run_outcomes(*, limit: int = 200) -> int:
         # *result*, not just the word "Success". (message is rendered already.)
         if new == ScheduledJobRun.Status.SUCCESS:
             run.message = _summarize_result(return_value)
+            if attempt > 1:
+                run.message = f"{run.message} (attempt {attempt})"[:255]
         else:
             run.message = _summarize_error(tb)
+            if attempt > 1:
+                run.message = f"after {attempt} attempts: {run.message}"[:255]
         run.save(update_fields=["status", "message"])
         # Only reflect onto the job's last_status if this is its most recent run,
         # so a straggling older run can't overwrite a newer run's state.
@@ -355,7 +360,8 @@ def _notify_failure(run: ScheduledJobRun) -> None:
             message=(
                 f"Scheduled job “{job_name}” failed.\n\n"
                 f"Scheduled for: {run.scheduled_for:%Y-%m-%d %H:%M %Z}\n"
-                f"Task result id: {run.task_result_id}\n"
+                f"Error: {run.message or 'unknown'}\n"
+                f"Task result id (first attempt): {run.task_result_id}\n"
             ),
         )
     except Exception:  # noqa: BLE001
