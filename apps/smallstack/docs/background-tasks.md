@@ -247,6 +247,25 @@ leave that task marked **Running** forever. SmallStack's `db_worker` prevents th
 
 You don't need to set anything up. The `db_worker` you already run does this.
 
+### When a task runs twice
+
+Occasionally a worker isn't really dead — just frozen long enough to look it (a
+container starved of CPU, a virtual machine paused and resumed). SmallStack
+declares its task lost and runs it again; then the original worker wakes up and
+finishes too. The task has now run twice.
+
+The result the original worker reports is kept, because it actually happened.
+What SmallStack promises is that this is never hidden from you:
+
+- the run says so — "ran more than once: attempt 1 completed after being declared lost";
+- a warning is logged naming the task;
+- it's recorded permanently under **Explorer → System → Task attempts**, in the
+  *Parent completed at* column.
+
+If the second run hadn't started yet, it's cancelled and the task ran only once.
+Tasks that must never repeat — charging a card, shipping an order — should be
+written so that running them twice is harmless.
+
 ### Retrying failed tasks
 
 A task can ask to be retried when it fails. Put `@retry_policy` above `@task`:

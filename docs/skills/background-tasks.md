@@ -329,6 +329,17 @@ only one wins.
 
 - **Retries are opt-in.** Execution is at-least-once, so only tasks that are
   **safe to repeat** should retry. An undecorated task fails exactly as before.
+- **A task can run twice — but not unnoticed.** Any worker paused past
+  `LOST_AFTER_SECONDS` mid-task (a throttled container, a snapshotted VM, not
+  just a network partition) is reaped and replaced, then resumes and writes its
+  own result over the reaper's verdict. That late result *wins*: it is ground
+  truth and the reaper is a heuristic. What SmallStack guarantees is that the
+  disagreement is recorded, not just logged — `TaskAttempt.parent_completed_at`
+  marks the chain (visible in Explorer → System → Task attempts),
+  `chain_outcome().executed_more_than_once` reports it, the scheduler puts it in
+  the run message, `ReapResult.reaped_then_completed` counts it separately from
+  the benign `raced`, and it logs at WARNING. If the replacement hadn't started
+  yet it is cancelled, and then the task really did run once.
 - **The retry is a new task result.** A caller polling the *first* result id
   sees `FAILED`; to follow the chain use
   `chain_outcome(result_id)` → `.status` (`READY`/`RUNNING`/`SUCCESSFUL`/`FAILED`
