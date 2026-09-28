@@ -9,11 +9,30 @@ listed, no downstream migration is required.
 
 ---
 
-## Unreleased — task reliability: lost-task reaper + retries (additive)
+## Unreleased — task reliability: lost-task reaper + retries
 
-Run `make migrate`. It adds two migrations: `tasks.0001_initial` (the first models in
-`apps/tasks`) and `scheduler.0004_max_retries_live`. You don't need to change any code. Check
-the table if one of these applies to you.
+Run `make migrate`. **Coming from v0.21.8** — or from any earlier release, since `apps/tasks`
+had no migrations at all before this change — it applies **four**:
+
+| Migration | What it does |
+|---|---|
+| `tasks.0001_initial` | The first models in `apps/tasks`: `WorkerHeartbeat`, `TaskAttempt` |
+| `tasks.0002_worker_incarnation` | Keys worker liveness to a process, not to `--worker-id`. **Not additive — see below** |
+| `tasks.0003_late_completion_marker` | Records a chain that executed more than once. Additive |
+| `scheduler.0004_max_retries_live` | `ScheduledJob.max_retries` help text + validator. No DDL |
+
+> **`tasks.0002_worker_incarnation` deletes rows.** It is the only destructive operation in
+> this release. Its `RunPython` empties `tasks_workerheartbeat`, because pre-upgrade rows are
+> keyed on the operator's `--worker-id` label and would match a pre-upgrade task's recorded
+> claimant *exactly* — so a row that happened to carry `stopped_at` would cause that task to be
+> failed as `WorkerLost` the instant the migration landed, even if it were still running.
+> Emptying the table sends every pre-upgrade claim down the conservative
+> `SMALLSTACK_TASKS_ORPHAN_SECONDS` path instead. Nothing of value is lost: the table is
+> ephemeral liveness state that the reaper already prunes on a timer, any worker running during
+> a migration is being restarted anyway, and the next heartbeat writes a fresh row. **Stop your
+> workers before migrating** if you want the transition to be boring.
+
+You don't need to change any code. Check the table if one of these applies to you.
 
 | If you… | What changes | What to do |
 |---|---|---|
@@ -22,6 +41,11 @@ the table if one of these applies to you.
 | Replaced or edited `apps/tasks/tasks.py` | Upstream's email tasks now carry `@retry_policy(max_attempts=3, retry_on=(OSError,))` | When you merge, keep the decorators if you want SMTP errors retried. Keep `send_email_task` itself, because the scheduler and approvals import it. |
 | See tasks go `FAILED` with `apps.tasks.exceptions.WorkerLost` | Their worker died mid-run. Before this change they would have stayed `RUNNING` forever | Expected. Add `@retry_policy` to tasks that are safe to repeat if you want them re-run. |
 | Poll a task's first result id to learn its outcome | With retries, a later attempt is a **new** result | Use `apps.tasks.reliability.chain_outcome(result_id)` to follow the chain. |
+| Pass `--worker-id` to `db_worker` | It is now an operator **label**, not the worker's identity. Each process appends its own token, so `DBTaskResult.worker_ids` holds `<label>#<token>` and `WorkerHeartbeat` has one row per process | Nothing. A stable `--worker-id` is now safe and is the recommended way to label a worker — previously it made a restarting worker hide the task its predecessor abandoned. |
+| Parse `DBTaskResult.worker_ids` yourself | Entries are now `<label>#<token>` rather than the bare `--worker-id` | Match on the `WorkerHeartbeat.label` column, or split on the last `#`. |
+| Run `manage.py check` in CI | Four new warnings can fire: `tasks.W001` (another app's `db_worker` shadows ours), `W002`/`W003` (`LOST_AFTER_SECONDS` under three heartbeats), `W004` (`USE_TZ = False` stops the reaper) | None fire on shipped defaults. Each names the misconfiguration and what it costs. |
+| Care whether a task ever runs twice | A worker paused past `SMALLSTACK_TASKS_LOST_AFTER_SECONDS` mid-task is reaped and replaced, then may finish anyway. The late result wins, and the double execution is **recorded** (`TaskAttempt.parent_completed_at`, the run message, a WARNING) rather than prevented | Make such tasks idempotent. This is not new behaviour in the engine — it is newly *visible*. |
+| Set `ScheduledJob.max_retries` on a task with no `@retry_policy` | It retries what the task **raises**, but will not re-run an attempt whose worker died | Add `@retry_policy(retry_lost=True)` to the task if repeating it after a worker death is genuinely safe. |
 
 ---
 
