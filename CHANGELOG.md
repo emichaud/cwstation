@@ -84,6 +84,46 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
   reference (`db_worker`, `reap_tasks`), `cli-tools.md`, the settings
   reference, and `UPGRADING.md`.
 
+## [0.21.8] - 2026-09-27
+
+### Fixed
+- **The test suite's throwaway MCP tables no longer break Postgres teardown.**
+  The root `conftest.py` creates `mcp_server_widget`/`mcp_server_gadget`
+  (managed=False, schema_editor) with real FK constraints to `accounts_user` —
+  and since flush doesn't truncate unmanaged tables, Postgres refused to
+  TRUNCATE `accounts_user` at every `transaction=True` teardown ("cannot
+  truncate a table referenced in a foreign key constraint"), failing 46 tests
+  and leaking rows that surfaced as duplicate-username collisions later. The
+  FKs are now `db_constraint=False` (ORM joins/expansions unchanged), with an
+  introspection test that fails on any backend if a real constraint returns.
+  Fourth of the SQLite-forgives family, same downstream reporter.
+
+### Documentation
+- `sqlite-vs-postgres.md`: dots and emails tokenize **atomically with no
+  part-lexemes** on Postgres (`file`/`email` parser tokens) on both the
+  document AND query side — unlike hyphens, document-side splitting can't
+  rescue them. Searching `probe` finds `unique.probe` on SQLite and misses it
+  on Postgres.
+
+## [0.21.7] - 2026-09-27
+
+### Fixed
+- **MCP async tool dispatch keeps ORM work on the request's connection.** Async
+  tool handlers were dispatched with `asyncio.run(handler(...))`, which gives
+  asgiref no executor context — so every `sync_to_async(thread_sensitive=True)`
+  (the default; how every tool touches the ORM) ran on asgiref's process-global
+  `single_thread_executor`: one shared background thread with its own
+  long-lived connection. The tool's DB work therefore ran outside the request's
+  transaction, serialized process-wide across all tools, was one nested
+  thread-sensitive call from asgiref's "would deadlock" guard, and on Postgres
+  killed `transaction=True` test teardowns ("cursor already closed" during the
+  flush) — a downstream's 46 teardown failures. Dispatch now uses
+  `async_to_sync(handler)`, whose `CurrentThreadExecutor` hops the ORM work
+  back to the calling thread and its connection. Third instance of the
+  SQLite-forgives-Postgres-doesn't family (same downstream reporter); the
+  mechanism-pinning tests fail under the old dispatch on SQLite too
+  ("database table is locked" — the cross-connection symptom in miniature).
+
 ## [0.21.6] - 2026-09-27
 
 ### Fixed
@@ -1740,7 +1780,9 @@ Condensed highlights of the v0.11 series (see git history for per-patch detail):
 See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full record of the
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
-[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.21.6...HEAD
+[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.21.8...HEAD
+[0.21.8]: https://github.com/emichaud/django-smallstack/compare/v0.21.7...v0.21.8
+[0.21.7]: https://github.com/emichaud/django-smallstack/compare/v0.21.6...v0.21.7
 [0.21.6]: https://github.com/emichaud/django-smallstack/compare/v0.21.5...v0.21.6
 [0.21.5]: https://github.com/emichaud/django-smallstack/compare/v0.21.4...v0.21.5
 [0.21.4]: https://github.com/emichaud/django-smallstack/compare/v0.21.3...v0.21.4
