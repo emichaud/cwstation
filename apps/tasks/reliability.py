@@ -134,7 +134,9 @@ def retry_policy(
     """Declare how a ``@task`` retries. Apply it *above* ``@task``.
 
     ``max_attempts`` counts the first run (3 = one run + up to two retries).
-    ``backoff`` is the first delay in seconds; it doubles per attempt up to
+    ``backoff`` is the **upper bound** of the first delay in seconds, not the
+    delay itself: each wait is jittered uniformly into ``[bound/2, bound]``, so
+    ``backoff=5`` waits 2.5–5s. The bound doubles per attempt up to
     ``backoff_max``. ``retry_on`` limits retries to those exception classes
     (and their subclasses). Returns the task unchanged.
     """

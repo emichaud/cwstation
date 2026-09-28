@@ -389,7 +389,9 @@ SMALLSTACK_TASKS_ORPHAN_SECONDS = config("SMALLSTACK_TASKS_ORPHAN_SECONDS", defa
 # retries: execution is at-least-once, so retrying is opt-in per task.
 SMALLSTACK_TASKS_DEFAULT_MAX_ATTEMPTS = config("SMALLSTACK_TASKS_DEFAULT_MAX_ATTEMPTS", default=1, cast=int)
 
-# Default first retry delay, doubling per attempt up to the cap (plus jitter).
+# Upper bound of the default first retry delay, not the delay itself: equal
+# jitter picks uniformly from [bound/2, bound], so 5 waits 2.5-5s. The bound
+# doubles per attempt up to the cap.
 SMALLSTACK_TASKS_BACKOFF_SECONDS = config("SMALLSTACK_TASKS_BACKOFF_SECONDS", default=5, cast=int)
 SMALLSTACK_TASKS_BACKOFF_MAX_SECONDS = config("SMALLSTACK_TASKS_BACKOFF_MAX_SECONDS", default=600, cast=int)
 

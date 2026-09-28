@@ -24,9 +24,16 @@ Around the upstream worker loop it:
    not a guarantee that the queue is clean before this worker claims anything,
 2. runs a :class:`~apps.tasks.heartbeat.HeartbeatThread` that refreshes it and
    periodically reaps tasks lost by *other* (dead) workers, and
-3. marks the row stopped on exit — including upstream's ``sys.exit`` from its
-   SIGTERM/SIGINT handler — so a task interrupted by a forced stop is reaped
-   on the next pass rather than after the staleness window.
+3. marks the row stopped on exit, including upstream's ``sys.exit`` from its
+   SIGTERM/SIGINT handler.
+
+   A forced stop usually leaves nothing for the reaper to do: upstream catches
+   its own ``sys.exit`` as a ``BaseException`` inside ``run_task`` and fails the
+   row as ``builtins.SystemExit`` first, so the next pass reports
+   ``running=0 reaped=0``. ``stopped_at`` matters for the cases upstream does
+   *not* reach — the task thread killed by the autoreloader, or a second signal
+   arriving between the row being claimed and the handler running — where it
+   turns a wait for the staleness window into an immediate reap.
 
 With ``--reload`` the parent process only supervises the autoreloader; the
 heartbeat runs in the reloader child, which is where tasks execute (the same

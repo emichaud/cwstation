@@ -315,7 +315,7 @@ def sync_invoice(invoice_id: int) -> None:
 | Argument | Default | Meaning |
 |---|---|---|
 | `max_attempts` | `SMALLSTACK_TASKS_DEFAULT_MAX_ATTEMPTS` (1) | Attempts **including the first run** |
-| `backoff` | `SMALLSTACK_TASKS_BACKOFF_SECONDS` (5) | First retry delay; doubles per attempt (equal jitter) |
+| `backoff` | `SMALLSTACK_TASKS_BACKOFF_SECONDS` (5) | **Upper bound** of the first delay, not the delay: equal jitter picks uniformly from `[bound/2, bound]`, so `5` waits 2.5–5s. Doubles per attempt |
 | `backoff_max` | `SMALLSTACK_TASKS_BACKOFF_MAX_SECONDS` (600) | Delay cap |
 | `retry_on` | `(Exception,)` | Only these exception classes (and subclasses) retry |
 | `retry_lost` | `True` | Also retry when the worker died (`WorkerLost`) or was force-stopped (`SystemExit`) |

@@ -657,6 +657,23 @@ class TestPolicy:
             assert 20 <= policy.delay(3) <= 40
             assert 50 <= policy.delay(10) <= 100
 
+    def test_backoff_is_the_upper_bound_not_the_delay(self):
+        """T4: pins the numbers the docs now quote.
+
+        `test_backoff_doubles_with_jitter_and_caps` already asserted the true
+        `[bound/2, bound]` range — while five doc sites called `backoff` "the
+        first retry delay". The behaviour was right and tested; only the prose
+        drifted. This states the relationship in the docs' own terms so the two
+        can't diverge again.
+        """
+        policy = RetryPolicy(backoff=5, backoff_max=600)
+        delays = [policy.delay(1) for _ in range(2000)]
+        assert min(delays) >= 2.5 and max(delays) <= 5.0, "the documented 2.5-5s range"
+        # The setting is the ceiling, so the mean sits at 0.75x it, not at it.
+        assert 3.5 < sum(delays) / len(delays) < 4.0
+        assert max(policy.delay(2) for _ in range(2000)) <= 10.0
+        assert max(policy.delay(3) for _ in range(2000)) <= 20.0
+
     def test_decorator_validation(self):
         with pytest.raises(ValueError):
             retry_policy(max_attempts=0)

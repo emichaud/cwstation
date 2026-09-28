@@ -280,8 +280,12 @@ def sync_invoice(invoice_id):
     ...
 ```
 
-A failed attempt is then queued again after a delay that grows each time
-(5s, 10s, 20s…, capped at 10 minutes). Each attempt keeps its own record and
+A failed attempt is then queued again after a delay that grows each time —
+up to 5s, then up to 10s, then up to 20s, never more than 10 minutes. The
+setting is the *longest* each wait can be: the actual wait is picked at random
+between half of it and all of it (so a 5s setting waits 2.5–5s), which stops a
+batch of tasks that failed together from retrying together. Each attempt keeps
+its own record and
 error, so you can see the whole history. The built-in email tasks already retry
 up to 3 times on connection and SMTP errors.
 
@@ -299,7 +303,7 @@ them. Scheduled jobs have their own **Retries on failure** setting (see the
 | `SMALLSTACK_TASKS_LOST_AFTER_SECONDS` | `90` | How long a worker can be silent before its tasks are failed |
 | `SMALLSTACK_TASKS_ORPHAN_SECONDS` | `86400` | Same, for workers that never sent a heartbeat |
 | `SMALLSTACK_TASKS_DEFAULT_MAX_ATTEMPTS` | `1` | Attempts for tasks with no retry policy (1 = no retries) |
-| `SMALLSTACK_TASKS_BACKOFF_SECONDS` | `5` | First retry delay |
+| `SMALLSTACK_TASKS_BACKOFF_SECONDS` | `5` | Longest the first retry waits (actual wait is 2.5–5s) |
 | `SMALLSTACK_TASKS_BACKOFF_MAX_SECONDS` | `600` | Longest retry delay |
 
 Staff can see workers and retry chains in **Explorer → System → Worker

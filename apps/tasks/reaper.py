@@ -61,7 +61,16 @@ executed more than once* is a durable fact and not just a log line;
 retry is cancelled best-effort — by then it has usually already started, and
 cancelling it would not un-execute it.
 
-So a task can run twice. It cannot run twice *unnoticed*.
+So a task can run twice. When the reaper is the reason, it cannot run twice
+*unnoticed*.
+
+That scope is deliberate and it is the whole claim. A task can still repeat work
+for reasons this module never sees — the classic one being a call that succeeded
+remotely and lost its reply, so the attempt records a failure and a retry redoes
+work the server already did (``tasks.py`` concedes this for SMTP). No reap, no
+supersession, nothing here to notice. Making *those* safe is the task author's
+job, via idempotency; making the reaper's own duplicates visible is this
+module's.
 """
 
 from __future__ import annotations

@@ -233,7 +233,7 @@ Two things worth knowing before you change the first two:
 ```python
 # Retries (@retry_policy in apps/tasks/reliability.py)
 SMALLSTACK_TASKS_DEFAULT_MAX_ATTEMPTS = 1     # attempts for undecorated tasks (1 = no retries)
-SMALLSTACK_TASKS_BACKOFF_SECONDS = 5          # first retry delay, doubles per attempt
+SMALLSTACK_TASKS_BACKOFF_SECONDS = 5          # UPPER BOUND of the first delay (actual: 2.5-5s), doubles per attempt
 SMALLSTACK_TASKS_BACKOFF_MAX_SECONDS = 600    # delay cap
 ```
 
