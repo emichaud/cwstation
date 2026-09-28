@@ -14,7 +14,9 @@ from unittest import mock
 
 import pytest
 from django.core.management import call_command
+from django.db import connection
 from django.tasks import task
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django_tasks.base import TaskResultStatus
 from django_tasks.signals import task_finished
@@ -439,6 +441,143 @@ class TestLateCompletion:
         assert outcome.status == "SUCCESSFUL" and outcome.attempt == 2
         assert outcome.executed_more_than_once is False
         assert outcome.double_execution_note() == ""
+
+
+class TestShippedEmailTaskRunsTwiceVisibly:
+    """The double-execution guarantee, on a task SmallStack actually ships.
+
+    `retry_lost` defaults to True, so every task that opts into retries at all is
+    in T3's scope — including all three bundled email tasks. Narrowing the
+    *implicit* fallback (IMPLICIT_PINNED_POLICY) does not cover them, because
+    they carry an explicit `@retry_policy`: their author asserted they are safe
+    to repeat. So `send_email_task` really can send twice, and the whole promise
+    is that the trail says so rather than reading as one send.
+
+    Delivery is measured as files on disk, which is what the queue actually
+    produced — not `mail.outbox`, which has previously scored a working case as
+    broken here.
+    """
+
+    @pytest.fixture
+    def maildir(self, settings, tmp_path):
+        settings.MAILERS = {
+            "default": {
+                "BACKEND": "django.core.mail.backends.filebased.EmailBackend",
+                "OPTIONS": {"file_path": str(tmp_path)},
+            }
+        }
+        return tmp_path
+
+    @staticmethod
+    def _delivered(maildir) -> int:
+        return len(list(maildir.glob("*.log")))
+
+    def test_a_paused_email_worker_sends_twice_and_the_trail_says_so(self, maildir, caplog):
+        from apps.tasks.tasks import send_email_task
+
+        # 1. attempt 1 is claimed, then its worker freezes past LOST_AFTER.
+        first = send_email_task.enqueue(recipient="ops@example.com", subject="invoice", message="body")
+        now = timezone.now()
+        WorkerHeartbeat.objects.create(
+            worker_id="frozen#aaa", label="frozen", hostname="box", pid=9, last_seen_at=now, stopped_at=now
+        )
+        DBTaskResult.objects.filter(id=first.id).update(
+            status="RUNNING", started_at=now, worker_ids=["frozen#aaa"]
+        )
+
+        # 2. the reaper declares it lost and enqueues a replacement. This is the
+        #    step D3 does NOT prevent for a task with an explicit @retry_policy.
+        reaped = reap_lost_tasks()
+        assert reaped.retried == 1, "an explicitly-retryable email task IS re-run after a worker death"
+        retry = TaskAttempt.objects.get(parent_id=first.id)
+
+        # 3. the replacement runs on a real worker: send #1.
+        DBTaskResult.objects.filter(id=retry.result_id).update(run_after=timezone.now())
+        _run_worker()
+        assert self._delivered(maildir) == 1
+
+        # 4. the frozen worker thaws and finishes its own send: #2. Then it does
+        #    exactly what upstream's run_task does — records success and signals.
+        send_email_task.call(recipient="ops@example.com", subject="invoice", message="body")
+        DBTaskResult.objects.filter(id=first.id).update(
+            status="SUCCESSFUL", finished_at=timezone.now(), exception_class_path="", traceback=""
+        )
+        with caplog.at_level("WARNING", logger="apps.tasks.reliability"):
+            task_finished.send(
+                sender=object, task_result=mock.Mock(status=TaskResultStatus.SUCCESSFUL, id=first.id)
+            )
+
+        # The invoice went out twice. Every channel must say so.
+        assert self._delivered(maildir) == 2, "precondition: the recipient really got two emails"
+
+        retry.refresh_from_db()
+        assert retry.parent_completed_at is not None, "no durable record on the chain"
+        assert retry.retry_cancelled is False, "the replacement had already sent; nothing was cancelled"
+
+        warnings = [r.getMessage() for r in caplog.records]
+        assert any("DOUBLE EXECUTION" in w and "send_email_task" in w for w in warnings), warnings
+
+        outcome = reliability.chain_outcome(first.id)
+        assert outcome.executed_more_than_once is True
+        assert "ran more than once" in outcome.double_execution_note()
+
+    def test_the_same_path_with_the_replacement_still_queued_sends_once(self, maildir):
+        """The good case: cancelled before it ran, so one email and no false alarm."""
+        from apps.tasks.tasks import send_email_task
+
+        first = send_email_task.enqueue(recipient="ops@example.com", subject="s", message="m")
+        now = timezone.now()
+        WorkerHeartbeat.objects.create(worker_id="frozen#bbb", label="frozen", last_seen_at=now, stopped_at=now)
+        DBTaskResult.objects.filter(id=first.id).update(
+            status="RUNNING", started_at=now, worker_ids=["frozen#bbb"]
+        )
+        reap_lost_tasks()
+
+        # The frozen worker thaws before the replacement is picked up.
+        send_email_task.call(recipient="ops@example.com", subject="s", message="m")
+        DBTaskResult.objects.filter(id=first.id).update(
+            status="SUCCESSFUL", finished_at=timezone.now(), exception_class_path="", traceback=""
+        )
+        reliability.record_late_completion(first.id)
+        _run_worker()  # the cancelled replacement must not send
+
+        assert self._delivered(maildir) == 1
+        outcome = reliability.chain_outcome(first.id)
+        assert outcome.status == "SUCCESSFUL"
+        assert outcome.executed_more_than_once is False, "a false double-execution flag is worse than none"
+
+
+class TestChainOutcomeCost:
+    """Fork detection rides the existing walk — the "zero extra queries" claim.
+
+    `chain_outcome` runs on every reconcile pass for every queued run, so a
+    per-link query added here is multiplied by `limit=200`. The marker fields are
+    selected in the `values_list` the walk already issues; this pins that, so the
+    claim fails loudly if someone later reaches for the parent row instead.
+    """
+
+    def _chain_of_two(self, *, forked: bool):
+        parent, child = _failed_row(flaky), _failed_row(flaky)
+        DBTaskResult.objects.filter(id__in=[parent.id, child.id]).update(status="SUCCESSFUL")
+        TaskAttempt.objects.create(
+            result_id=child.id,
+            root_id=parent.id,
+            parent_id=parent.id,
+            attempt=2,
+            cause=TaskAttempt.Cause.LOST,
+            parent_completed_at=timezone.now() if forked else None,
+            parent_status="SUCCESSFUL" if forked else "",
+        )
+        return parent
+
+    @pytest.mark.parametrize("forked", [False, True])
+    def test_a_two_attempt_chain_costs_three_queries_forked_or_not(self, forked):
+        parent = self._chain_of_two(forked=forked)
+        with CaptureQueriesContext(connection) as queries:
+            outcome = reliability.chain_outcome(parent.id)
+        assert outcome.executed_more_than_once is forked
+        # two walk steps (the link, then the miss that ends it) + the result row.
+        assert len(queries) == 3, [q["sql"] for q in queries.captured_queries]
 
 
 class TestPolicy:
