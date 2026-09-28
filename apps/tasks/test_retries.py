@@ -194,6 +194,32 @@ class TestMaybeRetry:
         assert maybe_retry(_failed_row(flaky, exc_path="gone.module.Err").id) is not None
         assert maybe_retry(_failed_row(picky, exc_path="gone.module.Err").id) is None
 
+    def test_a_pinned_budget_alone_never_reruns_a_worker_death(self):
+        """An operator's max_retries must not be more aggressive than @retry_policy.
+
+        Pinning a budget onto a task that declares no policy says "retry the
+        failure", not "re-run this if the machine dies" — the latter is an
+        at-least-once decision about a body nobody marked repeatable.
+        """
+        lost = _failed_row(no_policy, exc_path="apps.tasks.exceptions.WorkerLost")
+        pin_max_attempts(lost.id, 3)
+        assert maybe_retry(lost.id, TaskAttempt.Cause.LOST) is None
+
+        killed = _failed_row(no_policy, exc_path="builtins.SystemExit")
+        pin_max_attempts(killed.id, 3)
+        assert maybe_retry(killed.id) is None
+
+        # What the operator *did* ask for still works: the task raised.
+        raised = _failed_row(no_policy)
+        pin_max_attempts(raised.id, 3)
+        assert maybe_retry(raised.id) is not None
+
+    def test_an_explicit_policy_may_still_opt_into_retrying_a_worker_death(self):
+        """flaky declares @retry_policy, so retry_lost=True is its own choice."""
+        lost = _failed_row(flaky, exc_path="apps.tasks.exceptions.WorkerLost")
+        pin_max_attempts(lost.id, 3)
+        assert maybe_retry(lost.id, TaskAttempt.Cause.LOST) is not None
+
     def test_pinned_budget_overrides_the_policy_and_follows_the_chain(self):
         row = _failed_row(no_policy)
         pin_max_attempts(row.id, 3)

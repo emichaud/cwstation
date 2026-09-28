@@ -58,7 +58,11 @@ A run is recorded as **queued** when enqueued; a later reconcile pass (each tick
 
 ## Retries
 
-Set **Retries on failure** on a job's control page (or `max_retries` over REST/MCP, up to 10) to run it again when it fails, waiting a little longer each time. A run that's retrying stays **queued**. The overlap guard treats it as still running, and it ends **success** ("(attempt 2)") if a retry works or **failed** ("after 3 attempts: …") if none does. The failure email is sent once, after the last attempt. `0` (the default) leaves it to the task: a task with its own `@retry_policy` still retries. See [Background Tasks](/smallstack/help/smallstack/background-tasks/) for how retries work.
+Set **Retries on failure** on a job's control page (or `max_retries` over REST/MCP, up to 10) to run it again when it fails, waiting a little longer each time. A run that's retrying stays **queued**. The overlap guard treats it as still running, and it ends **success** ("(attempt 2)") if a retry works or **failed** ("after 3 attempts: …") if none does. The failure email is sent once, after the last attempt. `0` (the default) leaves it to the task: a task with its own `@retry_policy` still retries.
+
+**What it does and does not retry.** It retries a run whose task **raised** an error. It does *not* re-run a task whose **worker was killed mid-run** (a deploy, an OOM kill, a crashed container): that task may already have done half its work, and re-running it would repeat those effects. Only a developer can declare a task safe to repeat that way, with `@retry_policy(retry_lost=True)` in the code. If a run fails with `WorkerLost`, this setting leaves it failed on purpose.
+
+This setting also sets the *number* of attempts only. If the task's code already declares which errors are worth retrying — e.g. "SMTP errors only" — that still applies, so raising the number won't make it retry an error the task's author excluded. See [Background Tasks](/smallstack/help/smallstack/background-tasks/) for how retries work.
 
 ## Trying it locally
 

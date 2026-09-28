@@ -44,10 +44,18 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
   `SMALLSTACK_TASKS_BACKOFF_MAX_SECONDS` (600) set the defaults. Retries only
   happen on the database backend; `ImmediateBackend` behaves as before.
 - **Scheduled jobs retry: `ScheduledJob.max_retries` is live.** It was
-  "Reserved" until now. It's editable in the scheduler form, REST and MCP, and
-  capped at 10. When greater than 0, each run's first attempt is enqueued in
-  the same transaction as a pinned budget of `max_retries + 1` attempts. This
-  overrides the task's own `@retry_policy` for that run. 0 (the default) means
+  "Reserved" until now. It's editable in the scheduler form, REST and MCP, where
+  a validator caps it at 10 (the cap is not a database constraint). When greater
+  than 0, each run's first attempt is enqueued in the same transaction as a
+  pinned budget of `max_retries + 1` attempts. This pins the **attempt count
+  only** — which exceptions retry (`retry_on`), whether a worker death retries
+  (`retry_lost`) and the backoff still come from the task's own `@retry_policy`,
+  so `max_retries=5` on a task declaring `retry_on=(OSError,)` will not retry a
+  `ValueError`. On a task with **no** `@retry_policy` the pinned budget uses a
+  deliberately conservative fallback: any exception the task *raises* retries,
+  but a run whose worker died mid-task is **not** re-run, because re-running a
+  half-finished task is an at-least-once decision only an explicit
+  `@retry_policy(retry_lost=True)` may make. 0 (the default) means
   the task's policy applies unchanged. The scheduler now reads a run's outcome
   from the **latest attempt** of its retry chain
   (`apps.tasks.reliability.chain_outcome`). A run stays `QUEUED` while a retry

@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
             name="max_retries",
             field=models.PositiveSmallIntegerField(
                 default=0,
-                help_text="Retries after a failed run, each waiting longer than the last. 0 = use the task's own @retry_policy (none by default).",
+                help_text="Retries after a failed run, each waiting longer than the last, when the task raises. A run whose worker died mid-task is not re-run — only the task's own @retry_policy can opt into that, since repeating it may duplicate work already done. 0 = use the task's @retry_policy, if it has one.",
                 validators=[django.core.validators.MaxValueValidator(10)],
             ),
         ),

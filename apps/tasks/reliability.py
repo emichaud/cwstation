@@ -100,6 +100,21 @@ class RetryPolicy:
 
 DEFAULT_POLICY = RetryPolicy()
 
+# The policy a chain gets when an *operator* pinned a budget (pin_max_attempts —
+# e.g. a ScheduledJob with max_retries > 0) onto a task that declares no
+# @retry_policy of its own. Identical to DEFAULT_POLICY except that it will not
+# re-run an attempt whose worker died.
+#
+# Re-running a task the worker was killed *inside* is an at-least-once decision
+# about a task body nobody marked repeatable: it may have already written half
+# its side effects. A developer writing @retry_policy(...) is asserting the task
+# is safe to repeat, so retry_lost=True is theirs to choose. An operator typing a
+# number into the scheduler form is asking "try the failure again" and cannot
+# know whether the body is idempotent — so the operator control must never be
+# more aggressive than the explicit decorator. A task that *raised* reported its
+# own failure, which is exactly what the operator asked to retry.
+IMPLICIT_PINNED_POLICY = RetryPolicy(retry_lost=False)
+
 # task path (Task.module_path, == DBTaskResult.task_path) -> policy.
 _POLICIES: dict[str, RetryPolicy] = {}
 
@@ -176,7 +191,14 @@ def pin_max_attempts(result_id: UUID | str, max_attempts: int) -> None:
     """Override the retry budget for the chain starting at ``result_id``.
 
     For callers that know better than the task's decorator for one enqueue
-    (the scheduler's per-job ``max_retries``). Call right after enqueueing.
+    (the scheduler's per-job ``max_retries``). Call right after enqueueing, in
+    the same transaction, so no worker can claim and fail the task first.
+
+    This pins the **attempt count only**. Which exceptions retry (``retry_on``),
+    whether a worker death retries (``retry_lost``) and the backoff still come
+    from the task's own ``@retry_policy`` — and when the task has none, from
+    :data:`IMPLICIT_PINNED_POLICY`, which is deliberately more conservative than
+    ``DEFAULT_POLICY``.
     """
     TaskAttempt.objects.update_or_create(
         result_id=result_id,
@@ -215,6 +237,10 @@ def _decide(row: DBTaskResult, cause: str) -> _Decision | None:
     cause = _classify(row, cause)
     policy = policy_for(row.task_path)
     info = attempt_info(row.id)
+    if info.max_attempts is not None and policy is DEFAULT_POLICY:
+        # Operator-pinned budget, no @retry_policy on the task: don't re-run a
+        # worker death nobody declared repeatable. See IMPLICIT_PINNED_POLICY.
+        policy = IMPLICIT_PINNED_POLICY
     budget = info.max_attempts if info.max_attempts is not None else policy.attempts()
     if info.attempt >= budget:
         return None

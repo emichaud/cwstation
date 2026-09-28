@@ -161,6 +161,37 @@ def test_overlap_guard_waits_for_a_retrying_run():
     assert result.skipped == 1 and result.enqueued == 0
 
 
+def test_max_retries_does_not_rerun_a_run_whose_worker_died():
+    """Ticking "Retries on failure" must not silently opt a task into at-least-once.
+
+    `plain_task` declares no `@retry_policy`, so nobody asserted it is safe to
+    repeat. A reaped (WorkerLost) attempt may have already done half its work.
+    """
+    run = _fire(max_retries=2)
+    DBTaskResult.objects.filter(id=run.task_result_id).update(
+        status="FAILED",
+        finished_at=timezone.now(),
+        exception_class_path="apps.tasks.exceptions.WorkerLost",
+        traceback="WorkerLost: worker w1 exited while this task was running",
+    )
+
+    assert maybe_retry(run.task_result_id, "lost") is None
+    assert not TaskAttempt.objects.filter(parent_id=run.task_result_id).exists()
+
+    # ...and the run is final rather than sitting QUEUED waiting for a retry
+    # that will never come.
+    services.reconcile_run_outcomes()
+    run.refresh_from_db()
+    assert run.status == ScheduledJobRun.Status.FAILED
+
+
+def test_max_retries_help_text_names_both_behaviours():
+    """The operator-facing control states what it does and does not retry."""
+    help_text = ScheduledJob._meta.get_field("max_retries").help_text
+    assert "when the task raises" in help_text
+    assert "worker died mid-task is not re-run" in help_text
+
+
 def test_max_retries_is_editable_and_capped():
     assert "max_retries" in ScheduledJobCRUDView.fields
     job = ScheduledJob.objects.create(name="edit-me", task_path=TASK_PATH, schedule_type="interval", interval_spec="1h")
