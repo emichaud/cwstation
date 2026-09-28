@@ -17,7 +17,7 @@ class TaskResultExplorerAdmin(admin.ModelAdmin):
 class WorkerHeartbeatExplorerAdmin(admin.ModelAdmin):
     """Which db_worker processes are alive (see reaper.py for "lost")."""
 
-    list_display = ("worker_id", "hostname", "pid", "queues", "last_seen_at", "stopped_at")
+    list_display = ("label", "worker_id", "hostname", "pid", "queues", "last_seen_at", "stopped_at")
     explorer_readonly = True
     explorer_paginate_by = 25
 

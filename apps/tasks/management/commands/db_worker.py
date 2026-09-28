@@ -11,9 +11,12 @@ through).
 
 Around the upstream worker loop it:
 
-1. registers a :class:`~apps.tasks.models.WorkerHeartbeat` row for
-   ``--worker-id`` and runs one reaper pass, so tasks a crashed predecessor
-   left ``RUNNING`` are failed before this worker claims anything,
+1. mints a per-process **incarnation** id (``label#token``, where the label is
+   the operator's ``--worker-id``), hands it to upstream in place of the bare
+   label so it is what ends up in ``DBTaskResult.worker_ids``, registers a
+   :class:`~apps.tasks.models.WorkerHeartbeat` row for it, and runs one reaper
+   pass, so tasks a crashed predecessor left ``RUNNING`` are failed before this
+   worker claims anything,
 2. runs a :class:`~apps.tasks.heartbeat.HeartbeatThread` that refreshes it and
    periodically reaps tasks lost by *other* (dead) workers, and
 3. marks the row stopped on exit — including upstream's ``sys.exit`` from its
@@ -42,7 +45,7 @@ from django.conf import settings
 from django.utils.autoreload import DJANGO_AUTORELOAD_ENV
 from django_tasks_db.management.commands.db_worker import Command as UpstreamCommand
 
-from apps.tasks.heartbeat import HeartbeatThread, mark_stopped, register_worker, safe_reap
+from apps.tasks.heartbeat import HeartbeatThread, mark_stopped, new_incarnation, register_worker, safe_reap
 
 logger = logging.getLogger("django_tasks_db")
 
@@ -63,8 +66,19 @@ class Command(UpstreamCommand):
         # configure_logging is idempotent (hasHandlers guard) and upstream calls
         # it again; calling it first makes our startup line visible.
         self.configure_logging(options.get("verbosity", 1))
-        worker_id: str = options["worker_id"]
-        register_worker(worker_id, options.get("queue_name", ""))
+
+        # --worker-id is the operator's *label*; what identifies the claimant has
+        # to identify this *process*, or a restart under a stable label makes the
+        # predecessor's abandoned task look live (and two processes sharing a
+        # label make one's exit reap the other's work). So mint an incarnation and
+        # hand *that* to upstream: upstream's DBTaskResult.claim() appends
+        # whatever worker id it was given to worker_ids, so the reaper's
+        # task → claimant join becomes exact without patching upstream.
+        label: str = options["worker_id"]
+        worker_id = new_incarnation(label)
+        options["worker_id"] = worker_id
+
+        register_worker(worker_id, label, options.get("queue_name", ""))
         # Before claiming anything: fail what a crashed predecessor left RUNNING.
         safe_reap(worker_id)
         thread = HeartbeatThread(worker_id)

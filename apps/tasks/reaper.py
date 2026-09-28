@@ -3,15 +3,24 @@
 ``django-tasks-db`` never finishes a task whose worker was SIGKILLed or
 OOM-killed mid-run — the row stays ``RUNNING`` forever. This module closes that
 gap using the :class:`~apps.tasks.models.WorkerHeartbeat` rows SmallStack's
-``db_worker`` keeps fresh. A ``RUNNING`` row is **lost** when the worker that
-claimed it (``worker_ids[-1]``):
+``db_worker`` keeps fresh. The join is on ``worker_ids[-1]``, which SmallStack's
+``db_worker`` makes a **per-process incarnation** id rather than the operator's
+``--worker-id`` label (see ``heartbeat.new_incarnation``) — so a row identifies
+the exact process that claimed the task. A ``RUNNING`` row is **lost** when that
+process:
 
 - has a heartbeat row with ``stopped_at`` set (it exited while the task ran), or
 - has a heartbeat row older than ``SMALLSTACK_TASKS_LOST_AFTER_SECONDS``, or
-- has **no** heartbeat row (a plain upstream worker, or one from before this
-  feature) and the task started more than ``SMALLSTACK_TASKS_ORPHAN_SECONDS``
-  ago — conservative, since without a heartbeat a long task and a dead worker
-  look the same.
+- has **no** heartbeat row — a plain upstream worker, a claim from before this
+  feature, or an incarnation whose row has been pruned — and the task started
+  more than ``SMALLSTACK_TASKS_ORPHAN_SECONDS`` ago.
+
+**Only an exact incarnation match may use ``stopped_at`` or the
+``LOST_AFTER_SECONDS`` threshold.** Anything less certain falls through to the
+day-wide orphan rule: the failure mode to avoid is deciding a *live* task is
+lost, because the retry that follows duplicates work. So the reaper fails toward
+"can't tell", never toward "alive" (which would strand the task ``RUNNING``
+forever) and never toward "dead" on a partial match.
 
 A lost row is flipped to ``FAILED`` with a conditional UPDATE
 (``status=RUNNING`` in the WHERE), so a worker that finishes the task at the
@@ -103,14 +112,17 @@ def _lost_reason(row: DBTaskResult, worker_id: str, hb: WorkerHeartbeat | None, 
     there is no heartbeat row to carry a database timestamp anyway.
     """
     if hb is not None:
+        # The operator's --worker-id reads better in a remediation string than the
+        # incarnation composite; the pid distinguishes incarnations anyway.
+        name = hb.label or worker_id
         where = f"host {hb.hostname or '?'}, pid {hb.pid or '?'}"
         if hb.stopped_at is not None:
-            return f"worker {worker_id} ({where}) exited at {_fmt(hb.stopped_at)} while this task was running"
+            return f"worker {name} ({where}) exited at {_fmt(hb.stopped_at)} while this task was running"
         hb_now = getattr(hb, "db_now", None) or now
         age = (hb_now - hb.last_seen_at).total_seconds()
         if age > lost_after_seconds():
             return (
-                f"worker {worker_id} ({where}) stopped heartbeating; last seen {_fmt(hb.last_seen_at)} "
+                f"worker {name} ({where}) stopped heartbeating; last seen {_fmt(hb.last_seen_at)} "
                 f"({int(age)}s ago, threshold {lost_after_seconds()}s)"
             )
         return None

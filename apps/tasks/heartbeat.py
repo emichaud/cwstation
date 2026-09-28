@@ -35,6 +35,7 @@ import logging
 import os
 import socket
 import threading
+import uuid
 
 from django.conf import settings
 from django.db import close_old_connections, connections
@@ -53,11 +54,35 @@ def heartbeat_seconds() -> float:
     return float(getattr(settings, "SMALLSTACK_TASKS_HEARTBEAT_SECONDS", 15))
 
 
-def register_worker(worker_id: str, queues: str) -> None:
-    """Create (or revive) this worker's heartbeat row."""
+# Separates the operator's --worker-id from the per-process token in the value
+# handed to upstream's worker. Cosmetic only: `label` is stored in its own
+# column, so nothing ever needs to parse this back apart.
+INCARNATION_SEP = "#"
+
+
+def new_incarnation(label: str) -> str:
+    """A worker id unique to *this process*, prefixed with the operator's label.
+
+    This is the value ``db_worker`` gives upstream, so it is what upstream's
+    ``DBTaskResult.claim()`` appends to ``worker_ids`` — which is what makes the
+    reaper's task → claimant join exact per process rather than per label. The
+    token is random, not a counter: two processes must never agree on one, and
+    there is no coordination point that could hand out sequence numbers.
+    """
+    return f"{label}{INCARNATION_SEP}{uuid.uuid4().hex[:12]}"
+
+
+def register_worker(worker_id: str, label: str, queues: str) -> None:
+    """Record this process incarnation as alive.
+
+    ``worker_id`` is the composite from :func:`new_incarnation`, so this always
+    inserts a new row — it can never revive, and therefore never conceal, a dead
+    predecessor's row the way a label-keyed row did.
+    """
     WorkerHeartbeat.objects.update_or_create(
         worker_id=worker_id,
         defaults={
+            "label": label[:64],
             "hostname": socket.gethostname()[:255],
             "pid": os.getpid(),
             "queues": queues[:255],

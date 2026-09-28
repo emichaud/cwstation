@@ -14,9 +14,28 @@ from django.db import models
 
 
 class WorkerHeartbeat(models.Model):
-    """One row per ``db_worker`` process, keyed by its ``--worker-id``."""
+    """One row per ``db_worker`` **process incarnation**.
 
-    worker_id = models.CharField(max_length=64, unique=True)
+    ``worker_id`` is not the operator's ``--worker-id``: it is
+    ``"<label>#<token>"``, where the token is minted fresh at process start
+    (``heartbeat.new_incarnation``). That composite is what ``db_worker`` hands to
+    upstream's worker, so it is exactly what lands in ``DBTaskResult.worker_ids``
+    — which makes the task → claimant join *exact per process*, with no upstream
+    patch. ``label`` keeps the operator's name for logs, Explorer and the
+    "which worker died" strings, and is deliberately **not** unique.
+
+    Why an incarnation and not a pool member: every consumer asks a question
+    about a process ("is the thing that claimed this task still alive?"). While
+    the row was keyed on the operator's label, a worker restarting under a stable
+    ``--worker-id`` revived its dead predecessor's row, so the task that
+    predecessor left ``RUNNING`` looked live and was never reaped — and two live
+    processes sharing a label made one's clean exit reap the other's in-flight
+    task. Neither is rescuable by tuning a threshold; the join was ambiguous by
+    construction.
+    """
+
+    worker_id = models.CharField(max_length=80, unique=True, help_text="label#token — matches worker_ids[-1].")
+    label = models.CharField(max_length=64, blank=True, db_index=True, help_text="The operator's --worker-id.")
     hostname = models.CharField(max_length=255, blank=True)
     pid = models.PositiveIntegerField(null=True, blank=True)
     queues = models.CharField(max_length=255, blank=True, help_text="The worker's --queue-name value.")
@@ -33,7 +52,7 @@ class WorkerHeartbeat(models.Model):
 
     def __str__(self) -> str:
         state = "stopped" if self.stopped_at else "running"
-        return f"{self.worker_id} ({self.hostname or '?'}:{self.pid or '?'}, {state})"
+        return f"{self.label or self.worker_id} ({self.hostname or '?'}:{self.pid or '?'}, {state})"
 
 
 class TaskAttempt(models.Model):

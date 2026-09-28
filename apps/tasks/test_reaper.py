@@ -51,6 +51,7 @@ def _heartbeat(worker_id: str = "w1", *, seen_ago: float = 1, stopped: bool = Fa
     now = timezone.now()
     return WorkerHeartbeat.objects.create(
         worker_id=worker_id,
+        label=worker_id.split(heartbeat.INCARNATION_SEP)[0],
         hostname="host-a",
         pid=4242,
         last_seen_at=now - timedelta(seconds=seen_ago),
@@ -194,15 +195,15 @@ class TestReaper:
 
 @pytest.mark.django_db
 class TestHeartbeat:
-    def test_register_creates_then_revives(self):
-        heartbeat.register_worker("w9", "default,email")
+    def test_register_is_idempotent_for_one_incarnation(self):
+        heartbeat.register_worker("w9", "w9", "default,email")
         hb = WorkerHeartbeat.objects.get(worker_id="w9")
         assert hb.queues == "default,email" and hb.pid and hb.stopped_at is None
 
         heartbeat.mark_stopped("w9")
         assert WorkerHeartbeat.objects.get(worker_id="w9").stopped_at is not None
 
-        heartbeat.register_worker("w9", "*")
+        heartbeat.register_worker("w9", "w9", "*")
         hb = WorkerHeartbeat.objects.get(worker_id="w9")
         assert hb.stopped_at is None and hb.queues == "*"
 
@@ -216,6 +217,94 @@ class TestHeartbeat:
     def test_mark_stopped_swallows_errors(self):
         with mock.patch.object(WorkerHeartbeat.objects, "filter", side_effect=RuntimeError("db gone")):
             heartbeat.mark_stopped("w1")
+
+
+@pytest.mark.django_db
+class TestWorkerIncarnation:
+    """A heartbeat row identifies a *process*, not the operator's --worker-id.
+
+    ``--worker-id`` is a stable label — SmallStack's own cli-reference advertises
+    ``--worker-id mail-1`` — so it names a pool member, not an incarnation. While
+    the row was keyed on it, the task → claimant join was ambiguous by
+    construction, in both directions.
+    """
+
+    def test_a_restart_under_the_same_label_still_reaps_the_lost_task(self):
+        """W1: a live worker reusing a label must not shadow its dead predecessor.
+
+        While the row was label-keyed, the successor's registration reset
+        ``last_seen_at`` and cleared ``stopped_at``, so the task the *predecessor*
+        abandoned looked like it belonged to a live worker. It stayed hidden for
+        as long as that label had a live worker — unbounded for a long-lived
+        production worker, and permanent if the successor was also killed.
+        """
+        dead = heartbeat.new_incarnation("mail-1")
+        heartbeat.register_worker(dead, "mail-1", "*")
+        WorkerHeartbeat.objects.filter(worker_id=dead).update(
+            last_seen_at=timezone.now() - timedelta(seconds=reaper.lost_after_seconds() + 60), pid=67197
+        )
+        stuck = _running(dead, started_ago=700)
+
+        # The supervisor restarts the worker under the *same* --worker-id.
+        successor = heartbeat.new_incarnation("mail-1")
+        heartbeat.register_worker(successor, "mail-1", "*")
+        WorkerHeartbeat.objects.filter(worker_id=successor).update(pid=67257)
+
+        reap_lost_tasks()
+
+        stuck.refresh_from_db()
+        assert stuck.status == "FAILED", "a live worker reusing the label hid its predecessor's task"
+        assert stuck.exception_class_path == WORKER_LOST_PATH
+        # Attribution: the reason must name the incarnation that actually claimed
+        # the task, not whichever process currently holds the label. An operator
+        # debugging from this line would otherwise inspect the wrong process.
+        assert "pid 67197" in stuck.traceback, f"misattributed to the successor: {stuck.traceback}"
+        assert "pid 67257" not in stuck.traceback
+        assert "worker mail-1" in stuck.traceback, "the reason should name the operator's label"
+
+    def test_one_workers_clean_exit_does_not_reap_anothers_live_task(self):
+        """W2: two processes sharing a label must not share a liveness row."""
+        a, b = heartbeat.new_incarnation("pool"), heartbeat.new_incarnation("pool")
+        heartbeat.register_worker(a, "pool", "*")
+        heartbeat.register_worker(b, "pool", "*")
+        a_task, b_task = _running(a), _running(b)
+
+        heartbeat.mark_stopped(a)  # host A finished its task and exited cleanly
+        reap_lost_tasks()
+
+        a_task.refresh_from_db()
+        b_task.refresh_from_db()
+        assert a_task.status == "FAILED"  # A really did abandon this one
+        assert b_task.status == "RUNNING", "B's live task was reaped by A's exit"
+
+    def test_both_incarnations_get_their_own_row(self):
+        first = heartbeat.new_incarnation("mail-1")
+        second = heartbeat.new_incarnation("mail-1")
+        assert first != second
+        heartbeat.register_worker(first, "mail-1", "*")
+        heartbeat.register_worker(second, "mail-1", "*")
+        rows = WorkerHeartbeat.objects.filter(label="mail-1")
+        assert rows.count() == 2, "a label must not be unique; an incarnation must be"
+
+    def test_a_claim_with_no_incarnation_row_falls_through_to_orphan(self):
+        """Constraint: never use stopped_at/LOST_AFTER without an exact match.
+
+        Covers a plain upstream worker, a pre-upgrade claim, and an incarnation
+        whose row was pruned — all of which must be neither instantly reapable
+        nor permanently unreapable.
+        """
+        # A stopped row for the *label*; the task names an incarnation of it.
+        heartbeat.register_worker("mail-1", "mail-1", "*")
+        heartbeat.mark_stopped("mail-1")
+        recent = _running("mail-1#gone", started_ago=60)
+        old = _running("mail-1#gone", started_ago=reaper.orphan_seconds() + 60)
+
+        reap_lost_tasks()
+
+        recent.refresh_from_db()
+        old.refresh_from_db()
+        assert recent.status == "RUNNING", "reaped on a partial match"
+        assert old.status == "FAILED" and "no heartbeat record" in old.traceback
 
 
 @pytest.mark.django_db
@@ -236,7 +325,7 @@ class TestHeartbeatClock:
     def test_writers_ignore_a_skewed_app_clock(self):
         real = timezone.now()
         with self._skew(600):
-            heartbeat.register_worker("skewed", "*")
+            heartbeat.register_worker("skewed", "skewed", "*")
         hb = WorkerHeartbeat.objects.get(worker_id="skewed")
         assert abs((hb.last_seen_at - real).total_seconds()) < 60, "register_worker used the app clock"
 
@@ -253,7 +342,7 @@ class TestHeartbeatClock:
 
     def test_a_reaper_whose_clock_runs_fast_leaves_a_live_workers_task_alone(self):
         """The regression: skew must not look like a missed heartbeat."""
-        heartbeat.register_worker("live", "*")
+        heartbeat.register_worker("live", "live", "*")
         row = _running("live")
 
         with self._skew(10 * reaper.lost_after_seconds()):
@@ -265,7 +354,7 @@ class TestHeartbeatClock:
 
     def test_a_genuinely_stale_worker_is_still_reaped(self):
         """The inverse: the fix must not blind the reaper to a real dead worker."""
-        heartbeat.register_worker("goner", "*")
+        heartbeat.register_worker("goner", "goner", "*")
         WorkerHeartbeat.objects.filter(worker_id="goner").update(
             last_seen_at=timezone.now() - timedelta(seconds=reaper.lost_after_seconds() + 60)
         )
@@ -281,7 +370,7 @@ class TestHeartbeatClock:
 @pytest.mark.django_db(transaction=True)
 class TestHeartbeatThread:
     def test_thread_beats_and_reaps_until_stopped(self):
-        heartbeat.register_worker("me", "*")
+        heartbeat.register_worker("me", "me", "*")
         WorkerHeartbeat.objects.filter(worker_id="me").update(last_seen_at=timezone.now() - timedelta(seconds=30))
         before = WorkerHeartbeat.objects.get(worker_id="me").last_seen_at
         _heartbeat("dead", stopped=True)
@@ -330,8 +419,12 @@ class TestDbWorkerCommand:
         self._run_worker("cmd-worker")
 
         assert DBTaskResult.objects.get(id=result.id).status == "SUCCESSFUL"
-        hb = WorkerHeartbeat.objects.get(worker_id="cmd-worker")
+        hb = WorkerHeartbeat.objects.get(label="cmd-worker")
         assert hb.stopped_at is not None
+        # The row is keyed on the incarnation the worker handed upstream, and that
+        # is what the claim recorded — so the reaper can join them exactly.
+        assert hb.worker_id.startswith("cmd-worker" + heartbeat.INCARNATION_SEP)
+        assert DBTaskResult.objects.get(id=result.id).worker_ids[-1] == hb.worker_id
 
     def test_worker_reaps_a_dead_predecessors_task_at_startup(self):
         _heartbeat("predecessor", seen_ago=reaper.lost_after_seconds() + 60)
@@ -346,7 +439,7 @@ class TestDbWorkerCommand:
     def test_marks_stopped_even_when_the_worker_exits_via_sys_exit(self):
         with mock.patch.object(Worker, "run", side_effect=SystemExit(1)), pytest.raises(SystemExit):
             self._run_worker("forced")
-        assert WorkerHeartbeat.objects.get(worker_id="forced").stopped_at is not None
+        assert WorkerHeartbeat.objects.get(label="forced").stopped_at is not None
 
     def test_disabled_is_a_pure_pass_through(self, settings):
         settings.SMALLSTACK_TASKS_HEARTBEAT_ENABLED = False
