@@ -16,16 +16,25 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
   (same arguments; every existing entrypoint, compose, Kamal and dev-script
   invocation picks it up unchanged). Each worker writes a `WorkerHeartbeat` row
   (`apps.tasks`), refreshes it every `SMALLSTACK_TASKS_HEARTBEAT_SECONDS` (15),
-  and runs a reaper at startup and about once a minute. The reaper fails a
+  and runs a reaper at startup and then every 4 beats — about once a minute at
+  the default interval, and proportionally less often if you raise it (the
+  4-beat period is fixed, so `HEARTBEAT_SECONDS=300` means a reap every 20
+  minutes). The reaper fails a
   `RUNNING` task as `apps.tasks.exceptions.WorkerLost` when its worker exited, or
   hasn't heartbeated for `SMALLSTACK_TASKS_LOST_AFTER_SECONDS` (90), or has no
   heartbeat row at all and the task started more than
   `SMALLSTACK_TASKS_ORPHAN_SECONDS` (86400) ago. The traceback's last line
-  explains why (host, pid, last seen), and the scheduler's run summary shows it.
+  explains why — naming the host, pid and last-seen time when there is a
+  heartbeat row to read them from, and how long the task has been `RUNNING` when
+  there isn't — and the scheduler's run summary shows it.
   The update is conditional on `status=RUNNING`, so a late finish always wins
-  and concurrent reapers are safe. `manage.py reap_tasks [--dry-run]` runs a
+  and concurrent reapers are safe. Timestamps are written and compared on the
+  **database** clock, so the thresholds don't measure NTP skew between hosts.
+  `manage.py reap_tasks [--dry-run]` runs a
   pass by hand. `SMALLSTACK_TASKS_HEARTBEAT_ENABLED=False` turns the worker back
-  into a plain pass-through. New migration: `tasks.0001_initial`; run
+  into a plain pass-through — note that this also removes the only thing that
+  *runs* the reaper, so if you disable it, schedule `manage.py reap_tasks`
+  yourself or nothing will ever reap. New migration: `tasks.0001_initial`; run
   `migrate`.
 - **Task retries with backoff** (`apps/tasks/reliability.py`). Put
   `@retry_policy(max_attempts=3, backoff=5, backoff_max=600, retry_on=(OSError,))`

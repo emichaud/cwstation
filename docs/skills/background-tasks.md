@@ -256,7 +256,15 @@ heartbeats** for `SMALLSTACK_TASKS_LOST_AFTER_SECONDS`, or has **no heartbeat
 row** and the task started over `SMALLSTACK_TASKS_ORPHAN_SECONDS` ago (a plain
 upstream worker — conservative, since a long task looks the same). The update
 is conditional on `status=RUNNING`, so a late finish wins and concurrent reapers
-are safe. The traceback's last line says why (host, pid, last seen).
+are safe. The traceback's last line says why: for the first two cases it names
+the worker's host, pid and last-seen time; for the third there is no heartbeat
+row to read those from, so it reports how long the task has been `RUNNING`
+instead.
+
+`last_seen_at` is written — and the staleness threshold evaluated — on the
+**database** clock (`Now()`), not on any app server's `timezone.now()`. Two hosts
+comparing wall clocks would make `LOST_AFTER_SECONDS` a measure of NTP skew, and
+a worker whose clock ran slow would look permanently dead.
 
 > "Heartbeat" here is the **worker** heartbeat (`apps/tasks`), not the uptime
 > `heartbeat` command / `/status/` monitor (`apps/heartbeat`).
@@ -264,7 +272,9 @@ are safe. The traceback's last line says why (host, pid, last seen).
 Nothing to deploy: every existing `db_worker` invocation (entrypoint, compose,
 Kamal, `make services`) gets it. `manage.py reap_tasks [--dry-run]` runs a pass
 by hand. `SMALLSTACK_TASKS_HEARTBEAT_ENABLED=False` makes `db_worker` a plain
-pass-through.
+pass-through — but the heartbeat thread is also the only thing that *runs* the
+reaper, so disabling it leaves nothing reaping at all unless you schedule
+`manage.py reap_tasks` yourself (cron, supercronic, or a `@scheduled` job).
 
 **Dev gotcha:** under `DEBUG`, `db_worker` defaults to `--reload`, so the PID you
 see is the autoreloader parent — killing it leaves the real worker (the child)

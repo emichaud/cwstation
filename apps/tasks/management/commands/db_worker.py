@@ -25,8 +25,11 @@ heartbeat runs in the reloader child, which is where tasks execute (the same
 split upstream uses for its signal handlers).
 
 ``SMALLSTACK_TASKS_HEARTBEAT_ENABLED=False`` makes this a pure pass-through to
-the upstream worker (tasks it loses then fall back to the reaper's no-heartbeat
-threshold, ``SMALLSTACK_TASKS_ORPHAN_SECONDS``).
+the upstream worker. Note that this removes the reaper too, not just the
+heartbeat — the thread is what schedules it — so tasks this worker loses are only
+reaped if something else runs ``manage.py reap_tasks``, and then on the
+no-heartbeat threshold (``SMALLSTACK_TASKS_ORPHAN_SECONDS``, a day) rather than
+the 90s one.
 """
 
 from __future__ import annotations

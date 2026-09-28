@@ -1,8 +1,12 @@
 """Fail RUNNING tasks whose worker died (manual / cron path).
 
-Every SmallStack ``db_worker`` already runs this pass about once a minute, so
-this is for inspection (``--dry-run``) or for deployments whose workers run
-with ``SMALLSTACK_TASKS_HEARTBEAT_ENABLED=False``. See ``apps/tasks/reaper.py``.
+Every SmallStack ``db_worker`` already runs this pass every ``REAP_EVERY`` (4)
+heartbeats — about once a minute at the default 15s beat, but a quarter as often
+if you quadruple ``SMALLSTACK_TASKS_HEARTBEAT_SECONDS``. So this command is for
+inspection (``--dry-run``), or for deployments that raised the beat interval, or
+ones whose workers run with ``SMALLSTACK_TASKS_HEARTBEAT_ENABLED=False`` — in
+which case **nothing else reaps** and this needs a cron entry.
+See ``apps/tasks/reaper.py``.
 """
 
 from __future__ import annotations

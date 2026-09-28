@@ -239,10 +239,11 @@ leave that task marked **Running** forever. SmallStack's `db_worker` prevents th
 
 - Every worker records a **worker heartbeat** every 15 seconds (not the same
   thing as the uptime heartbeat on the status page).
-- About once a minute, and whenever a worker starts, workers check for tasks
-  whose worker has stopped or gone quiet for 90 seconds. Those tasks are marked
-  **Failed** with the error `WorkerLost` and a message saying which worker died
-  and when it was last seen.
+- About once a minute (every 4 heartbeats), and whenever a worker starts, workers
+  check for tasks whose worker has stopped or gone quiet for 90 seconds. Those
+  tasks are marked **Failed** with the error `WorkerLost` and a message saying
+  which worker died and when it was last seen. If you change the 15-second
+  heartbeat interval, the once-a-minute check moves with it.
 
 You don't need to set anything up. The `db_worker` you already run does this.
 
