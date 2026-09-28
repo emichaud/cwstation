@@ -308,6 +308,104 @@ class TestWorkerIncarnation:
 
 
 @pytest.mark.django_db
+class TestReaperSelfExclusion:
+    """A worker cannot be dead while it is running the reaper pass.
+
+    Every worker is also a reaper. When a worker's heartbeat writes start failing
+    — a starved container, a saturated database, SQLite write contention — its
+    own row goes stale, and without this invariant its *own* next reaper pass
+    reads that row, decides the task it is executing right now is lost, fails it
+    as WorkerLost and enqueues a second attempt beside the running one.
+    """
+
+    def test_a_worker_does_not_reap_the_task_it_is_running(self):
+        me = heartbeat.new_incarnation("w-hog")
+        heartbeat.register_worker(me, "w-hog", "*")
+        # Its beats have been failing: the row is well past the threshold.
+        WorkerHeartbeat.objects.filter(worker_id=me).update(
+            last_seen_at=timezone.now() - timedelta(seconds=reaper.lost_after_seconds() + 60)
+        )
+        mine = _running(me, started_ago=25)
+
+        heartbeat.safe_reap(me)  # this process's own pass
+
+        mine.refresh_from_db()
+        assert mine.status == "RUNNING", "the reaper failed the task its own process was executing"
+
+    def test_self_exclusion_does_not_protect_other_stale_workers(self):
+        """R5's inverse: excluding myself must not blind me to real deaths."""
+        me = heartbeat.new_incarnation("w-live")
+        heartbeat.register_worker(me, "w-live", "*")
+        dead = _heartbeat("w-dead", seen_ago=reaper.lost_after_seconds() + 60)
+        mine, theirs = _running(me), _running(dead.worker_id)
+
+        heartbeat.safe_reap(me)
+
+        mine.refresh_from_db()
+        theirs.refresh_from_db()
+        assert mine.status == "RUNNING"
+        assert theirs.status == "FAILED"
+
+    def test_exclusion_is_by_incarnation_not_label(self):
+        """Two live processes sharing a label must still reap each other's deaths."""
+        mine = heartbeat.new_incarnation("pool")
+        dead_sibling = heartbeat.new_incarnation("pool")
+        heartbeat.register_worker(mine, "pool", "*")
+        heartbeat.register_worker(dead_sibling, "pool", "*")
+        WorkerHeartbeat.objects.filter(worker_id=dead_sibling).update(
+            last_seen_at=timezone.now() - timedelta(seconds=reaper.lost_after_seconds() + 60)
+        )
+        abandoned = _running(dead_sibling)
+
+        heartbeat.safe_reap(mine)
+
+        abandoned.refresh_from_db()
+        assert abandoned.status == "FAILED", "excluding the label would hide a dead sibling"
+
+    def test_an_external_reaper_pass_excludes_nothing(self):
+        """manage.py reap_tasks is not a worker; it has no incarnation to exclude."""
+        dead = _heartbeat("gone", stopped=True)
+        row = _running(dead.worker_id)
+        reap_lost_tasks()
+        row.refresh_from_db()
+        assert row.status == "FAILED"
+
+
+@pytest.mark.django_db
+class TestHeartbeatBackoff:
+    """A worker that cannot write its own beat must stop judging others."""
+
+    def test_missed_beats_are_counted_and_logged_loudly(self, caplog):
+        thread = heartbeat.HeartbeatThread("w1", interval=0.01)
+        with mock.patch.object(heartbeat, "beat", side_effect=RuntimeError("database is locked")):
+            with caplog.at_level("WARNING", logger="apps.tasks.heartbeat"):
+                thread._beat()
+                thread._beat()
+        assert thread.missed_beats == 2
+        # Not DEBUG: this is how both the live-task-kill and the false-death begin.
+        assert any("heartbeat for w1 skipped" in r.getMessage() for r in caplog.records)
+
+    def test_a_worker_with_missed_beats_declines_to_reap(self, caplog):
+        thread = heartbeat.HeartbeatThread("w1", interval=0.01)
+        thread.missed_beats = heartbeat.MAX_MISSED_BEATS_BEFORE_YIELDING
+        with mock.patch.object(heartbeat, "safe_reap") as reap:
+            with caplog.at_level("WARNING", logger="apps.tasks.heartbeat"):
+                thread._reap()
+        reap.assert_not_called()
+        assert any("skipping its reaper pass" in r.getMessage() for r in caplog.records)
+
+    def test_a_successful_beat_clears_the_counter(self):
+        thread = heartbeat.HeartbeatThread("w1", interval=0.01)
+        thread.missed_beats = 5
+        with mock.patch.object(heartbeat, "beat"):
+            thread._beat()
+        assert thread.missed_beats == 0
+        with mock.patch.object(heartbeat, "safe_reap") as reap:
+            thread._reap()
+        reap.assert_called_once()
+
+
+@pytest.mark.django_db
 class TestHeartbeatClock:
     """Staleness is measured on the database's clock, not on any app server's.
 

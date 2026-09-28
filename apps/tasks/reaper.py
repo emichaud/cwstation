@@ -22,6 +22,14 @@ lost, because the retry that follows duplicates work. So the reaper fails toward
 "can't tell", never toward "alive" (which would strand the task ``RUNNING``
 forever) and never toward "dead" on a partial match.
 
+**A worker cannot be dead while it is running the reaper pass.** Every worker is
+also a reaper, so a pass must exclude the caller's own incarnation
+(``exclude_worker_ids``) — otherwise a worker whose heartbeat writes are failing
+reads its own stale row and fails the task it is executing right now. The
+``HeartbeatThread`` additionally declines to reap at all once it has missed
+several of its own beats: if it cannot write its own liveness, its reading of
+everyone else's is not trustworthy either.
+
 A lost row is flipped to ``FAILED`` with a conditional UPDATE
 (``status=RUNNING`` in the WHERE), so a worker that finishes the task at the
 same moment wins and nothing is overwritten; concurrent reapers (every worker
@@ -40,6 +48,7 @@ database can still be finishing a task the reaper already failed.
 from __future__ import annotations
 
 import logging
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -135,9 +144,16 @@ def _lost_reason(row: DBTaskResult, worker_id: str, hb: WorkerHeartbeat | None, 
     return None
 
 
-def find_lost_tasks(*, now: datetime | None = None) -> tuple[int, list[LostTask]]:
-    """Return ``(running_count, lost)`` without changing anything."""
+def find_lost_tasks(
+    *, now: datetime | None = None, exclude_worker_ids: Collection[str] = ()
+) -> tuple[int, list[LostTask]]:
+    """Return ``(running_count, lost)`` without changing anything.
+
+    ``exclude_worker_ids`` holds incarnations that are known-alive because they
+    are *executing this call* — see :func:`reap_lost_tasks`.
+    """
     now = now or timezone.now()
+    exclude = frozenset(exclude_worker_ids)
     # RUNNING is bounded by workers x concurrency, so a Python-side join is
     # fine — and portable, unlike filtering on worker_ids[-1] in JSON.
     running = list(
@@ -154,6 +170,8 @@ def find_lost_tasks(*, now: datetime | None = None) -> tuple[int, list[LostTask]
     lost: list[LostTask] = []
     for row in running:
         worker_id = row.worker_ids[-1] if row.worker_ids else ""
+        if worker_id and worker_id in exclude:
+            continue
         reason = _lost_reason(row, worker_id, heartbeats.get(worker_id), now)
         if reason:
             lost.append(LostTask(str(row.id), row.task_path, worker_id, reason))
@@ -166,13 +184,29 @@ def prune_heartbeats(*, now: datetime | None = None) -> int:
     return deleted
 
 
-def reap_lost_tasks(*, now: datetime | None = None, dry_run: bool = False) -> ReapResult:
+def reap_lost_tasks(
+    *, now: datetime | None = None, dry_run: bool = False, exclude_worker_ids: Collection[str] = ()
+) -> ReapResult:
     """Mark every lost ``RUNNING`` task ``FAILED`` and retry it if its policy allows.
 
     Also runs the repair sweep for missed retries and prunes old heartbeat rows.
+
+    ``exclude_worker_ids`` is the caller's own incarnation(s), and encodes the
+    invariant **a worker cannot be dead while it is running the reaper pass**.
+    Without it a worker whose heartbeat writes were failing — a starved container,
+    a saturated database, SQLite write contention — would read its *own* stale
+    ``last_seen_at``, conclude the task it is at that moment executing is lost,
+    fail it as ``WorkerLost`` and enqueue attempt 2 alongside the still-running
+    attempt 1. Observed in testing: the reaper decided exactly this and only
+    SQLite's database-wide write lock stopped the UPDATE from landing; on
+    PostgreSQL, or on SQLite once the lock frees, it lands.
+
+    Pass the **incarnation**, never the label: two live processes sharing a
+    ``--worker-id`` must still be able to reap each other's dead incarnations,
+    which is the whole point of keying liveness on the process.
     """
     now = now or timezone.now()
-    running, lost = find_lost_tasks(now=now)
+    running, lost = find_lost_tasks(now=now, exclude_worker_ids=exclude_worker_ids)
     result = ReapResult(running=running)
     if dry_run:
         result.reaped = lost
