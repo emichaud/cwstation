@@ -30,13 +30,26 @@ def test_no_smallstack_check_fires_under_check_deploy():
     assert [r.id for r in results if str(r.id).startswith("smallstack.")] == []
 
 
-def test_warns_when_the_installed_distribution_is_stale(monkeypatch):
-    """The real bug: a version bump committed without reinstalling."""
-    monkeypatch.setattr(checks, "installed_version", lambda _: "0.21.8")
-    monkeypatch.setattr(checks, "_pyproject_version", lambda: "0.22.0")
+def test_warns_when_the_installed_distribution_is_stale(monkeypatch, settings):
+    """The real bug: a version bump committed without reinstalling.
+
+    All three values are set by the test. The check infers "deliberately
+    overridden" from `settings.SMALLSTACK_VERSION != installed` — sound in
+    production, where the setting's default *is* the installed version — so a
+    test that patches only two of the three couples itself to whatever version
+    the repo happens to be on. This one originally hard-coded the then-current
+    0.21.8 and started swallowing the warning the moment main reached 0.21.9;
+    it would have done the same at the 0.22.0 release cut.
+    """
+    stale, declared = "1.0.0", "1.1.0"
+    monkeypatch.setattr(checks, "installed_version", lambda _: stale)
+    monkeypatch.setattr(checks, "_pyproject_version", lambda: declared)
+    settings.SMALLSTACK_VERSION = stale  # not overridden: it tracks the install
+
     results = checks.check_reported_version_is_not_stale(None)
+
     assert _ids(results) == ["smallstack.W001"]
-    assert "0.21.8" in results[0].msg and "0.22.0" in results[0].msg
+    assert stale in results[0].msg and declared in results[0].msg
     assert "uv sync" in results[0].hint
 
 
@@ -47,22 +60,22 @@ def test_silent_when_the_distribution_is_not_installed(monkeypatch):
         raise PackageNotFoundError
 
     monkeypatch.setattr(checks, "installed_version", _missing)
-    monkeypatch.setattr(checks, "_pyproject_version", lambda: "0.22.0")
+    monkeypatch.setattr(checks, "_pyproject_version", lambda: "1.1.0")
     assert checks.check_reported_version_is_not_stale(None) == []
 
 
 def test_silent_when_pyproject_is_unreadable(monkeypatch):
     """A wheel-only deploy has nothing to compare against; don't guess."""
-    monkeypatch.setattr(checks, "installed_version", lambda _: "0.21.8")
+    monkeypatch.setattr(checks, "installed_version", lambda _: "1.0.0")
     monkeypatch.setattr(checks, "_pyproject_version", lambda: None)
     assert checks.check_reported_version_is_not_stale(None) == []
 
 
 def test_silent_when_the_version_is_deliberately_overridden(monkeypatch, settings):
     """Same rule as tasks.W001: a deliberate opt-out is not a misconfiguration."""
-    monkeypatch.setattr(checks, "installed_version", lambda _: "0.21.8")
-    monkeypatch.setattr(checks, "_pyproject_version", lambda: "0.22.0")
-    settings.SMALLSTACK_VERSION = "2026-09-api"
+    monkeypatch.setattr(checks, "installed_version", lambda _: "1.0.0")
+    monkeypatch.setattr(checks, "_pyproject_version", lambda: "1.1.0")
+    settings.SMALLSTACK_VERSION = "2026-09-api"  # decoupled from the package
     assert checks.check_reported_version_is_not_stale(None) == []
 
 
