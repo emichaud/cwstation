@@ -15,6 +15,26 @@ from .models import ScheduledJob
 
 
 class ScheduledJobForm(forms.ModelForm):
+    # Declared explicitly, rather than left to ModelForm, purely so the bound is
+    # *discoverable*. The cap is a model validator, so a ModelForm-generated
+    # field has max_value=None — enforcement worked (full_clean runs the model
+    # validators for the form, REST and MCP alike), but the OpenAPI and MCP
+    # schemas are built from `form_field.max_value`, so they advertised a
+    # minimum and no maximum. An MCP client could only discover the ceiling by
+    # tripping over it. help_text/label stay on the model so there is still one
+    # place to edit the wording.
+    max_retries = forms.IntegerField(
+        # required=True matches what ModelForm produced (the model field has a
+        # default but blank=False); this change is about the advertised bound only.
+        required=True,
+        min_value=0,
+        max_value=ScheduledJob.MAX_RETRIES_CAP,
+        initial=0,
+        label="Retries on failure",
+        help_text=ScheduledJob._meta.get_field("max_retries").help_text,
+        widget=forms.NumberInput(attrs={"min": 0, "max": ScheduledJob.MAX_RETRIES_CAP}),
+    )
+
     class Meta:
         model = ScheduledJob
         fields = [
@@ -39,7 +59,6 @@ class ScheduledJobForm(forms.ModelForm):
             "kwargs": forms.Textarea(attrs={"rows": 3, "class": "vTextField", "spellcheck": "false"}),
             "interval_spec": forms.TextInput(attrs={"placeholder": "5m, 2h, 1d, 90d, 1mo, 1y"}),
             "cron_expression": forms.TextInput(attrs={"placeholder": "0 6 * * *"}),
-            "max_retries": forms.NumberInput(attrs={"min": 0, "max": 10}),
         }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:

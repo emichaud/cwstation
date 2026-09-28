@@ -192,6 +192,35 @@ def test_max_retries_help_text_names_both_behaviours():
     assert "worker died mid-task is not re-run" in help_text
 
 
+def test_the_max_retries_cap_is_advertised_not_just_enforced():
+    """MCP and OpenAPI clients must be able to discover the bound before calling.
+
+    Enforcement was always correct (the model validator runs via full_clean for
+    the form, REST and MCP alike), but both schemas are built from the *form*
+    field's `max_value`, and a ModelForm-generated field has None there — so the
+    schema advertised `minimum` and no `maximum`.
+    """
+    from apps.mcp.factory import _build_form_input_schema
+
+    prop = _build_form_input_schema(ScheduledJobCRUDView)["properties"]["max_retries"]
+    assert prop == {"type": "integer", "minimum": 0, "maximum": ScheduledJob.MAX_RETRIES_CAP}
+
+
+def test_the_cap_has_one_source():
+    """Model validator, form bound and widget attribute must not drift apart."""
+    from django.core.validators import MaxValueValidator
+
+    cap = ScheduledJob.MAX_RETRIES_CAP
+    model_field = ScheduledJob._meta.get_field("max_retries")
+    maxima = [v.limit_value for v in model_field.validators if isinstance(v, MaxValueValidator)]
+    assert maxima == [cap]  # PositiveSmallIntegerField also contributes a MinValueValidator(0)
+    form_field = ScheduledJobForm().fields["max_retries"]
+    assert form_field.max_value == cap
+    assert form_field.widget.attrs["max"] == cap
+    # Declaring the field explicitly must not have changed its required-ness.
+    assert form_field.required is True
+
+
 def test_max_retries_is_editable_and_capped():
     assert "max_retries" in ScheduledJobCRUDView.fields
     job = ScheduledJob.objects.create(name="edit-me", task_path=TASK_PATH, schedule_type="interval", interval_spec="1h")

@@ -126,10 +126,14 @@ running two on purpose only wastes work.
   can't know whether it's idempotent — only an explicit
   `@retry_policy(retry_lost=True)` may opt into that. The operator control is
   never more aggressive than the decorator.
-- **The cap is enforced where validators run** — the scheduler form and the DRF
-  serializer (`MaxValueValidator(10)`). It is *not* a database constraint, so
-  `ScheduledJob.objects.create(max_retries=99)` and `pin_max_attempts()` accept
-  more, and `_decide` will honour whatever budget it finds.
+- **The cap (`ScheduledJob.MAX_RETRIES_CAP`, 10) is enforced on every write path
+  an operator or client can reach**: the form, REST and MCP all run the model's
+  `MaxValueValidator` through `full_clean`, and all three reject 11 as a
+  validation error rather than storing it. It is *not* a database constraint,
+  so code calling `ScheduledJob.objects.create(max_retries=99)` or
+  `pin_max_attempts()` directly bypasses it and `_decide` will honour whatever
+  budget it finds — that is a deliberate escape hatch for code, not a hole in
+  the API.
 - **Runs follow the retry chain**: reconcile reads a run's outcome from the
   *latest* attempt (`chain_outcome`), not the first. A run stays `queued` while
   it's `RETRYING` (and the overlap guard counts it as unfinished). It ends
