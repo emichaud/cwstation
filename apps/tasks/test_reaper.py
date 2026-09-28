@@ -218,6 +218,66 @@ class TestHeartbeat:
             heartbeat.mark_stopped("w1")
 
 
+@pytest.mark.django_db
+class TestHeartbeatClock:
+    """Staleness is measured on the database's clock, not on any app server's.
+
+    ``last_seen_at`` is written by the worker host and the threshold is evaluated
+    by the reaper host. While both used ``timezone.now()``, the 90s window was
+    really a measure of NTP skew between them: a worker whose clock ran slow
+    looked permanently dead and its *live* tasks were reaped and retried.
+    """
+
+    @staticmethod
+    def _skew(seconds: float):
+        """Patch this process's wall clock forward — as if its NTP had drifted."""
+        return mock.patch.object(timezone, "now", return_value=timezone.now() + timedelta(seconds=seconds))
+
+    def test_writers_ignore_a_skewed_app_clock(self):
+        real = timezone.now()
+        with self._skew(600):
+            heartbeat.register_worker("skewed", "*")
+        hb = WorkerHeartbeat.objects.get(worker_id="skewed")
+        assert abs((hb.last_seen_at - real).total_seconds()) < 60, "register_worker used the app clock"
+
+        WorkerHeartbeat.objects.filter(worker_id="skewed").update(last_seen_at=real - timedelta(hours=1))
+        with self._skew(600):
+            heartbeat.beat("skewed")
+        hb.refresh_from_db()
+        assert abs((hb.last_seen_at - real).total_seconds()) < 60, "beat() used the app clock"
+
+        with self._skew(600):
+            heartbeat.mark_stopped("skewed")
+        hb.refresh_from_db()
+        assert abs((hb.stopped_at - real).total_seconds()) < 60, "mark_stopped() used the app clock"
+
+    def test_a_reaper_whose_clock_runs_fast_leaves_a_live_workers_task_alone(self):
+        """The regression: skew must not look like a missed heartbeat."""
+        heartbeat.register_worker("live", "*")
+        row = _running("live")
+
+        with self._skew(10 * reaper.lost_after_seconds()):
+            result = reap_lost_tasks()
+
+        row.refresh_from_db()
+        assert row.status == "RUNNING", f"live worker's task reaped on clock skew alone: {result}"
+        assert result.reaped == []
+
+    def test_a_genuinely_stale_worker_is_still_reaped(self):
+        """The inverse: the fix must not blind the reaper to a real dead worker."""
+        heartbeat.register_worker("goner", "*")
+        WorkerHeartbeat.objects.filter(worker_id="goner").update(
+            last_seen_at=timezone.now() - timedelta(seconds=reaper.lost_after_seconds() + 60)
+        )
+        row = _running("goner")
+
+        reap_lost_tasks()
+
+        row.refresh_from_db()
+        assert row.status == "FAILED"
+        assert "stopped heartbeating" in row.traceback
+
+
 @pytest.mark.django_db(transaction=True)
 class TestHeartbeatThread:
     def test_thread_beats_and_reaps_until_stopped(self):

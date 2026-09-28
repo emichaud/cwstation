@@ -18,6 +18,15 @@ timeout problem, not a lost-worker one.
 Nothing here may take the worker down. Every beat and reap swallows its own
 exceptions (e.g. SQLite ``database is locked`` while the main thread holds the
 write lock) and simply tries again next beat.
+
+**One clock governs.** Every timestamp here is written with SQL ``Now()``, not
+``timezone.now()``, so ``last_seen_at`` is on the *database* clock. Staleness is
+a comparison between a value one host wrote and a threshold another host
+evaluates, so with app-server wall clocks it is only as accurate as the fleet's
+NTP skew: a worker whose clock ran 2 minutes slow looked permanently dead at the
+90s threshold, and its live tasks got reaped and (by default) retried. The
+reaper reads its side of the comparison from the same clock — see
+``reaper.find_lost_tasks``.
 """
 
 from __future__ import annotations
@@ -29,7 +38,7 @@ import threading
 
 from django.conf import settings
 from django.db import close_old_connections, connections
-from django.utils import timezone
+from django.db.models.functions import Now
 
 from .models import WorkerHeartbeat
 from .reaper import reap_lost_tasks
@@ -52,21 +61,20 @@ def register_worker(worker_id: str, queues: str) -> None:
             "hostname": socket.gethostname()[:255],
             "pid": os.getpid(),
             "queues": queues[:255],
-            "last_seen_at": timezone.now(),
+            "last_seen_at": Now(),
             "stopped_at": None,
         },
     )
 
 
 def beat(worker_id: str) -> None:
-    WorkerHeartbeat.objects.filter(worker_id=worker_id).update(last_seen_at=timezone.now())
+    WorkerHeartbeat.objects.filter(worker_id=worker_id).update(last_seen_at=Now())
 
 
 def mark_stopped(worker_id: str) -> None:
     """Record a clean exit. Best-effort: a failure here must not mask the exit."""
     try:
-        now = timezone.now()
-        WorkerHeartbeat.objects.filter(worker_id=worker_id).update(last_seen_at=now, stopped_at=now)
+        WorkerHeartbeat.objects.filter(worker_id=worker_id).update(last_seen_at=Now(), stopped_at=Now())
     except Exception:  # noqa: BLE001 - shutting down; staleness catches it anyway
         logger.warning("tasks: could not mark worker %s stopped", worker_id, exc_info=True)
 

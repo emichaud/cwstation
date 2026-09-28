@@ -36,6 +36,7 @@ from datetime import datetime, timedelta
 
 from django.conf import settings
 from django.db.models import Q
+from django.db.models.functions import Now
 from django.utils import timezone
 from django_tasks.base import TaskResultStatus
 from django_tasks_db.models import DBTaskResult
@@ -91,12 +92,22 @@ def _fmt(ts: datetime) -> str:
 
 
 def _lost_reason(row: DBTaskResult, worker_id: str, hb: WorkerHeartbeat | None, now: datetime) -> str | None:
-    """Why ``row`` is lost, or ``None`` if its worker may still be running it."""
+    """Why ``row`` is lost, or ``None`` if its worker may still be running it.
+
+    The staleness branch compares against the **database** clock (annotated onto
+    ``hb`` as ``db_now`` by :func:`find_lost_tasks`), because that is the clock
+    ``heartbeat.beat()`` wrote ``last_seen_at`` with. Using this process's
+    ``timezone.now()`` there would make the 90s threshold a measure of NTP skew
+    between the worker host and the reaper host. The orphan branch below keeps
+    the caller's ``now``: its threshold is a day wide, so skew is irrelevant, and
+    there is no heartbeat row to carry a database timestamp anyway.
+    """
     if hb is not None:
         where = f"host {hb.hostname or '?'}, pid {hb.pid or '?'}"
         if hb.stopped_at is not None:
             return f"worker {worker_id} ({where}) exited at {_fmt(hb.stopped_at)} while this task was running"
-        age = (now - hb.last_seen_at).total_seconds()
+        hb_now = getattr(hb, "db_now", None) or now
+        age = (hb_now - hb.last_seen_at).total_seconds()
         if age > lost_after_seconds():
             return (
                 f"worker {worker_id} ({where}) stopped heartbeating; last seen {_fmt(hb.last_seen_at)} "
@@ -123,7 +134,11 @@ def find_lost_tasks(*, now: datetime | None = None) -> tuple[int, list[LostTask]
         )
     )
     worker_ids = {row.worker_ids[-1] for row in running if row.worker_ids}
-    heartbeats = {hb.worker_id: hb for hb in WorkerHeartbeat.objects.filter(worker_id__in=worker_ids)}
+    # db_now: the database's clock, read in the same statement as last_seen_at so
+    # staleness is skew-free (see _lost_reason and heartbeat.py's docstring).
+    heartbeats = {
+        hb.worker_id: hb for hb in WorkerHeartbeat.objects.filter(worker_id__in=worker_ids).annotate(db_now=Now())
+    }
     lost: list[LostTask] = []
     for row in running:
         worker_id = row.worker_ids[-1] if row.worker_ids else ""
