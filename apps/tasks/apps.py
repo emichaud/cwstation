@@ -16,4 +16,6 @@ class TasksConfig(AppConfig):
         # tracing.py's module docstring for why this is the right seam.
         # signals: retries a failed task as soon as db_worker reports it — see
         # reliability.py (the policy) and signals.py (why this signal).
-        from . import signals, tracing  # noqa: F401
+        # checks: makes this subsystem's silent absences (no heartbeat, no
+        # reaper) loud at `manage.py check` time — see checks.py.
+        from . import checks, signals, tracing  # noqa: F401

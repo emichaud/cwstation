@@ -280,6 +280,20 @@ reaper, so disabling it leaves nothing reaping at all unless you schedule
 see is the autoreloader parent — killing it leaves the real worker (the child)
 running. Test worker death with `--no-reload`.
 
+### System checks
+
+Everything above fails *silently* when misconfigured — the symptom is an absence
+(no heartbeat, no reaper), which surfaces only when a worker dies. So
+`manage.py check` reports three degraded configurations. All are warnings, and
+none fires on shipped defaults:
+
+| ID | Fires when | Why it matters |
+|---|---|---|
+| `tasks.W001` | another app's `db_worker` shadows ours (it precedes `apps.tasks` in `INSTALLED_APPS`) | workers run with no heartbeat; a dead worker's task waits out `ORPHAN_SECONDS` (a day) instead of 90s |
+| `tasks.W002` | `LOST_AFTER_SECONDS` < 3 x `HEARTBEAT_SECONDS` | a live worker that misses a couple of beats has its running tasks failed and possibly re-run |
+| `tasks.W003` | `HEARTBEAT_SECONDS` is not positive | not a usable beat interval |
+| `tasks.W004` | `USE_TZ = False` | the reaper raises on every pass, and the failure is swallowed to keep workers alive — so it simply never reaps |
+
 ### Retries with backoff
 
 Opt a task in with `@retry_policy`, applied **above** `@task` (like `@scheduled`):
