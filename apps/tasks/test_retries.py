@@ -24,7 +24,7 @@ from django_tasks_db.management.commands.db_worker import Worker
 from django_tasks_db.models import DBTaskResult
 
 from apps.tasks import reliability, signals
-from apps.tasks.exceptions import RETRY_SUPERSEDED_PATH
+from apps.tasks.exceptions import RETRY_SUPERSEDED_PATH, WORKER_LOST_PATH
 from apps.tasks.models import TaskAttempt, WorkerHeartbeat
 from apps.tasks.reaper import reap_lost_tasks
 from apps.tasks.reliability import RetryPolicy, maybe_retry, pin_max_attempts, policy_for, retry_policy
@@ -416,6 +416,75 @@ class TestLateCompletion:
         # ...and it is still recorded as a double execution.
         child.refresh_from_db()
         assert child.parent_completed_at is not None
+
+    def test_the_repair_sweep_never_resurrects_a_cancelled_retry(self):
+        """U4: the row that records a cancellation must not be retryable input.
+
+        `_mark_superseded` writes the cancellation as FAILED with
+        `RetrySuperseded` — which subclasses Exception, so the default
+        `retry_on=(Exception,)` matched it. The sweep (every reaper pass, ~1/min,
+        every worker) then "repaired" the cancelled retry and re-ran the task the
+        cancellation existed to stop.
+        """
+        parent, child = self._reaped_and_retried()
+        self._completes_late(parent)
+        late = reliability.record_late_completion(parent.id)
+        assert late.retry_cancelled is True
+
+        # Age the cancellation past REPAIR_GRACE so the sweep considers it.
+        DBTaskResult.objects.filter(id=child.result_id).update(
+            finished_at=timezone.now() - timedelta(minutes=5)
+        )
+
+        assert reliability.repair_missed_retries() == 0, "the sweep resurrected a cancelled retry"
+        assert not TaskAttempt.objects.filter(parent_id=child.result_id).exists()
+
+    def test_a_bookkeeping_row_is_never_retry_input_by_any_path(self):
+        """Gated in `_decide`, the funnel all three retry paths share."""
+        parent, child = self._reaped_and_retried()
+        self._completes_late(parent)
+        reliability.record_late_completion(parent.id)
+
+        cancelled = DBTaskResult.objects.get(id=child.result_id)
+        assert cancelled.exception_class_path == RETRY_SUPERSEDED_PATH
+        assert maybe_retry(cancelled.id) is None
+        assert maybe_retry(cancelled.id, TaskAttempt.Cause.LOST) is None
+        assert reliability._decide(cancelled, TaskAttempt.Cause.FAILED) is None
+
+    def test_a_worker_lost_row_is_still_retry_input(self):
+        """The inverse: a reaped task really executed, so it stays retryable."""
+        row = _failed_row(flaky, exc_path=WORKER_LOST_PATH)
+        assert maybe_retry(row.id, TaskAttempt.Cause.LOST) is not None
+
+    def test_a_resurrected_cancelled_retry_is_reported_not_hidden(self):
+        """If a resurrection happens anyway, the chain must not go quiet.
+
+        Terminating the walk at the cancelled row is exactly how U4's duplicate
+        reported `attempt=1`, `executed_more_than_once=False` and an empty note.
+        """
+        parent, child = self._reaped_and_retried()
+        self._completes_late(parent)
+        reliability.record_late_completion(parent.id)
+
+        # Fabricate what the pre-fix sweep produced: a descendant of the
+        # cancelled row, which then ran.
+        ghost = _failed_row(flaky)
+        DBTaskResult.objects.filter(id=ghost.id).update(status="SUCCESSFUL")
+        TaskAttempt.objects.create(
+            result_id=ghost.id,
+            root_id=parent.id,
+            parent_id=child.result_id,
+            attempt=3,
+            cause=TaskAttempt.Cause.FAILED,
+        )
+
+        outcome = reliability.chain_outcome(parent.id)
+
+        assert outcome.attempt == 3, "the walk stopped at the cancelled row and hid the resurrection"
+        assert outcome.resurrected_cancelled_retry is True
+        assert outcome.executed_more_than_once is True
+        assert outcome.double_execution_note() != "", "the chain report stayed silent"
+        assert "ran again unexpectedly" in outcome.double_execution_note()
 
     def test_chain_outcome_surfaces_the_fork(self):
         parent, child = self._reaped_and_retried()

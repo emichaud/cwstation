@@ -53,7 +53,7 @@ from django.utils.module_loading import import_string
 from django_tasks.base import TaskResultStatus
 from django_tasks_db.models import DBTaskResult
 
-from .exceptions import INTERRUPTED_PATHS, RETRY_SUPERSEDED_PATH, WORKER_LOST_PATH
+from .exceptions import BOOKKEEPING_PATHS, INTERRUPTED_PATHS, RETRY_SUPERSEDED_PATH, WORKER_LOST_PATH
 from .models import TaskAttempt
 
 logger = logging.getLogger(__name__)
@@ -233,6 +233,12 @@ class _Decision:
 def _decide(row: DBTaskResult, cause: str) -> _Decision | None:
     """The retry decision for a ``FAILED`` row, or ``None`` if it won't be retried."""
     if row.status != TaskResultStatus.FAILED:
+        return None
+    if row.exception_class_path in BOOKKEEPING_PATHS:
+        # A row that records a decision, not an execution. Retrying it would
+        # undo the decision — see BOOKKEEPING_PATHS. Gated here rather than in
+        # any one caller because this is the single funnel every retry path
+        # (signal receiver, reaper, repair sweep) goes through.
         return None
     cause = _classify(row, cause)
     policy = policy_for(row.task_path)
@@ -484,9 +490,16 @@ class ChainOutcome:
     executed_more_than_once: bool = False
     superseded_attempt: int | None = None
     superseded_status: str = ""
+    # A cancelled retry has a descendant: something re-enqueued a row that exists
+    # only to record a cancellation. `_decide` refuses bookkeeping rows as retry
+    # input, so this should be unreachable — it is reported rather than assumed
+    # away, because the one time it happened the chain went quiet (U4).
+    resurrected_cancelled_retry: bool = False
 
     def double_execution_note(self) -> str:
         """One short phrase for a run message. Empty when the chain ran once."""
+        if self.resurrected_cancelled_retry:
+            return "ran again unexpectedly: a cancelled retry was re-enqueued and continued"
         if not self.executed_more_than_once:
             return ""
         which = f"attempt {self.superseded_attempt}" if self.superseded_attempt else "an earlier attempt"
@@ -512,6 +525,7 @@ def chain_outcome(result_id: UUID | str, *, now: datetime | None = None) -> Chai
     superseded_attempt: int | None = None
     superseded_status = ""
     forked = False
+    resurrected = False
     for _ in range(_MAX_CHAIN):
         # The supersession marker is carried in the same walk, so detecting a
         # fork costs no extra queries. A child row's parent_completed_at refers
@@ -528,11 +542,21 @@ def chain_outcome(result_id: UUID | str, *, now: datetime | None = None) -> Chai
             superseded_attempt = attempt
             superseded_status = parent_status or ""
             if retry_cancelled:
-                # The retry never ran, so it is not this chain's outcome and the
-                # chain executed once. `current` — which completed after being
-                # declared lost — is the ground truth. Stop here.
-                break
-            forked = True
+                # A cancelled retry never ran, so it is not this chain's outcome
+                # and the chain executed once: `current` — which completed after
+                # being declared lost — is the ground truth, so stop here.
+                #
+                # Unless something re-enqueued it anyway. `_decide` now refuses
+                # bookkeeping rows as retry input, so a descendant here should be
+                # impossible; if one exists the machinery has misbehaved and the
+                # descendant really did run. Walking on is what keeps that from
+                # being invisible — terminating here is exactly how U4's
+                # duplicate execution reported `attempt=1` and an empty note.
+                if not TaskAttempt.objects.filter(parent_id=child_id).exists():
+                    break
+                resurrected = True
+            else:
+                forked = True
         current, attempt = str(child_id), child_attempt
     row = DBTaskResult.objects.filter(id=current).first()
     if row is None:
@@ -547,9 +571,13 @@ def chain_outcome(result_id: UUID | str, *, now: datetime | None = None) -> Chai
         status=status,
         row=row,
         attempt=attempt,
-        executed_more_than_once=forked,
+        # A resurrection counts as a second execution only once it has actually
+        # run — a still-READY one hasn't yet, and a false double-execution flag
+        # is worse than none. It is reported either way via the flag below.
+        executed_more_than_once=forked or (resurrected and status != TaskResultStatus.READY),
         superseded_attempt=superseded_attempt,
         superseded_status=superseded_status,
+        resurrected_cancelled_retry=resurrected,
     )
 
 
@@ -562,11 +590,18 @@ def repair_missed_retries(*, now: datetime | None = None) -> int:
     chain with a pinned budget). Capped at ``REPAIR_BATCH`` per pass.
     """
     now = now or timezone.now()
-    recent = DBTaskResult.objects.filter(
-        status=TaskResultStatus.FAILED,
-        finished_at__gte=now - REPAIR_WINDOW,
-        finished_at__lte=now - REPAIR_GRACE,
-    ).exclude(id__in=TaskAttempt.objects.filter(parent_id__isnull=False).values("parent_id"))
+    recent = (
+        DBTaskResult.objects.filter(
+            status=TaskResultStatus.FAILED,
+            finished_at__gte=now - REPAIR_WINDOW,
+            finished_at__lte=now - REPAIR_GRACE,
+        )
+        .exclude(id__in=TaskAttempt.objects.filter(parent_id__isnull=False).values("parent_id"))
+        # Bookkeeping rows are not failed attempts. `_decide` refuses them too —
+        # that is the load-bearing gate — but excluding them here stops the sweep
+        # re-examining the same rows on every pass, from every worker, for an hour.
+        .exclude(exception_class_path__in=BOOKKEEPING_PATHS)
+    )
     retryable_paths = [
         path for path in recent.values_list("task_path", flat=True).distinct() if policy_for(path).attempts() > 1
     ]
