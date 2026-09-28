@@ -6,10 +6,12 @@ worker loop starts, runs a :class:`HeartbeatThread` beside it, and calls
 :class:`~apps.tasks.models.WorkerHeartbeat` every
 ``SMALLSTACK_TASKS_HEARTBEAT_SECONDS`` and, every ``REAP_EVERY`` beats, runs
 :func:`~apps.tasks.reaper.reap_lost_tasks` — so every worker is also a reaper.
-``db_worker`` also calls :func:`safe_reap` once, synchronously, before its
-loop starts, so a worker restarted after a crash fails whatever its
-predecessor lost before claiming anything new. No scheduler or extra process
-involved.
+``db_worker`` also calls :func:`safe_reap` once, synchronously, before its loop
+starts. That pass can only fail a predecessor that is *already* reapable (it
+exited cleanly, or its heartbeat is already stale past the threshold); a
+supervisor that restarts a crashed worker within the staleness window leaves
+tasks too fresh to judge, and the thread's own pass picks them up once the
+threshold elapses. No scheduler or extra process involved either way.
 
 The thread measures *process* liveness, not task progress: it keeps beating
 while the main thread runs a long task. A hung task on a live worker is a

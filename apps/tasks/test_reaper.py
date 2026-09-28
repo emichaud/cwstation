@@ -534,6 +534,33 @@ class TestDbWorkerCommand:
         assert row.status == "FAILED"
         assert row.exception_class_path == WORKER_LOST_PATH
 
+    def test_startup_reap_does_not_catch_a_predecessor_still_inside_the_window(self):
+        """The startup pass is a head start, not a clean-queue guarantee.
+
+        A supervisor normally restarts a crashed worker well inside
+        LOST_AFTER_SECONDS, so its predecessor's heartbeat is not yet stale and
+        its abandoned task cannot be judged at startup. The heartbeat thread's
+        pass reaps it once the threshold elapses. The docstrings claimed the
+        startup pass failed a crashed predecessor's tasks "before this worker
+        claims anything", which is wrong for exactly the normal case — this pins
+        the real ordering so the claim cannot drift back.
+        """
+        _heartbeat("recent#aaa", seen_ago=2)  # crashed 2s ago; threshold is 90s
+        still_fresh = _running("recent#aaa")
+
+        self._run_worker("successor")
+
+        still_fresh.refresh_from_db()
+        assert still_fresh.status == "RUNNING", "reaped a predecessor too fresh to judge"
+
+        # Once the predecessor is genuinely stale, a pass does catch it.
+        WorkerHeartbeat.objects.filter(worker_id="recent#aaa").update(
+            last_seen_at=timezone.now() - timedelta(seconds=reaper.lost_after_seconds() + 60)
+        )
+        reap_lost_tasks()
+        still_fresh.refresh_from_db()
+        assert still_fresh.status == "FAILED"
+
     def test_marks_stopped_even_when_the_worker_exits_via_sys_exit(self):
         with mock.patch.object(Worker, "run", side_effect=SystemExit(1)), pytest.raises(SystemExit):
             self._run_worker("forced")

@@ -244,8 +244,12 @@ SmallStack ships its own `db_worker` command that **shadows** the upstream one
 (`apps.tasks` precedes `django_tasks_db` in `INSTALLED_APPS`, and Django picks
 the first app defining a command). Same arguments, same behaviour — plus:
 
-1. On start it writes a `WorkerHeartbeat` row for its `--worker-id` and runs one
-   **reaper pass** before claiming anything.
+1. On start it writes a `WorkerHeartbeat` row for a per-process **incarnation**
+   id (`<--worker-id>#<token>`) and runs one **reaper pass**. That pass only
+   catches a predecessor already past the staleness threshold, or one that
+   exited cleanly — a worker restarted promptly after a crash leaves tasks too
+   fresh to judge, and step 2 reaps them once the threshold elapses. It's a head
+   start, not a guarantee the queue is clean before this worker claims anything.
 2. A background thread refreshes the heartbeat every
    `SMALLSTACK_TASKS_HEARTBEAT_SECONDS` and reaps again every 4 beats (~1 min).
 3. On exit (including a forced second SIGTERM) it marks the row stopped.

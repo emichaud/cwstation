@@ -38,6 +38,14 @@ def check_db_worker_is_not_shadowed(app_configs: Any, **kwargs: Any) -> list[Che
     """
     if not django_apps.is_installed(OUR_APP) or not django_apps.is_installed(UPSTREAM_APP):
         return []
+    if not getattr(settings, "SMALLSTACK_TASKS_HEARTBEAT_ENABLED", True):
+        # Heartbeats are off, so our db_worker is a pure pass-through to
+        # upstream's (see db_worker.Command.handle). Which command resolves then
+        # makes no behavioural difference, and warning about a missing heartbeat
+        # describes precisely what the operator configured on purpose. A check
+        # that fires on a documented opt-out is noise, and noise in
+        # `check --deploy` is how real warnings stop being read.
+        return []
     from django.core.management import get_commands
 
     owner = get_commands().get("db_worker")

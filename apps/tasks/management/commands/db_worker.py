@@ -15,8 +15,13 @@ Around the upstream worker loop it:
    the operator's ``--worker-id``), hands it to upstream in place of the bare
    label so it is what ends up in ``DBTaskResult.worker_ids``, registers a
    :class:`~apps.tasks.models.WorkerHeartbeat` row for it, and runs one reaper
-   pass, so tasks a crashed predecessor left ``RUNNING`` are failed before this
-   worker claims anything,
+   pass. That pass only catches a predecessor that is *already* reapable — one
+   that exited cleanly, or whose heartbeat is already older than
+   ``SMALLSTACK_TASKS_LOST_AFTER_SECONDS``. A supervisor usually restarts a
+   crashed worker well inside that window, so its predecessor's tasks are
+   normally still too fresh to judge here and are reaped by the heartbeat
+   thread's pass once the threshold elapses. The startup pass is a head start,
+   not a guarantee that the queue is clean before this worker claims anything,
 2. runs a :class:`~apps.tasks.heartbeat.HeartbeatThread` that refreshes it and
    periodically reaps tasks lost by *other* (dead) workers, and
 3. marks the row stopped on exit — including upstream's ``sys.exit`` from its

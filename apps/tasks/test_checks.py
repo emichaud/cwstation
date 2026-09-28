@@ -57,6 +57,28 @@ class TestShadowingCheck:
         monkeypatch.setattr("django.core.management.get_commands", lambda: {})
         assert checks.check_db_worker_is_not_shadowed(None) == []
 
+    def test_silent_when_heartbeats_are_deliberately_disabled(self, settings, monkeypatch):
+        """A documented opt-out must not produce a warning.
+
+        With SMALLSTACK_TASKS_HEARTBEAT_ENABLED=False our db_worker is a pure
+        pass-through, so which command resolves changes nothing — and the
+        warning's text ("background workers run without a heartbeat") describes
+        exactly what the operator configured on purpose.
+        """
+        settings.SMALLSTACK_TASKS_HEARTBEAT_ENABLED = False
+        monkeypatch.setattr(
+            "django.core.management.get_commands", lambda: {"db_worker": "someone_elses_app"}
+        )
+        assert checks.check_db_worker_is_not_shadowed(None) == []
+
+    def test_still_warns_when_heartbeats_are_enabled(self, settings, monkeypatch):
+        """The guard must not swallow the real case."""
+        settings.SMALLSTACK_TASKS_HEARTBEAT_ENABLED = True
+        monkeypatch.setattr(
+            "django.core.management.get_commands", lambda: {"db_worker": "someone_elses_app"}
+        )
+        assert _ids(checks.check_db_worker_is_not_shadowed(None)) == ["tasks.W001"]
+
 
 class TestRatioCheck:
     @pytest.mark.parametrize(
