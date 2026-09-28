@@ -40,9 +40,23 @@ logger = logging.getLogger(__name__)
 
 # Transient mail failures (SMTP server down, connection reset, timeouts) are
 # worth retrying; OSError covers smtplib.SMTPException and socket errors.
-# Template/programming errors are not, so they fail on the first attempt. A
-# retry can in rare cases send twice (the SMTP server accepted the message,
-# then the connection dropped before the reply). For mail that's acceptable.
+# Template/programming errors are not, so they fail on the first attempt.
+#
+# These tasks can send the same message twice, by two different routes, and the
+# second is much broader than the first:
+#
+# 1. The SMTP server accepted the message and the connection dropped before the
+#    reply, so the send looks failed and is retried.
+# 2. This worker is paused or partitioned for longer than
+#    SMALLSTACK_TASKS_LOST_AFTER_SECONDS (90s) *while sending* — a throttled or
+#    starved container, a snapshotted VM, a host that swaps. The reaper declares
+#    the task lost and a retry sends it; then this worker resumes and finishes
+#    its own send. No SMTP-level ambiguity is needed and nothing has to fail.
+#    See reaper.py: the double execution is recorded and logged, not prevented.
+#
+# For mail that is acceptable — a duplicate is a nuisance, not a corruption. It
+# is not a template you can copy onto a task that charges a card or ships an
+# order without making that task idempotent first.
 _email_retry = retry_policy(max_attempts=3, backoff=30, backoff_max=600, retry_on=(OSError,))
 
 

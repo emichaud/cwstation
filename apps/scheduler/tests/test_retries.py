@@ -20,8 +20,9 @@ from apps.scheduler import services
 from apps.scheduler.forms import ScheduledJobForm
 from apps.scheduler.models import ScheduledJob, ScheduledJobRun
 from apps.scheduler.views import ScheduledJobCRUDView
+from apps.tasks import reliability
 from apps.tasks.models import TaskAttempt
-from apps.tasks.reliability import maybe_retry
+from apps.tasks.reliability import maybe_retry, retry_policy
 
 pytestmark = pytest.mark.django_db
 
@@ -31,7 +32,17 @@ def plain_task(**kwargs):  # no @retry_policy: only a pinned budget retries it
     return kwargs
 
 
+# A task whose *developer* opted into repeating it, including after a worker
+# death. Only such a task can reach the reaped-then-completed case at all: a
+# pinned budget alone will not re-run a WorkerLost attempt (IMPLICIT_PINNED_POLICY).
+@retry_policy(max_attempts=3, backoff=0, backoff_max=0)
+@task
+def repeatable_task(**kwargs):
+    return kwargs
+
+
 TASK_PATH = "apps.scheduler.tests.test_retries.plain_task"
+REPEATABLE_PATH = "apps.scheduler.tests.test_retries.repeatable_task"
 
 
 @pytest.fixture(autouse=True)
@@ -54,10 +65,10 @@ def mails(settings, monkeypatch):
     return calls
 
 
-def _fire(**kw) -> ScheduledJobRun:
+def _fire(*, task_path: str = TASK_PATH, **kw) -> ScheduledJobRun:
     kw.setdefault("name", "job")
     job = ScheduledJob.objects.create(
-        task_path=TASK_PATH, schedule_type="interval", interval_spec="1h", enabled=True, **kw
+        task_path=task_path, schedule_type="interval", interval_spec="1h", enabled=True, **kw
     )
     ScheduledJob.objects.filter(pk=job.pk).update(next_run_at=timezone.now() - timedelta(minutes=1))
     services.run_due_jobs()
@@ -190,6 +201,56 @@ def test_max_retries_help_text_names_both_behaviours():
     help_text = ScheduledJob._meta.get_field("max_retries").help_text
     assert "when the task raises" in help_text
     assert "worker died mid-task is not re-run" in help_text
+
+
+def test_a_run_that_executed_twice_says_so(mails):
+    """The scheduler must not record one run for two side effects.
+
+    Attempt 1 is declared lost and retried; the retry runs; then the paused
+    worker resumes and completes attempt 1 too. Both executed. A run message of
+    just "(attempt 2)" would tell the operator this job ran once.
+    """
+    run = _fire(name="ran-twice", task_path=REPEATABLE_PATH, max_retries=2)
+    _fail(run.task_result_id, error="WorkerLost: worker w1 exited")
+    retry_id = maybe_retry(run.task_result_id, "lost")
+    # The retry starts before the paused worker comes back...
+    DBTaskResult.objects.filter(id=retry_id).update(status="RUNNING")
+    # ...and then attempt 1 completes anyway.
+    _succeed(run.task_result_id, {"sent": 1})
+    reliability.record_late_completion(run.task_result_id)
+    _succeed(retry_id, {"sent": 1})
+
+    services.reconcile_run_outcomes()
+    run.refresh_from_db()
+
+    assert run.status == ScheduledJobRun.Status.SUCCESS
+    assert "ran more than once" in run.message
+    assert "attempt 1 completed (SUCCESSFUL)" in run.message
+    assert len(run.message) <= 255
+
+
+def test_a_cancelled_retry_does_not_make_a_successful_run_look_failed():
+    """The retry never started, so the run succeeded once — no alarm, no email."""
+    run = _fire(name="cancelled-retry", task_path=REPEATABLE_PATH, max_retries=2)
+    _fail(run.task_result_id, error="WorkerLost: worker w1 exited")
+    retry_id = maybe_retry(run.task_result_id, "lost")
+    _succeed(run.task_result_id, {"sent": 1})
+    reliability.record_late_completion(run.task_result_id)
+    assert DBTaskResult.objects.get(id=retry_id).status == "FAILED"  # cancelled
+
+    services.reconcile_run_outcomes()
+    run.refresh_from_db()
+
+    assert run.status == ScheduledJobRun.Status.SUCCESS
+    assert "ran more than once" not in run.message
+
+
+def test_the_double_execution_note_survives_a_long_summary():
+    """Truncation must cut the summary, never the warning."""
+    note = "ran more than once: attempt 1 completed (SUCCESSFUL) after being declared lost"
+    message = services._with_double_execution_note("x" * 400, note)
+    assert len(message) <= 255
+    assert message.endswith(note)
 
 
 def test_the_max_retries_cap_is_advertised_not_just_enforced():

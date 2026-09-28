@@ -41,8 +41,27 @@ A reaped task whose ``@retry_policy`` allows it (``retry_lost``, attempts left)
 is then retried like any other failure (``reliability.maybe_retry``), and each
 pass also runs ``reliability.repair_missed_retries``.
 
-Execution is at-least-once: a worker that is alive but partitioned from the
-database can still be finishing a task the reaper already failed.
+**Execution is at-least-once, and the record can disagree with reality.** Any
+worker that is paused or partitioned past ``SMALLSTACK_TASKS_LOST_AFTER_SECONDS``
+while running a task reaches this — a starved or throttled container, a
+snapshotted or migrated VM, a host that swaps, a long stop-the-world pause, not
+just a network partition. The reaper fails the task, a retry runs, and then the
+original worker resumes and writes its own result over the reaper's verdict with
+an unconditional UPDATE we do not control (upstream's ``set_successful``).
+
+The late completion **wins and is kept**: it is ground truth, the reaper is a
+heuristic, and blocking that write would mean patching the engine this layer
+exists not to touch. What the reaper guarantees instead is that the disagreement
+is never silent. ``reliability._mark_superseded`` stamps ``parent_completed_at``
+on the retry's :class:`~apps.tasks.models.TaskAttempt` row, so *the chain
+executed more than once* is a durable fact and not just a log line;
+``chain_outcome`` reports it (the scheduler puts it in the run message);
+``ReapResult.reaped_then_completed`` counts it, separately from the benign
+``raced``; and it is logged at WARNING with the task path. A still-``READY``
+retry is cancelled best-effort — by then it has usually already started, and
+cancelling it would not un-execute it.
+
+So a task can run twice. It cannot run twice *unnoticed*.
 """
 
 from __future__ import annotations
@@ -61,7 +80,7 @@ from django_tasks_db.models import DBTaskResult
 
 from .exceptions import WORKER_LOST_PATH
 from .models import TaskAttempt, WorkerHeartbeat
-from .reliability import maybe_retry, repair_missed_retries
+from .reliability import detect_late_completions, maybe_retry, repair_missed_retries
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +109,15 @@ class LostTask:
 class ReapResult:
     running: int = 0
     reaped: list[LostTask] = field(default_factory=list)
-    # Found lost, but a concurrent finish (or another reaper) got there first.
+    # Found lost, but a concurrent finish (or another reaper) got there first, so
+    # the conditional UPDATE did not apply. Benign: nothing was reaped, nothing
+    # was retried, the task ran exactly once.
     raced: int = 0
+    # Reaped *and* retried, and then the original completed anyway — the chain
+    # executed more than once. Deliberately not folded into `raced`: that one
+    # means the reaper lost a race harmlessly, this one means it was overruled
+    # by ground truth after acting on a wrong verdict.
+    reaped_then_completed: int = 0
     # Reaped tasks whose retry policy enqueued another attempt.
     retried: int = 0
     # Earlier failures whose retry had been missed (see repair_missed_retries).
@@ -101,7 +127,9 @@ class ReapResult:
     def __str__(self) -> str:
         return (
             f"running={self.running} reaped={len(self.reaped)} raced={self.raced} "
-            f"retried={self.retried} repaired={self.repaired} heartbeats_pruned={self.heartbeats_pruned}"
+            f"retried={self.retried} repaired={self.repaired} "
+            f"reaped_then_completed={self.reaped_then_completed} "
+            f"heartbeats_pruned={self.heartbeats_pruned}"
         )
 
 
@@ -236,5 +264,8 @@ def reap_lost_tasks(
         except Exception:  # noqa: BLE001 - the repair sweep gets another go
             logger.warning("tasks: retry of reaped task %s failed", task.result_id, exc_info=True)
     result.repaired = repair_missed_retries(now=now)
+    # Catches a reaped-then-completed attempt whose worker died before it could
+    # send task_finished, so the signal receiver never saw it.
+    result.reaped_then_completed = len(detect_late_completions(now=now))
     result.heartbeats_pruned = prune_heartbeats(now=now)
     return result

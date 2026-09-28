@@ -19,14 +19,32 @@ from typing import Any
 from django_tasks.base import TaskResultStatus
 from django_tasks.signals import task_finished
 
-from .reliability import maybe_retry
+from .reliability import maybe_retry, record_late_completion
 
 logger = logging.getLogger(__name__)
 
 
 def retry_failed_task(sender: Any, task_result: Any, **kwargs: Any) -> None:
+    """Record a late completion, then retry the attempt if it failed.
+
+    Runs on *every* terminal result, not only failures, because this is the
+    earliest point at which a double execution is knowable: if this attempt
+    already has a retry, it was declared lost and replaced while it was still
+    running, and it has now completed anyway. Both branches ran.
+
+    The late-completion check comes first so a normally-failing attempt — which
+    has no retry yet, because the retry is enqueued moments later by this very
+    receiver — cannot be mistaken for one.
+    """
     try:
-        if task_result.status == TaskResultStatus.FAILED:
+        late = record_late_completion(task_result.id)
+    except Exception:  # noqa: BLE001 - see module docstring; the sweep retries this
+        late = None
+        logger.warning(
+            "tasks: late-completion check for %s failed", getattr(task_result, "id", "?"), exc_info=True
+        )
+    try:
+        if late is None and task_result.status == TaskResultStatus.FAILED:
             maybe_retry(task_result.id)
     except Exception:  # noqa: BLE001 - see module docstring
         logger.warning("tasks: retry check for %s failed", getattr(task_result, "id", "?"), exc_info=True)

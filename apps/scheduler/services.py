@@ -239,23 +239,45 @@ def _engine_status(task_result_id: str) -> str | None:
     return _engine_result(task_result_id)[0]
 
 
-def _engine_result(task_result_id: str) -> tuple[str | None, object, str, int]:
-    """Return (status, return_value, traceback, attempt) for a run (best-effort).
+def _engine_result(task_result_id: str) -> tuple[str | None, object, str, int, str]:
+    """Return (status, return_value, traceback, attempt, double_execution_note).
 
     Read from the *latest* attempt of the run's retry chain, so a run whose
     first attempt failed but whose retry succeeded reports SUCCESSFUL, and one
     still retrying reports RETRYING (not finished).
     """
     if not task_result_id:
-        return None, None, "", 1
+        return None, None, "", 1, ""
     try:
         outcome = chain_outcome(task_result_id)
     except Exception:  # noqa: BLE001 — backend shape may vary; treat as unknown
-        return None, None, "", 1
+        return None, None, "", 1, ""
     if outcome is None:
-        return None, None, "", 1
+        return None, None, "", 1, ""
     row = outcome.row
-    return outcome.status, row.return_value, row.traceback or "", outcome.attempt
+    return (
+        outcome.status,
+        row.return_value,
+        row.traceback or "",
+        outcome.attempt,
+        outcome.double_execution_note(),
+    )
+
+
+# ScheduledJobRun.message is 255 chars.
+_MESSAGE_MAX = 255
+_NOTE_JOIN = " — "
+
+
+def _with_double_execution_note(message: str, note: str) -> str:
+    """Append a double-execution note, trimming the summary to make room for it."""
+    if not note:
+        return message[:_MESSAGE_MAX]
+    note = note[:_MESSAGE_MAX]
+    room = _MESSAGE_MAX - len(note) - len(_NOTE_JOIN)
+    if room <= 0 or not message:
+        return note
+    return f"{message[:room]}{_NOTE_JOIN}{note}"
 
 
 def _summarize_result(return_value: object) -> str:
@@ -310,7 +332,7 @@ def reconcile_run_outcomes(*, limit: int = 200) -> int:
     )
     terminal = {"SUCCESSFUL": ScheduledJobRun.Status.SUCCESS, "FAILED": ScheduledJobRun.Status.FAILED}
     for run in queued:
-        status, return_value, tb, attempt = _engine_result(run.task_result_id)
+        status, return_value, tb, attempt, double_execution = _engine_result(run.task_result_id)
         new = terminal.get(status or "")
         if not new:
             continue
@@ -319,13 +341,18 @@ def reconcile_run_outcomes(*, limit: int = 200) -> int:
         # success, the exception line on failure — so the dashboard shows the
         # *result*, not just the word "Success". (message is rendered already.)
         if new == ScheduledJobRun.Status.SUCCESS:
-            run.message = _summarize_result(return_value)
+            message = _summarize_result(return_value)
             if attempt > 1:
-                run.message = f"{run.message} (attempt {attempt})"[:255]
+                message = f"{message} (attempt {attempt})"
         else:
-            run.message = _summarize_error(tb)
+            message = _summarize_error(tb)
             if attempt > 1:
-                run.message = f"after {attempt} attempts: {run.message}"[:255]
+                message = f"after {attempt} attempts: {message}"
+        # A run that executed more than once must say so even if that costs us
+        # the tail of the summary: "succeeded" while the job actually ran twice
+        # is the misreport this note exists to prevent, so it is the part that
+        # survives truncation rather than the part that gets cut.
+        run.message = _with_double_execution_note(message, double_execution)
         run.save(update_fields=["status", "message"])
         # Only reflect onto the job's last_status if this is its most recent run,
         # so a straggling older run can't overwrite a newer run's state.

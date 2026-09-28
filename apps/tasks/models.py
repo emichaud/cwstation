@@ -86,6 +86,22 @@ class TaskAttempt(models.Model):
     max_attempts = models.PositiveSmallIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # Set when the attempt this row replaced (``parent_id``) reached a terminal
+    # state *anyway*, after the reaper had declared it lost and enqueued this
+    # retry. Its presence means the chain **executed more than once**: the reaper
+    # is a heuristic and the late completion is ground truth, so the record has
+    # to survive rather than be quietly overwritten. A log line is not an audit
+    # trail — this is the durable half. ``parent_status`` keeps the outcome so
+    # the marker is self-contained and reporting needs no second query.
+    parent_completed_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    parent_status = models.CharField(max_length=16, blank=True)
+    # True when this retry was still READY at that moment and was cancelled, so
+    # it never executed. Then the chain ran *once* (the parent's late completion)
+    # and the reaper's mistake cost nothing — which is a different fact from a
+    # genuine double execution, and ``chain_outcome`` must not confuse them: a
+    # cancelled retry is not the chain's outcome, the parent that finished is.
+    retry_cancelled = models.BooleanField(default=False)
+
     class Meta:
         ordering = ["root_id", "attempt"]
         verbose_name = "Task attempt"

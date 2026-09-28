@@ -53,7 +53,7 @@ from django.utils.module_loading import import_string
 from django_tasks.base import TaskResultStatus
 from django_tasks_db.models import DBTaskResult
 
-from .exceptions import INTERRUPTED_PATHS, WORKER_LOST_PATH
+from .exceptions import INTERRUPTED_PATHS, RETRY_SUPERSEDED_PATH, WORKER_LOST_PATH
 from .models import TaskAttempt
 
 logger = logging.getLogger(__name__)
@@ -303,6 +303,157 @@ def maybe_retry(
     return str(new.id)
 
 
+# How far back the late-completion sweep looks for a reaped attempt that
+# finished anyway. Wider than REPAIR_WINDOW because the pause that caused the
+# reap (a stopped container, a snapshotted VM) can outlast an hour by a lot.
+LATE_COMPLETION_WINDOW = timedelta(days=1)
+
+
+@dataclass(frozen=True)
+class LateCompletion:
+    """A reaped attempt that completed anyway: proof the chain ran twice."""
+
+    parent_id: str
+    retry_id: str
+    task_path: str
+    status: str
+    retry_cancelled: bool
+
+
+def _mark_superseded(
+    parent_id: UUID | str,
+    *,
+    status: str,
+    task_path: str,
+    completed_at: datetime,
+    now: datetime,
+) -> LateCompletion | None:
+    """Record that a reaped attempt completed anyway, and log it loudly.
+
+    Returns ``None`` when another path already recorded this one — the UPDATE is
+    conditional on ``parent_completed_at`` still being NULL, so the signal
+    receiver and the sweep can both run without double-counting.
+    """
+    child = (
+        TaskAttempt.objects.filter(parent_id=parent_id, parent_completed_at__isnull=True)
+        .values_list("result_id", flat=True)
+        .first()
+    )
+    if child is None:
+        return None
+    marked = TaskAttempt.objects.filter(parent_id=parent_id, parent_completed_at__isnull=True).update(
+        parent_completed_at=completed_at, parent_status=str(status)[:16]
+    )
+    if not marked:
+        return None
+
+    # Best-effort cancel of a retry that hasn't started. Conditional on READY, so
+    # a retry already RUNNING is untouched — and this is *not* the correctness
+    # story: by the time a paused worker resumes, its replacement has usually
+    # started or finished, and cancelling it then would not un-execute it.
+    cancelled = bool(
+        DBTaskResult.objects.filter(id=child, status=TaskResultStatus.READY).update(
+            status=TaskResultStatus.FAILED,
+            finished_at=now,
+            return_value=None,
+            exception_class_path=RETRY_SUPERSEDED_PATH,
+            traceback=(
+                f"RetrySuperseded: attempt {parent_id} was declared lost and replaced by this retry, "
+                f"but then completed ({status}) before this retry started"
+            ),
+        )
+    )
+    if cancelled:
+        TaskAttempt.objects.filter(parent_id=parent_id).update(retry_cancelled=True)
+    logger.warning(
+        "tasks: %s of %s — attempt %s was reaped as WorkerLost and retried as %s, "
+        "then completed anyway (%s). %s",
+        "REAPED-THEN-COMPLETED" if cancelled else "DOUBLE EXECUTION",
+        task_path,
+        parent_id,
+        child,
+        status,
+        (
+            "The retry was cancelled before it started, so the task ran once."
+            if cancelled
+            else "The retry had already started: the task ran more than once."
+        ),
+        extra={"task_path": task_path, "task_id": str(parent_id), "retry_id": str(child)},
+    )
+    return LateCompletion(
+        parent_id=str(parent_id),
+        retry_id=str(child),
+        task_path=task_path,
+        status=str(status),
+        retry_cancelled=cancelled,
+    )
+
+
+def record_late_completion(result_id: UUID | str, *, now: datetime | None = None) -> LateCompletion | None:
+    """Did ``result_id`` finish *after* something already retried it? Record it.
+
+    Called from the ``task_finished`` receiver for every terminal result, which
+    is the earliest moment this is knowable. One indexed lookup on the unique
+    ``TaskAttempt.parent_id``: a normally-failing attempt has no child yet (its
+    retry is enqueued moments later, by the same receiver), so this is a single
+    miss on the hot path.
+    """
+    now = now or timezone.now()
+    row = (
+        DBTaskResult.objects.filter(id=result_id)
+        .values_list("status", "task_path", "finished_at")
+        .first()
+    )
+    if row is None:
+        return None
+    status, task_path, finished_at = row
+    if status in (TaskResultStatus.READY, TaskResultStatus.RUNNING):
+        return None
+    return _mark_superseded(
+        result_id, status=status, task_path=task_path, completed_at=finished_at or now, now=now
+    )
+
+
+def detect_late_completions(*, now: datetime | None = None, limit: int = REPAIR_BATCH) -> list[LateCompletion]:
+    """Sweep for reaped attempts that completed without the signal being seen.
+
+    The receiver only fires if the worker survives long enough to report. A
+    worker that is SIGKILLed between ``set_successful()`` and sending the signal
+    still executed the task, so the record would be lost — this catches it on
+    the next reaper pass. Idempotent: ``_mark_superseded`` only counts the first
+    writer.
+    """
+    now = now or timezone.now()
+    # parent_id is nullable on the model (a pinned first attempt has none), but a
+    # cause=lost row always has one — it exists *because* something was retried.
+    # Filtered explicitly rather than assumed.
+    candidates = [
+        parent_id
+        for parent_id in TaskAttempt.objects.filter(
+            cause=TaskAttempt.Cause.LOST,
+            parent_completed_at__isnull=True,
+            parent_id__isnull=False,
+            created_at__gte=now - LATE_COMPLETION_WINDOW,
+        ).values_list("parent_id", flat=True)[:limit]
+        if parent_id is not None
+    ]
+    if not candidates:
+        return []
+    found: list[LateCompletion] = []
+    rows = DBTaskResult.objects.filter(
+        id__in=candidates, status__in=(TaskResultStatus.SUCCESSFUL, TaskResultStatus.FAILED)
+    ).values_list("id", "status", "task_path", "exception_class_path", "finished_at")
+    for rid, status, task_path, exc_path, finished_at in rows:
+        if status == TaskResultStatus.FAILED and exc_path == WORKER_LOST_PATH:
+            continue  # still carries the reaper's verdict; it never came back
+        late = _mark_superseded(
+            rid, status=status, task_path=task_path, completed_at=finished_at or now, now=now
+        )
+        if late is not None:
+            found.append(late)
+    return found
+
+
 @dataclass(frozen=True)
 class ChainOutcome:
     """Where a chain of attempts stands, read from its first result id.
@@ -311,11 +462,36 @@ class ChainOutcome:
     ``SUCCESSFUL`` / ``FAILED``), or ``RETRYING`` while the latest attempt
     failed but another is on its way: the signal receiver is about to enqueue
     it, or the repair sweep will. ``row`` is the latest attempt's result.
+
+    ``executed_more_than_once`` means an earlier attempt in this chain reached a
+    terminal state after being declared lost and replaced, **and its replacement
+    had already started** — the chain forked and both branches ran. The latest
+    attempt is still the outcome, but a caller that records "one run" must be
+    able to learn the truth was more than one; the scheduler puts it in the run
+    message. ``superseded_attempt``/``superseded_status`` say which attempt
+    completed late and how it ended.
+
+    When the replacement was still ``READY`` it is cancelled instead, and then
+    the chain executed *once*: the walk stops at the attempt that completed, so
+    a job whose late attempt succeeded is reported ``SUCCESSFUL`` — not
+    ``FAILED`` from the cancelled retry, and with no alarming note, because
+    nothing went wrong that the operator needs to act on.
     """
 
     status: str
     row: DBTaskResult
     attempt: int
+    executed_more_than_once: bool = False
+    superseded_attempt: int | None = None
+    superseded_status: str = ""
+
+    def double_execution_note(self) -> str:
+        """One short phrase for a run message. Empty when the chain ran once."""
+        if not self.executed_more_than_once:
+            return ""
+        which = f"attempt {self.superseded_attempt}" if self.superseded_attempt else "an earlier attempt"
+        ended = f" ({self.superseded_status})" if self.superseded_status else ""
+        return f"ran more than once: {which} completed{ended} after being declared lost"
 
 
 RETRYING = "RETRYING"
@@ -333,11 +509,31 @@ def chain_outcome(result_id: UUID | str, *, now: datetime | None = None) -> Chai
     """
     current = str(result_id)
     attempt = 1
+    superseded_attempt: int | None = None
+    superseded_status = ""
+    forked = False
     for _ in range(_MAX_CHAIN):
-        child = TaskAttempt.objects.filter(parent_id=current).values_list("result_id", "attempt").first()
+        # The supersession marker is carried in the same walk, so detecting a
+        # fork costs no extra queries. A child row's parent_completed_at refers
+        # to `current` — the attempt it replaced.
+        child = (
+            TaskAttempt.objects.filter(parent_id=current)
+            .values_list("result_id", "attempt", "parent_completed_at", "parent_status", "retry_cancelled")
+            .first()
+        )
         if child is None:
             break
-        current, attempt = str(child[0]), child[1]
+        child_id, child_attempt, parent_completed_at, parent_status, retry_cancelled = child
+        if parent_completed_at is not None:
+            superseded_attempt = attempt
+            superseded_status = parent_status or ""
+            if retry_cancelled:
+                # The retry never ran, so it is not this chain's outcome and the
+                # chain executed once. `current` — which completed after being
+                # declared lost — is the ground truth. Stop here.
+                break
+            forked = True
+        current, attempt = str(child_id), child_attempt
     row = DBTaskResult.objects.filter(id=current).first()
     if row is None:
         return None
@@ -347,7 +543,14 @@ def chain_outcome(result_id: UUID | str, *, now: datetime | None = None) -> Chai
         recent = row.finished_at is None or row.finished_at >= now - REPAIR_WINDOW
         if recent and _decide(row, TaskAttempt.Cause.FAILED) is not None:
             status = RETRYING
-    return ChainOutcome(status=status, row=row, attempt=attempt)
+    return ChainOutcome(
+        status=status,
+        row=row,
+        attempt=attempt,
+        executed_more_than_once=forked,
+        superseded_attempt=superseded_attempt,
+        superseded_status=superseded_status,
+    )
 
 
 def repair_missed_retries(*, now: datetime | None = None) -> int:

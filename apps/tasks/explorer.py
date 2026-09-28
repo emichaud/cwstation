@@ -25,7 +25,19 @@ class WorkerHeartbeatExplorerAdmin(admin.ModelAdmin):
 class TaskAttemptExplorerAdmin(admin.ModelAdmin):
     """Retry chains: each row links a retry to the attempt it retried."""
 
-    list_display = ("result_id", "attempt", "cause", "root_id", "parent_id", "max_attempts", "created_at")
+    list_display = (
+        "result_id",
+        "attempt",
+        "cause",
+        "root_id",
+        "parent_id",
+        "max_attempts",
+        # Non-empty => the attempt this row replaced completed anyway, so the
+        # chain executed more than once. The audit trail for a double execution.
+        "parent_completed_at",
+        "parent_status",
+        "created_at",
+    )
     explorer_readonly = True
     explorer_paginate_by = 25
 

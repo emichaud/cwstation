@@ -11,7 +11,20 @@ class WorkerLost(Exception):
     """
 
 
+class RetrySuperseded(Exception):
+    """Recorded on a retry cancelled because the attempt it replaced completed.
+
+    Never raised. ``django-tasks-db`` has no cancelled state (only READY,
+    RUNNING, FAILED, SUCCESSFUL), so a retry that is no longer wanted is failed
+    with this class rather than deleted — keeping it visible in the Explorer and
+    in its chain. Best-effort only: the cancel is a conditional UPDATE on
+    ``status=READY``, so a retry that has already started is left completely
+    alone, and cancelling one that already ran would not un-execute it.
+    """
+
+
 WORKER_LOST_PATH = f"{WorkerLost.__module__}.{WorkerLost.__qualname__}"
+RETRY_SUPERSEDED_PATH = f"{RetrySuperseded.__module__}.{RetrySuperseded.__qualname__}"
 
 # Recorded by upstream's worker when a second SIGTERM/SIGINT force-exits it
 # mid-task (``sys.exit`` inside the task call is caught as BaseException).

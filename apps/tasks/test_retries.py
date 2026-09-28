@@ -22,6 +22,7 @@ from django_tasks_db.management.commands.db_worker import Worker
 from django_tasks_db.models import DBTaskResult
 
 from apps.tasks import reliability, signals
+from apps.tasks.exceptions import RETRY_SUPERSEDED_PATH
 from apps.tasks.models import TaskAttempt, WorkerHeartbeat
 from apps.tasks.reaper import reap_lost_tasks
 from apps.tasks.reliability import RetryPolicy, maybe_retry, pin_max_attempts, policy_for, retry_policy
@@ -272,6 +273,172 @@ class TestReaperAndRepair:
         row = _failed_row(no_policy, finished_ago=300)
         pin_max_attempts(row.id, 2)
         assert reliability.repair_missed_retries() == 1
+
+
+class TestLateCompletion:
+    """A reaped attempt that completes anyway: the chain executed twice.
+
+    The reaper is a heuristic; the worker's own result is ground truth. A worker
+    paused or partitioned past LOST_AFTER_SECONDS is reaped and replaced, then
+    resumes and overwrites the reaper's verdict with an unconditional UPDATE
+    upstream owns. The late completion is allowed to win — but the fact that two
+    executions happened must survive, durably, not just as a log line.
+    """
+
+    def _reaped_and_retried(self, *, task_obj=flaky):
+        """Attempt 1 declared lost and replaced by attempt 2 — the pre-condition."""
+        now = timezone.now()
+        WorkerHeartbeat.objects.create(worker_id="paused#aaa", label="paused", last_seen_at=now, stopped_at=now)
+        parent = DBTaskResult.objects.create(
+            status="RUNNING",
+            args_kwargs={"args": [], "kwargs": {"fail_times": 0}},
+            task_path=task_obj.module_path,
+            backend_name="default",
+            queue_name="default",
+            run_after=now,
+            started_at=now,
+            worker_ids=["paused#aaa"],
+        )
+        reap_lost_tasks()
+        child = TaskAttempt.objects.get(parent_id=parent.id)
+        assert child.cause == "lost" and child.parent_completed_at is None
+        return parent, child
+
+    def _completes_late(self, parent, *, status="SUCCESSFUL"):
+        """The paused worker resumes; upstream overwrites the reaper's verdict."""
+        DBTaskResult.objects.filter(id=parent.id).update(
+            status=status, finished_at=timezone.now(), exception_class_path="", traceback=""
+        )
+
+    def test_a_late_success_is_recorded_durably_on_the_chain(self):
+        parent, child = self._reaped_and_retried()
+        self._completes_late(parent)
+
+        late = reliability.record_late_completion(parent.id)
+
+        assert late is not None and late.parent_id == str(parent.id)
+        child.refresh_from_db()
+        assert child.parent_completed_at is not None, "no durable record that the chain ran twice"
+        assert child.parent_status == "SUCCESSFUL"
+
+    def test_the_receiver_records_it_on_the_success_path(self):
+        """Upstream sends task_finished for successes too — that's the seam."""
+        parent, child = self._reaped_and_retried()
+        self._completes_late(parent)
+
+        task_finished.send(sender=object, task_result=mock.Mock(status=TaskResultStatus.SUCCESSFUL, id=parent.id))
+
+        child.refresh_from_db()
+        assert child.parent_completed_at is not None
+
+    def test_a_normal_failure_is_not_mistaken_for_a_late_completion(self):
+        """The ordinary path: fail, then get retried. Exactly one execution."""
+        row = _failed_row(flaky)
+        assert reliability.record_late_completion(row.id) is None
+        assert maybe_retry(row.id) is not None
+        assert TaskAttempt.objects.get(parent_id=row.id).parent_completed_at is None
+
+    def test_recording_is_idempotent_across_both_detectors(self):
+        parent, child = self._reaped_and_retried()
+        self._completes_late(parent)
+
+        assert reliability.record_late_completion(parent.id) is not None
+        assert reliability.record_late_completion(parent.id) is None, "counted twice"
+        assert reliability.detect_late_completions() == []
+
+    def test_the_sweep_catches_one_the_signal_never_reported(self):
+        """The worker died between set_successful() and sending the signal."""
+        parent, child = self._reaped_and_retried()
+        self._completes_late(parent)
+
+        found = reliability.detect_late_completions()
+
+        assert [f.parent_id for f in found] == [str(parent.id)]
+        child.refresh_from_db()
+        assert child.parent_completed_at is not None
+
+    def test_the_sweep_ignores_an_attempt_still_carrying_the_reapers_verdict(self):
+        """Reaped and never came back: one execution, nothing to report."""
+        self._reaped_and_retried()
+        assert reliability.detect_late_completions() == []
+
+    def test_a_reaper_pass_counts_it_separately_from_raced(self):
+        parent, _ = self._reaped_and_retried()
+        self._completes_late(parent)
+
+        result = reap_lost_tasks()
+
+        assert result.reaped_then_completed == 1
+        assert result.raced == 0, "a benign lost race must not be conflated with a double execution"
+        assert "reaped_then_completed=1" in str(result)
+
+    def test_a_still_ready_retry_is_cancelled_best_effort(self):
+        parent, child = self._reaped_and_retried()
+        assert DBTaskResult.objects.get(id=child.result_id).status == "READY"
+        self._completes_late(parent)
+
+        late = reliability.record_late_completion(parent.id)
+
+        assert late.retry_cancelled is True
+        retry_row = DBTaskResult.objects.get(id=child.result_id)
+        assert retry_row.status == "FAILED"
+        assert retry_row.exception_class_path == RETRY_SUPERSEDED_PATH
+
+    def test_a_cancelled_retry_leaves_the_chain_reporting_the_real_outcome(self):
+        """The retry never ran, so it is not the outcome — and nothing ran twice.
+
+        Reporting the cancelled retry would mark a job FAILED (RetrySuperseded)
+        for a run that actually succeeded, and would send a failure email for it.
+        """
+        parent, child = self._reaped_and_retried()
+        self._completes_late(parent, status="SUCCESSFUL")
+        reliability.record_late_completion(parent.id)
+
+        outcome = reliability.chain_outcome(parent.id)
+
+        assert outcome.status == "SUCCESSFUL", "the cancelled retry was reported as the outcome"
+        assert outcome.attempt == 1
+        assert outcome.executed_more_than_once is False, "nothing ran twice: the retry was cancelled"
+        assert outcome.double_execution_note() == ""
+
+    def test_a_retry_that_already_started_is_left_alone(self):
+        """Cancelling what already ran would not un-execute it."""
+        parent, child = self._reaped_and_retried()
+        DBTaskResult.objects.filter(id=child.result_id).update(status="RUNNING")
+        self._completes_late(parent)
+
+        late = reliability.record_late_completion(parent.id)
+
+        assert late.retry_cancelled is False
+        assert DBTaskResult.objects.get(id=child.result_id).status == "RUNNING"
+        # ...and it is still recorded as a double execution.
+        child.refresh_from_db()
+        assert child.parent_completed_at is not None
+
+    def test_chain_outcome_surfaces_the_fork(self):
+        parent, child = self._reaped_and_retried()
+        DBTaskResult.objects.filter(id=child.result_id).update(status="RUNNING")
+        self._completes_late(parent)
+        reliability.record_late_completion(parent.id)
+        DBTaskResult.objects.filter(id=child.result_id).update(
+            status="SUCCESSFUL", finished_at=timezone.now(), return_value={"ok": 1}
+        )
+
+        outcome = reliability.chain_outcome(parent.id)
+
+        assert outcome.status == "SUCCESSFUL" and outcome.attempt == 2
+        assert outcome.executed_more_than_once is True
+        assert outcome.superseded_attempt == 1
+        assert outcome.superseded_status == "SUCCESSFUL"
+        assert "ran more than once" in outcome.double_execution_note()
+
+    def test_an_ordinary_chain_is_not_reported_as_forked(self):
+        first = flaky.enqueue(fail_times=1)
+        _run_worker()
+        outcome = reliability.chain_outcome(first.id)
+        assert outcome.status == "SUCCESSFUL" and outcome.attempt == 2
+        assert outcome.executed_more_than_once is False
+        assert outcome.double_execution_note() == ""
 
 
 class TestPolicy:
