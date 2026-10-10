@@ -47,7 +47,7 @@ def test_staff_html_contains_known_check_names():
     resp = c.get(reverse("mcp_admin:health"), HTTP_HOST="localhost")
     body = resp.content.decode()
     # Several check names should appear regardless of registry state.
-    for needle in ("mcp package", "Settings", "Server registry", "URL conf"):
+    for needle in ("Settings", "Server registry", "URL conf"):
         assert needle in body, f"expected {needle!r} in Health HTML"
 
 

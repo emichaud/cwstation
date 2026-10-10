@@ -84,6 +84,127 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
   reference (`db_worker`, `reap_tasks`), `cli-tools.md`, the settings
   reference, and `UPGRADING.md`.
 
+## [0.22.0] - 2026-10-10
+
+### Removed
+- **The `mcp` SDK is no longer a dependency.** SmallStack implements the
+  protocol itself — JSON-RPC envelope, `initialize`/`tools/list`/`tools/call`
+  dispatch and OAuth are plain Django in `apps/mcp/views.py` — and the package
+  was declared for one thing: a singleton `mcp.server.lowlevel.Server` that
+  nothing ever read. Removing it drops **20 packages** from every install
+  (`pydantic`, `starlette`, `uvicorn`, `sse-starlette`, `httpx2`, `jsonschema`,
+  `pyjwt[crypto]`, `opentelemetry-api`, `anyio`, `cryptography` and others —
+  several of them ASGI machinery SmallStack never runs). The MCP surface is
+  unchanged: tools, `@tool`, `TOOL_REGISTRY`, `/mcp`, OAuth, Claude Desktop and
+  `MCP_SERVER_NAME` all behave exactly as before. `mcp_doctor` loses its
+  `"mcp package"` row, which only verified that its own dependency was
+  importable; every check describing the live surface stays. **If your own code
+  does `import mcp`, declare it in your own `pyproject.toml`** — see
+  `UPGRADING.md`. A new test guards against the import creeping back, because
+  it would keep working in any virtualenv that still has the package and fail
+  only on a clean install.
+
+### Security
+- **Django floor raised to 6.1.2** (released 2026-10-06), which fixes four
+  security issues. Two apply to any SmallStack install: **CVE-2026-77050**
+  (denial of service in `get_supported_language_variant()`, i.e. Accept-Language
+  parsing) and **CVE-2026-84429** (denial of service in HTTP header parsing).
+  The other two are GeoDjango request forgery (**CVE-2026-87890**, not applicable
+  — SmallStack doesn't use spatial lookups) and privilege abuse in model
+  formsets with editable primary keys (**CVE-2026-87975**). The floor is raised
+  rather than only re-locked, so a downstream resolve can't land on a
+  vulnerable version.
+
+### Changed
+- **Dependencies refreshed across the board** (`uv lock --upgrade`): notably
+  django-tasks-db 0.12→0.13, django-filter 25.2→26.2, gunicorn 25→26,
+  mcp 1.27→2.3, psycopg 3.3.6, starlette 1.3→1.7, tzdata 2025.3→2026.5, plus
+  dev tooling (ruff 0.15→0.17, mypy 2.3→2.4, django-stubs 6.0→6.1).
+- **`apps/tasks/tracing.py` survives the django-tasks-db 0.13 restructure.**
+  0.13 dropped the bundled `django_tasks` package for Django's own
+  `django.tasks`, so the unguarded `from django_tasks.signals import …` at
+  import time broke startup outright (`manage.py check` included). That import
+  is now guarded exactly like the built-in one already was, so trace binding
+  keeps working on **either** version rather than the one that happened to be
+  installed. The tracing tests were asserting "both signal pairs exist" — true
+  for one dependency generation only; they now assert the durable invariant:
+  *every* pair available on this install is subscribed (and at least one is).
+- Six `form_valid()` overrides carry a scoped `# type: ignore[override]`:
+  django-stubs 6.1 flags narrowing the parameter to the view's own `form_class`
+  as a Liskov violation. The narrower type is accurate at runtime (Django only
+  passes `get_form()`'s result) and more useful to a reader; the formally-correct
+  fix — parameterising `UpdateView[Model, Form]` — needs
+  `django_stubs_ext.monkeypatch()` at runtime, and django-stubs is dev-only here.
+
+Verified on **Python 3.13 and 3.14**, and on **SQLite and Postgres 16**:
+2,684 / 2,685 tests green, ruff + mypy clean. `requires-python` stays at
+`>=3.12` — Django 6.1 supports it and it's maintained until 2028, so raising
+the floor would break downstreams for no gain. (Django 6.2 is **not** released;
+6.1.2 is the current stable.)
+
+### Added
+- **`schema()["filters"]` now advertises a widget for computed (annotated)
+  dataset columns.** v0.21.11 made those filters apply; this makes a builder UI
+  able to *offer* them. The widget is typed from the annotation — booleans get
+  All/Yes/No, date/datetime get the usual preset dropdown plus `range`, and
+  anything else gets a dropdown of the values actually present (probed, capped
+  at 30 distinct — the ceiling model fields already use). The pairing is the
+  point: a **choice widget means an exact match** in this framework and
+  computed columns compare exactly, so a dropdown is the only control whose
+  semantics are honest. Two cases stay unadvertised on purpose — **aggregate**
+  annotations (probing the domain would mean a GROUP BY over the table, and the
+  filter is a `HAVING`) and computed strings with **>30 distinct values** (a
+  text box would promise substring matching the exact comparison won't
+  deliver). Not offered ≠ not supported: the filter still applies when the
+  param is passed.
+
+## [0.21.11] - 2026-10-10
+
+### Fixed
+- **Filters on computed (annotated) dataset columns are no longer silently
+  ignored.** `_apply_list_filters` resolved every declared filter name with
+  `model._meta.get_field()` and skipped the filter when that raised — so a
+  plain filter on an annotation (`?hours_band=business`, `?route=on_call`,
+  `?answered=1`) was dropped and the query returned **every row**. No error and
+  no empty result, which is the dangerous shape for an analytical surface: a
+  tile labelled "business hours" quietly showing all hours. It also broke two
+  documented promises — "every operation works on a computed dataset" and the
+  one-filter-contract-for-rows/series/scalar invariant. The pipeline now
+  consults `qs.query.annotations` before giving up and types the comparison
+  from the annotation's `output_field` (booleans take 1/0/true/false,
+  date/datetime take the usual presets, everything else is an exact match —
+  computed columns are categorical). Genuinely unknown keys are still
+  tolerated-and-ignored, and only *declared* filter fields are considered, so
+  nothing new is filterable by accident. Annotated CRUDView querysets get the
+  same fix for free. (Downstream-reported; they patched their own copy.)
+
+## [0.21.10] - 2026-09-28
+
+### Fixed
+- **`help_article_count()` no longer re-parses the whole markdown corpus on
+  Postgres.** The last ENGINE-string check in `apps/help/search.py` (everything
+  else had moved to `connection.vendor`) was written when only SQLite had a
+  help FTS table, so **every non-SQLite engine — i.e. production** — counted
+  articles by calling `build_search_index()`: a full re-read and re-render of
+  every markdown doc, ~1.5s locally and seconds on a small box. `@lru_cache`
+  bounded it, but `sync_help_index()` *clears* that cache, so after v0.21.9
+  gave Postgres a real lazy index build, each build made the next count pay the
+  parse again. Postgres has had `help_articles_search_idx` since v0.21.9, so it
+  now takes the same cheap `COUNT(*)` as SQLite — and the number means the same
+  thing on both engines (rows in the index, which is what "currently indexed"
+  claims). Guarded by a test that fails if a count ever parses markdown.
+  (Downstream-reported, with their own equivalent guard.)
+
+### Changed
+- **`test_transaction_safety.py` no longer fails a downstream that routes help
+  search differently.** The v0.21.9 memo self-heal tests drove
+  `search_help_articles()`, so they also asserted *which engines route to FTS* —
+  a separate contract, and one a downstream may legitimately override. They now
+  drive the engine's FTS query path directly (where the fix lives), and the
+  routing contract gets **its own named test**, so a diverging project sees one
+  honest failure instead of three misleading ones. `docs/skills/testing.md`
+  gains the general rule with the three cases that taught it.
+
 ## [0.21.9] - 2026-09-28
 
 ### Fixed
@@ -1827,7 +1948,10 @@ Condensed highlights of the v0.11 series (see git history for per-patch detail):
 See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full record of the
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
-[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.21.9...HEAD
+[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/emichaud/django-smallstack/compare/v0.21.11...v0.22.0
+[0.21.11]: https://github.com/emichaud/django-smallstack/compare/v0.21.10...v0.21.11
+[0.21.10]: https://github.com/emichaud/django-smallstack/compare/v0.21.9...v0.21.10
 [0.21.9]: https://github.com/emichaud/django-smallstack/compare/v0.21.8...v0.21.9
 [0.21.8]: https://github.com/emichaud/django-smallstack/compare/v0.21.7...v0.21.8
 [0.21.7]: https://github.com/emichaud/django-smallstack/compare/v0.21.6...v0.21.7

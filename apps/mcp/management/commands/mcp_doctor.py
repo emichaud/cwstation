@@ -107,7 +107,6 @@ class Command(BaseCommand):
         if schema_problem is not None:
             report.append(schema_problem)
         if schema_problem is None or schema_problem["status"] != "FAIL":
-            self._check_mcp_package(report)
             self._check_settings(report)
             self._check_registry(report)
             self._check_urls(report)
@@ -183,17 +182,6 @@ class Command(BaseCommand):
             self.stdout.write("")
 
     # ---- checks -----------------------------------------------------------
-
-    def _check_mcp_package(self, report):
-        try:
-            import importlib
-            import importlib.metadata as md
-
-            importlib.import_module("mcp.server.lowlevel")
-            version = md.version("mcp")
-            report.append({"name": "mcp package", "status": "PASS", "detail": f"mcp=={version}"})
-        except Exception as exc:
-            report.append({"name": "mcp package", "status": "FAIL", "detail": str(exc)})
 
     def _check_settings(self, report):
         keys = [

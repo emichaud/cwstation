@@ -43,7 +43,15 @@ class ProfileEditView(LoginRequiredMixin, UpdateView):
         """Get the current user's profile."""
         return get_object_or_404(UserProfile, user=self.request.user)
 
-    def form_valid(self, form: UserProfileForm) -> HttpResponse:
+    # ``# type: ignore[override]`` on form_valid below: the annotation narrows
+    # to this view's own ``form_class``, which django-stubs 6.1 flags as a Liskov
+    # violation against ``FormMixin.form_valid(form: ModelForm[Any])``. Django only
+    # ever passes ``get_form()``'s result, so the narrower type is accurate at
+    # runtime and more useful to a reader. Parameterising the base class
+    # (``UpdateView[Model, Form]``) would be the formally-correct fix, but that
+    # needs ``django_stubs_ext.monkeypatch()`` at runtime and django-stubs is a
+    # dev-only dependency here.
+    def form_valid(self, form: UserProfileForm) -> HttpResponse:  # type: ignore[override]
         """Add success message on form save."""
         messages.success(self.request, "Profile updated successfully.")
         return super().form_valid(form)

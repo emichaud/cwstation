@@ -112,7 +112,15 @@ class RunbookCreateView(LoginRequiredMixin, CreateView):
         kwargs["viewer"] = self.request.user  # scope the template picker
         return kwargs
 
-    def form_valid(self, form: RunbookCreateForm) -> HttpResponse:
+    # ``# type: ignore[override]`` on form_valid below: the annotation narrows
+    # to this view's own ``form_class``, which django-stubs 6.1 flags as a Liskov
+    # violation against ``FormMixin.form_valid(form: ModelForm[Any])``. Django only
+    # ever passes ``get_form()``'s result, so the narrower type is accurate at
+    # runtime and more useful to a reader. Parameterising the base class
+    # (``UpdateView[Model, Form]``) would be the formally-correct fix, but that
+    # needs ``django_stubs_ext.monkeypatch()`` at runtime and django-stubs is a
+    # dev-only dependency here.
+    def form_valid(self, form: RunbookCreateForm) -> HttpResponse:  # type: ignore[override]
         template = form.cleaned_data.get("template")
         if template:
             _require_view(self.request.user, template)
@@ -361,7 +369,7 @@ class SectionCreateView(LoginRequiredMixin, CreateView):
         context["runbook"] = self.runbook
         return context
 
-    def form_valid(self, form: SectionForm) -> HttpResponse:
+    def form_valid(self, form: SectionForm) -> HttpResponse:  # type: ignore[override]
         form.instance.runbook = self.runbook
         return super().form_valid(form)
 
@@ -542,7 +550,7 @@ class DocumentCreateView(LoginRequiredMixin, CreateView):
         context["runbook"] = self.runbook
         return context
 
-    def form_valid(self, form: DocumentForm) -> HttpResponse:
+    def form_valid(self, form: DocumentForm) -> HttpResponse:  # type: ignore[override]
         body = form.cleaned_data["file"].read().decode("utf-8", errors="replace")
         self.object = service.create_document(
             self.runbook,
@@ -587,7 +595,7 @@ class DocumentCreateFromScratchView(LoginRequiredMixin, CreateView):
         context["from_scratch"] = True
         return context
 
-    def form_valid(self, form: DocumentCreateFromScratchForm) -> HttpResponse:
+    def form_valid(self, form: DocumentCreateFromScratchForm) -> HttpResponse:  # type: ignore[override]
         title = form.cleaned_data["title"]
         section = form.cleaned_data.get("section")
         description = form.cleaned_data.get("description", "")
@@ -655,7 +663,7 @@ class DocumentUpdateView(LoginRequiredMixin, UpdateView):
         context["runbook"] = self._runbook()
         return context
 
-    def form_valid(self, form: DocumentForm) -> HttpResponse:
+    def form_valid(self, form: DocumentForm) -> HttpResponse:  # type: ignore[override]
         self.object = form.save()
         # A file uploaded during a metadata edit becomes a new version.
         uploaded = form.cleaned_data.get("file")

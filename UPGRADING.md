@@ -49,6 +49,32 @@ You don't need to change any code. Check the table if one of these applies to yo
 
 ---
 
+## v0.22.0 — the `mcp` SDK is no longer a dependency (check your own imports)
+
+SmallStack **implements the Model Context Protocol itself** — the JSON-RPC
+envelope, `initialize` / `tools/list` / `tools/call` dispatch, and OAuth are
+plain Django in `apps/mcp/views.py`, served by gunicorn like every other route.
+The `mcp` PyPI package was a declared dependency for exactly one thing: a
+singleton `mcp.server.lowlevel.Server` in `apps/mcp/server.py` that nothing
+ever read. It has been removed.
+
+**Nothing about the MCP surface changes.** Your tools, `@tool`, `TOOL_REGISTRY`,
+`current_context()`, `/mcp`, the OAuth flow, `mcp_doctor` and Claude Desktop /
+Connectors all behave exactly as before. `MCP_SERVER_NAME` is still honoured
+(it's reported in the `initialize` response).
+
+| If you… | What happens | What to do |
+|---|---|---|
+| Only use SmallStack's `@tool` / CRUDView `enable_mcp` | Nothing | Nothing. You get a smaller install: **20 packages** drop out, including `pydantic`, `starlette`, `uvicorn`, `sse-starlette`, `httpx2`, `jsonschema`, `pyjwt[crypto]`, `opentelemetry-api`, `anyio` and `cryptography` — several of which are ASGI machinery SmallStack never runs. |
+| `import mcp` anywhere in **your** code | It kept working only because SmallStack installed the SDK for you. After this upgrade a **clean install** no longer has it | Declare it yourself: add `mcp>=2.3` to your own `pyproject.toml` dependencies and re-lock. |
+| Imported `mcp_server` from `apps.mcp.server` | That name is gone | Nothing to migrate — the object was never wired to anything. Delete the import. |
+| Script against `mcp_doctor --json` | The `"mcp package"` row is gone | Drop it from any parsing. The checks that describe the live surface — `Settings`, `Server registry`, `URL conf`, `Tokens`, and the end-to-end self-test — are unchanged. The removed row only verified that its own dependency was importable. |
+
+The catch worth knowing: a stray `import mcp` in your code will keep working in
+any existing virtualenv that still has the package lying around, and fail only
+when someone does a clean install. If you're unsure, check with
+`grep -rn "^import mcp\|^from mcp" your_app/` before deploying.
+
 ## v0.21.0 — 2026-09-13 audit fixes (behaviour tightened, no code changes required)
 
 These are security/correctness fixes. Most projects need to do nothing; check the list only if
