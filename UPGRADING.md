@@ -45,6 +45,7 @@ You don't need to change any code. Check the table if one of these applies to yo
 | Parse `DBTaskResult.worker_ids` yourself | Entries are now `<label>#<token>` rather than the bare `--worker-id` | Match on the `WorkerHeartbeat.label` column, or split on the last `#`. |
 | Run `manage.py check` in CI | Four new warnings can fire: `tasks.W001` (another app's `db_worker` shadows ours), `W002`/`W003` (`LOST_AFTER_SECONDS` under three heartbeats), `W004` (`USE_TZ = False` stops the reaper) | None fire on shipped defaults. Each names the misconfiguration and what it costs. |
 | Care whether a task ever runs twice | A worker paused past `SMALLSTACK_TASKS_LOST_AFTER_SECONDS` mid-task is reaped and replaced, then may finish anyway. The late result wins, and the double execution is **recorded** (`TaskAttempt.parent_completed_at`, the run message, a WARNING) rather than prevented | Make such tasks idempotent. This is not new behaviour in the engine — it is newly *visible*. |
+| Alert on ERROR-level log lines | With django-tasks-db 0.13, Django logs every `FAILED` attempt to `django.tasks` at ERROR, including attempts that `@retry_policy` will retry | Alert on a chain's final outcome (the scheduler's failure email, or `chain_outcome(...)`), not on per-attempt ERRORs. |
 | Set `ScheduledJob.max_retries` on a task with no `@retry_policy` | It retries what the task **raises**, but will not re-run an attempt whose worker died | Add `@retry_policy(retry_lost=True)` to the task if repeating it after a worker death is genuinely safe. |
 
 ---

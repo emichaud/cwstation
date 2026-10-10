@@ -62,6 +62,18 @@ from apps.tasks.heartbeat import HeartbeatThread, mark_stopped, new_incarnation,
 logger = logging.getLogger("django_tasks_db")
 
 
+def _queues_description(options: dict[str, Any]) -> str:
+    """What the heartbeat row shows as this worker's queues.
+
+    django-tasks-db 0.13 added ``--exclude-queues`` (only valid with
+    ``--queue-name=*``). Without it in the description, a worker skipping
+    ``email`` would read as serving every queue in Explorer.
+    """
+    queues = str(options.get("queue_name") or "")
+    excluded = str(options.get("exclude_queues") or "")
+    return f"{queues} (excluding {excluded})" if excluded else queues
+
+
 class Command(UpstreamCommand):
     help = "Run a database background worker (SmallStack: with worker heartbeat + lost-task reaper)"
 
@@ -90,7 +102,7 @@ class Command(UpstreamCommand):
         worker_id = new_incarnation(label)
         options["worker_id"] = worker_id
 
-        register_worker(worker_id, label, options.get("queue_name", ""))
+        register_worker(worker_id, label, _queues_description(options))
         # Before claiming anything: fail what a crashed predecessor left RUNNING.
         safe_reap(worker_id)
         thread = HeartbeatThread(worker_id)

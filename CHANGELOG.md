@@ -84,6 +84,35 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
   reference (`db_worker`, `reap_tasks`), `cli-tools.md`, the settings
   reference, and `UPGRADING.md`.
 
+### Compatibility
+- **Works with django-tasks-db 0.13** (shipped in v0.22.0) and still with 0.12.
+  0.13 removed its bundled `django_tasks` package, so the reliability modules
+  now import `TaskResultStatus` from `django.tasks`. Before this change the app
+  failed to start at all on 0.13. 0.13's worker also sends Django's own
+  `django.tasks.signals`, the same signals `ImmediateBackend` sends, where
+  0.12 sent a private pair. The retry receiver therefore now acts only when
+  `sender` is a `DatabaseBackend`. It accepts both the instance (upstream's
+  success path) and the class (its failure path). It also stays subscribed to
+  0.12's signal when that package is present. 0.13's new
+  `db_worker --exclude-queues` passes through, and the heartbeat row records it
+  ("* (excluding email)").
+- **Every failed attempt now logs at ERROR, retried or not.** On 0.13 the worker
+  sends Django's signals, and Django's own `log_task_finished` receiver logs
+  each `FAILED` result to the `django.tasks` logger at ERROR, with the
+  traceback. That includes attempts `@retry_policy` is about to retry. The
+  retry itself still logs at INFO (`apps.tasks.reliability`: "retrying … as …").
+  If you alert on ERROR, key the alert on the chain's final outcome (the
+  scheduler's failure email, or `chain_outcome`), not on individual attempts.
+- **`safe_reap()` no longer closes a caller's database connection.** It
+  refreshed connections with `close_old_connections()`, which closes any
+  connection inside an `atomic()` block. On Postgres that killed the caller's
+  transaction ("the connection is closed"), while SQLite's in-memory test
+  database ignored it. It now skips connections in an atomic block
+  (`heartbeat.refresh_owned_connections`). The worker's own calls run in
+  autocommit and were never affected. This predates 0.13. Three tests had been
+  failing on Postgres only. The full suite now passes on SQLite and on
+  Postgres 16.
+
 ## [0.22.0] - 2026-10-10
 
 ### Removed

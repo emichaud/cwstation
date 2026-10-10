@@ -351,8 +351,13 @@ only one wins.
 - **Per-enqueue budget:** `pin_max_attempts(result_id, n)` right after enqueueing
   overrides the policy for that chain (the scheduler uses this for
   `max_retries`); do it in the same transaction as the enqueue.
-- **Retries need `DatabaseBackend`.** `ImmediateBackend` never sends the worker
-  signal and can't defer — tests on it see the first failure only.
+- **Retries need `DatabaseBackend`.** `ImmediateBackend` can't defer, and the
+  retry receiver ignores its `task_finished`. Since django-tasks-db 0.13 every
+  backend sends Django's own `django.tasks.signals`, so the receiver filters on
+  `sender`. Tests on `ImmediateBackend` see the first failure only.
+- **Each failed attempt logs at ERROR** to `django.tasks` (Django's own
+  `log_task_finished` receiver, reached since django-tasks-db 0.13), even when
+  a retry follows. Alert on the chain's outcome, not on those lines.
 - **`context.attempt` is always 1** on this engine (each retry is a new result).
   Use `attempt_info(context.task_result.id).attempt` if a task body needs it.
 

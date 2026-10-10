@@ -362,6 +362,36 @@ class TestReaperSelfExclusion:
         abandoned.refresh_from_db()
         assert abandoned.status == "FAILED", "excluding the label would hide a dead sibling"
 
+    def test_safe_reap_leaves_a_callers_transaction_alone(self):
+        """A connection inside atomic() belongs to the caller: never closed.
+
+        close_old_connections() would close it (autocommit differs inside a
+        transaction). On Postgres that killed these tests' own transaction
+        ("the connection is closed"); SQLite in-memory ignores close(), which
+        is why this asserts on the call rather than on the connection's health.
+        """
+        from django.db import connections, transaction
+
+        conn = connections["default"]  # the wrapper itself, not the proxy
+        with transaction.atomic():
+            assert conn.in_atomic_block
+            with mock.patch.object(type(conn), "close_if_unusable_or_obsolete", autospec=True) as close_check:
+                heartbeat.safe_reap("anyone")
+            assert not any(call.args[0] is conn for call in close_check.call_args_list)
+
+    def test_refresh_still_checks_connections_outside_a_transaction(self):
+        """The guard narrows the refresh; it must not disable it."""
+        from django.db import connections
+
+        conn = connections["default"]
+        conn.ensure_connection()
+        with (
+            mock.patch.object(conn, "in_atomic_block", False),
+            mock.patch.object(type(conn), "close_if_unusable_or_obsolete", autospec=True) as close_check,
+        ):
+            heartbeat.refresh_owned_connections()
+        assert any(call.args[0] is conn for call in close_check.call_args_list)
+
     def test_an_external_reaper_pass_excludes_nothing(self):
         """manage.py reap_tasks is not a worker; it has no incarnation to exclude."""
         dead = _heartbeat("gone", stopped=True)
@@ -507,6 +537,29 @@ class TestDbWorkerCommand:
                 worker_id=worker_id,
                 verbosity=0,
             )
+
+    def test_exclude_queues_passes_through_and_is_recorded(self):
+        """django-tasks-db 0.13's --exclude-queues works through the override."""
+        from apps.tasks.tasks import process_data_task, send_email_task
+
+        data = process_data_task.enqueue(data={"k": "v"})
+        mail = send_email_task.enqueue(recipient="a@example.com", subject="s", message="m")
+
+        with mock.patch.object(Worker, "configure_signals"):
+            call_command(
+                "db_worker",
+                batch=True,
+                startup_delay=False,
+                queue_name="*",
+                exclude_queues="email",
+                worker_id="no-mail",
+                verbosity=0,
+            )
+
+        assert DBTaskResult.objects.get(id=data.id).status == "SUCCESSFUL"
+        assert DBTaskResult.objects.get(id=mail.id).status == "READY"  # excluded, untouched
+        hb = WorkerHeartbeat.objects.get(label="no-mail")
+        assert hb.queues == "* (excluding email)"
 
     def test_worker_registers_runs_tasks_and_marks_stopped(self):
         from apps.tasks.tasks import process_data_task

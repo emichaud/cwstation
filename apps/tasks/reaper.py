@@ -83,8 +83,8 @@ from datetime import datetime, timedelta
 from django.conf import settings
 from django.db.models import Q
 from django.db.models.functions import Now
+from django.tasks import TaskResultStatus
 from django.utils import timezone
-from django_tasks.base import TaskResultStatus
 from django_tasks_db.models import DBTaskResult
 
 from .exceptions import WORKER_LOST_PATH

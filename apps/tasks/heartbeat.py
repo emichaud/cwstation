@@ -40,7 +40,7 @@ import threading
 import uuid
 
 from django.conf import settings
-from django.db import close_old_connections, connections
+from django.db import connections
 from django.db.models.functions import Now
 
 from .models import WorkerHeartbeat
@@ -112,6 +112,24 @@ def mark_stopped(worker_id: str) -> None:
         logger.warning("tasks: could not mark worker %s stopped", worker_id, exc_info=True)
 
 
+def refresh_owned_connections() -> None:
+    """``close_old_connections()``, minus any connection the caller is using.
+
+    Django's ``close_if_unusable_or_obsolete()`` closes a connection whose
+    autocommit differs from its settings, and *every* connection inside an
+    ``atomic()`` block qualifies. So calling ``close_old_connections()`` from
+    inside a caller's transaction closes the connection out from under it. On
+    Postgres that kills the transaction ("the connection is closed"). SQLite's
+    in-memory test database ignores the close, which hid this. The worker's own
+    calls run in autocommit and are unaffected. This guard is for everyone else
+    who calls :func:`safe_reap` (tests, a shell, a caller inside ``atomic()``):
+    a connection in an atomic block belongs to that caller and is left alone.
+    """
+    for conn in connections.all(initialized_only=True):
+        if not conn.in_atomic_block:
+            conn.close_if_unusable_or_obsolete()
+
+
 def safe_reap(worker_id: str) -> None:
     """One reaper pass that logs instead of raising.
 
@@ -120,7 +138,7 @@ def safe_reap(worker_id: str) -> None:
     whose beats were failing would fail the task it is itself executing.
     """
     try:
-        close_old_connections()
+        refresh_owned_connections()
         result = reap_lost_tasks(exclude_worker_ids={worker_id})
         if result.reaped:
             logger.info("tasks: reaper (%s): %s", worker_id, result)
@@ -160,7 +178,7 @@ class HeartbeatThread(threading.Thread):
 
     def _beat(self) -> None:
         try:
-            close_old_connections()
+            refresh_owned_connections()
             beat(self.worker_id)
         except Exception:  # noqa: BLE001 - skip a beat, never kill the worker
             self.missed_beats += 1

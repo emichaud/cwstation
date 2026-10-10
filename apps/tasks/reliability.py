@@ -48,9 +48,9 @@ from uuid import UUID
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Q
+from django.tasks import TaskResultStatus
 from django.utils import timezone
 from django.utils.module_loading import import_string
-from django_tasks.base import TaskResultStatus
 from django_tasks_db.models import DBTaskResult
 
 from .exceptions import BOOKKEEPING_PATHS, INTERRUPTED_PATHS, RETRY_SUPERSEDED_PATH, WORKER_LOST_PATH

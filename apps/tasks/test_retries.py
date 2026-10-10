@@ -1,7 +1,8 @@
 """Retries with backoff (``reliability.py``, ``signals.py``, reaper hand-off).
 
-Retries need the real engine (``ImmediateBackend`` can't defer and never sends
-the ``db_worker`` signal), so these tests switch ``TASKS`` to
+Retries need the real engine (``ImmediateBackend`` can't defer, and the retry
+receiver ignores its ``task_finished`` — since django-tasks-db 0.13 both
+backends share Django's signal), so these tests switch ``TASKS`` to
 ``DatabaseBackend`` and drain the queue with SmallStack's ``db_worker --batch``
 in-process. Backoff is 0 for the test tasks so a retry is due immediately and
 the same batch run picks it up.
@@ -15,11 +16,12 @@ from unittest import mock
 import pytest
 from django.core.management import call_command
 from django.db import connection
-from django.tasks import task
+from django.tasks import TaskResultStatus, task, task_backends
+from django.tasks.backends.immediate import ImmediateBackend
+from django.tasks.signals import task_finished
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
-from django_tasks.base import TaskResultStatus
-from django_tasks.signals import task_finished
+from django_tasks_db.backend import DatabaseBackend
 from django_tasks_db.management.commands.db_worker import Worker
 from django_tasks_db.models import DBTaskResult
 
@@ -28,6 +30,14 @@ from apps.tasks.exceptions import RETRY_SUPERSEDED_PATH, WORKER_LOST_PATH
 from apps.tasks.models import TaskAttempt, WorkerHeartbeat
 from apps.tasks.reaper import reap_lost_tasks
 from apps.tasks.reliability import RetryPolicy, maybe_retry, pin_max_attempts, policy_for, retry_policy
+
+
+def _worker_success_sender() -> DatabaseBackend:
+    """What db_worker passes as ``sender`` on its success path: the backend *instance*."""
+    backend = task_backends["default"]
+    assert isinstance(backend, DatabaseBackend)
+    return backend
+
 
 DB_TASKS = {
     "default": {
@@ -156,8 +166,52 @@ class TestWorkerRetries:
     def test_receiver_ignores_successful_results(self):
         result = mock.Mock(status=TaskResultStatus.SUCCESSFUL, id="x")
         with mock.patch.object(signals, "maybe_retry") as retry:
-            task_finished.send(sender=object, task_result=result)
+            task_finished.send(sender=_worker_success_sender(), task_result=result)
         retry.assert_not_called()
+
+    def test_receiver_accepts_both_sender_forms_db_worker_uses(self):
+        """Success path sends the backend instance, failure path the class."""
+        assert signals._from_database_worker(_worker_success_sender())
+        assert signals._from_database_worker(DatabaseBackend)
+        result = mock.Mock(status=TaskResultStatus.FAILED, id="x")
+        with mock.patch.object(signals, "maybe_retry") as retry:
+            task_finished.send(sender=DatabaseBackend, task_result=result)
+        retry.assert_called_once_with("x")
+
+    def test_receiver_ignores_other_backends(self):
+        """django-tasks-db 0.13 shares Django's signal with every backend.
+
+        ImmediateBackend (the test suite's backend) sends the same
+        task_finished. Through 0.12 this receiver never heard it; it must
+        still not act on it, or every failed test-suite task would hit the DB.
+        """
+        assert not signals._from_database_worker(ImmediateBackend)
+        assert not signals._from_database_worker(object)
+        assert not signals._from_database_worker(None)
+        result = mock.Mock(status=TaskResultStatus.FAILED, id="x")
+        with (
+            mock.patch.object(signals, "maybe_retry") as retry,
+            mock.patch.object(signals, "record_late_completion") as late,
+        ):
+            task_finished.send(sender=ImmediateBackend, task_result=result)
+        retry.assert_not_called()
+        late.assert_not_called()
+
+    def test_every_available_finished_signal_is_subscribed(self):
+        """Django's signal always; django-tasks-db <= 0.12's own one when installed."""
+        assert signals.task_finished in signals.FINISHED_SIGNALS
+        for sig in signals.FINISHED_SIGNALS:
+            assert any(getattr(ref(), "__name__", None) == "retry_failed_task" for _key, ref, *_ in sig.receivers), sig
+
+    def test_failing_task_on_immediate_backend_is_not_retried(self, settings):
+        """End to end on the backend the suite uses: no retry rows, no error."""
+        settings.TASKS = {
+            "default": {"BACKEND": "django.tasks.backends.immediate.ImmediateBackend", "QUEUES": ["default", "email"]}
+        }
+        result = flaky.enqueue(fail_times=5)
+        assert result.status == TaskResultStatus.FAILED
+        assert CALLS["n"] == 1
+        assert not TaskAttempt.objects.exists()
 
 
 class TestMaybeRetry:
@@ -328,7 +382,10 @@ class TestLateCompletion:
         parent, child = self._reaped_and_retried()
         self._completes_late(parent)
 
-        task_finished.send(sender=object, task_result=mock.Mock(status=TaskResultStatus.SUCCESSFUL, id=parent.id))
+        task_finished.send(
+            sender=_worker_success_sender(),
+            task_result=mock.Mock(status=TaskResultStatus.SUCCESSFUL, id=parent.id),
+        )
 
         child.refresh_from_db()
         assert child.parent_completed_at is not None
@@ -432,9 +489,7 @@ class TestLateCompletion:
         assert late.retry_cancelled is True
 
         # Age the cancellation past REPAIR_GRACE so the sweep considers it.
-        DBTaskResult.objects.filter(id=child.result_id).update(
-            finished_at=timezone.now() - timedelta(minutes=5)
-        )
+        DBTaskResult.objects.filter(id=child.result_id).update(finished_at=timezone.now() - timedelta(minutes=5))
 
         assert reliability.repair_missed_retries() == 0, "the sweep resurrected a cancelled retry"
         assert not TaskAttempt.objects.filter(parent_id=child.result_id).exists()
@@ -550,9 +605,7 @@ class TestShippedEmailTaskRunsTwiceVisibly:
         WorkerHeartbeat.objects.create(
             worker_id="frozen#aaa", label="frozen", hostname="box", pid=9, last_seen_at=now, stopped_at=now
         )
-        DBTaskResult.objects.filter(id=first.id).update(
-            status="RUNNING", started_at=now, worker_ids=["frozen#aaa"]
-        )
+        DBTaskResult.objects.filter(id=first.id).update(status="RUNNING", started_at=now, worker_ids=["frozen#aaa"])
 
         # 2. the reaper declares it lost and enqueues a replacement. This is the
         #    step D3 does NOT prevent for a task with an explicit @retry_policy.
@@ -573,7 +626,8 @@ class TestShippedEmailTaskRunsTwiceVisibly:
         )
         with caplog.at_level("WARNING", logger="apps.tasks.reliability"):
             task_finished.send(
-                sender=object, task_result=mock.Mock(status=TaskResultStatus.SUCCESSFUL, id=first.id)
+                sender=_worker_success_sender(),
+                task_result=mock.Mock(status=TaskResultStatus.SUCCESSFUL, id=first.id),
             )
 
         # The invoice went out twice. Every channel must say so.
@@ -597,9 +651,7 @@ class TestShippedEmailTaskRunsTwiceVisibly:
         first = send_email_task.enqueue(recipient="ops@example.com", subject="s", message="m")
         now = timezone.now()
         WorkerHeartbeat.objects.create(worker_id="frozen#bbb", label="frozen", last_seen_at=now, stopped_at=now)
-        DBTaskResult.objects.filter(id=first.id).update(
-            status="RUNNING", started_at=now, worker_ids=["frozen#bbb"]
-        )
+        DBTaskResult.objects.filter(id=first.id).update(status="RUNNING", started_at=now, worker_ids=["frozen#bbb"])
         reap_lost_tasks()
 
         # The frozen worker thaws before the replacement is picked up.
