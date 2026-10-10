@@ -9,6 +9,24 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+### Removed
+- **The `mcp` SDK is no longer a dependency.** SmallStack implements the
+  protocol itself — JSON-RPC envelope, `initialize`/`tools/list`/`tools/call`
+  dispatch and OAuth are plain Django in `apps/mcp/views.py` — and the package
+  was declared for one thing: a singleton `mcp.server.lowlevel.Server` that
+  nothing ever read. Removing it drops **20 packages** from every install
+  (`pydantic`, `starlette`, `uvicorn`, `sse-starlette`, `httpx2`, `jsonschema`,
+  `pyjwt[crypto]`, `opentelemetry-api`, `anyio`, `cryptography` and others —
+  several of them ASGI machinery SmallStack never runs). The MCP surface is
+  unchanged: tools, `@tool`, `TOOL_REGISTRY`, `/mcp`, OAuth, Claude Desktop and
+  `MCP_SERVER_NAME` all behave exactly as before. `mcp_doctor` loses its
+  `"mcp package"` row, which only verified that its own dependency was
+  importable; every check describing the live surface stays. **If your own code
+  does `import mcp`, declare it in your own `pyproject.toml`** — see
+  `UPGRADING.md`. A new test guards against the import creeping back, because
+  it would keep working in any virtualenv that still has the package and fail
+  only on a clean install.
+
 ### Security
 - **Django floor raised to 6.1.2** (released 2026-10-06), which fixes four
   security issues. Two apply to any SmallStack install: **CVE-2026-77050**

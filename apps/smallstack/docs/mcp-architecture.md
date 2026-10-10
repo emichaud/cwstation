@@ -34,7 +34,7 @@ POST /mcp
 | File | Responsibility |
 |---|---|
 | `apps/mcp/apps.py` | `AppConfig(label="mcp_server")`. `ready()` imports `MCP_TOOL_MODULES` then runs the factory over `CRUDView._registry` |
-| `apps/mcp/server.py` | Singleton `mcp.server.lowlevel.Server`, `TOOL_REGISTRY`, `@tool`, `ToolContext`, `current_context()` |
+| `apps/mcp/server.py` | `TOOL_REGISTRY`, `@tool`, `ToolContext`, `current_context()`. No SDK object — SmallStack implements the protocol itself (see `views.py`) |
 | `apps/mcp/auth.py` | `authenticate(request)` (bearer-only, wraps `_authenticate_api_request`), `check_tool_access(token, tool_def, mixins)` |
 | `apps/mcp/oauth.py` | `verify_pkce`, `issuer_url` (X-Forwarded-Proto aware), `absolute_url` |
 | `apps/mcp/oauth_views.py` | RFC 8414/9728 metadata, RFC 7591 DCR, AuthorizeView, token exchange, RFC 7009 revoke |

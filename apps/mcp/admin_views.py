@@ -41,7 +41,6 @@ def _build_mcp_report() -> list[dict]:
 
     cmd = Command()
     report: list[dict] = []
-    cmd._check_mcp_package(report)
     cmd._check_settings(report)
     cmd._check_registry(report)
     cmd._check_urls(report)

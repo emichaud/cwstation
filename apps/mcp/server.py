@@ -12,18 +12,16 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
 
-from django.conf import settings
-
 logger = logging.getLogger("smallstack.mcp.server")
 
 
-# ---------------------------------------------------------------------------
-# Singleton MCP server (mcp SDK low-level Server)
-# ---------------------------------------------------------------------------
-
-from mcp.server.lowlevel import Server as _Server  # noqa: E402
-
-mcp_server: _Server = _Server(getattr(settings, "MCP_SERVER_NAME", "smallstack"))
+# No MCP SDK object lives here. SmallStack speaks the protocol itself — the
+# JSON-RPC envelope, initialize/tools-list/tools-call dispatch, and OAuth are
+# plain Django in `views.py`, served by gunicorn like every other route. The
+# `mcp` SDK used to be imported here for a singleton `Server` that nothing ever
+# read; removing it also drops pydantic/starlette/uvicorn/httpx/jsonschema from
+# the install. `MCP_SERVER_NAME` is still used — views.py reports it in the
+# `initialize` response.
 
 
 # ---------------------------------------------------------------------------
