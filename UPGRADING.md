@@ -9,7 +9,7 @@ listed, no downstream migration is required.
 
 ---
 
-## Unreleased — the `mcp` SDK is no longer a dependency (check your own imports)
+## v0.22.0 — the `mcp` SDK is no longer a dependency (check your own imports)
 
 SmallStack **implements the Model Context Protocol itself** — the JSON-RPC
 envelope, `initialize` / `tools/list` / `tools/call` dispatch, and OAuth are

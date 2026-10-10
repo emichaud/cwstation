@@ -9,6 +9,8 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-10
+
 ### Removed
 - **The `mcp` SDK is no longer a dependency.** SmallStack implements the
   protocol itself — JSON-RPC envelope, `initialize`/`tools/list`/`tools/call`
@@ -1871,7 +1873,8 @@ Condensed highlights of the v0.11 series (see git history for per-patch detail):
 See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full record of the
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
-[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.21.11...HEAD
+[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/emichaud/django-smallstack/compare/v0.21.11...v0.22.0
 [0.21.11]: https://github.com/emichaud/django-smallstack/compare/v0.21.10...v0.21.11
 [0.21.10]: https://github.com/emichaud/django-smallstack/compare/v0.21.9...v0.21.10
 [0.21.9]: https://github.com/emichaud/django-smallstack/compare/v0.21.8...v0.21.9
