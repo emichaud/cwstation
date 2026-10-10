@@ -9,6 +9,22 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+### Added
+- **`schema()["filters"]` now advertises a widget for computed (annotated)
+  dataset columns.** v0.21.11 made those filters apply; this makes a builder UI
+  able to *offer* them. The widget is typed from the annotation — booleans get
+  All/Yes/No, date/datetime get the usual preset dropdown plus `range`, and
+  anything else gets a dropdown of the values actually present (probed, capped
+  at 30 distinct — the ceiling model fields already use). The pairing is the
+  point: a **choice widget means an exact match** in this framework and
+  computed columns compare exactly, so a dropdown is the only control whose
+  semantics are honest. Two cases stay unadvertised on purpose — **aggregate**
+  annotations (probing the domain would mean a GROUP BY over the table, and the
+  filter is a `HAVING`) and computed strings with **>30 distinct values** (a
+  text box would promise substring matching the exact comparison won't
+  deliver). Not offered ≠ not supported: the filter still applies when the
+  param is passed.
+
 ## [0.21.11] - 2026-10-10
 
 ### Fixed

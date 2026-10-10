@@ -263,10 +263,24 @@ rather than guessing. (Before v0.21.11 these filters were silently dropped and
 returned **every row** — no error, so a tile labelled "business hours" showed
 all hours. If you are on an older release, that is the bug.)
 
-> One current limit: `schema()["filters"]` lists widget metadata for
-> model-field columns only, so a *builder UI* won't auto-offer a control for a
-> computed column — pass the param directly (REST/MCP/a stored slice), or
-> render your own control. The filter itself applies either way. A `.values().annotate()` queryset yields plain dicts (no model instance), so `rows()` returns those annotated dicts projected onto your declared columns (any extra annotation keys are appended) — no FK `expand` applies to a values-queryset since it's already reduced to scalars.
+**The builder widget.** `schema()["filters"]` advertises a control for a
+computed column too, typed from the annotation: a boolean gets All/Yes/No, a
+date/datetime gets the usual preset dropdown (plus `range`), and anything else
+gets a **dropdown of the values actually present** (probed, capped at 30
+distinct — the same ceiling model fields use).
+
+That pairing is deliberate: in this framework a **choice widget means an exact
+match** and a text widget means `icontains`, and computed columns always
+compare exactly — so a dropdown is the only widget whose semantics we can
+honour. Two cases are therefore advertised as *nothing*:
+
+- an **aggregate** annotation (`Count`, `Sum`): probing its domain would mean a
+  GROUP BY over the table, and the filter is a `HAVING` clause;
+- a computed string with **more than 30 distinct values**: a text box would
+  promise substring matching that the exact comparison won't deliver.
+
+**Not offered is not the same as not supported** — the filter still applies in
+both cases when you pass the param. Render your own control if you want one. A `.values().annotate()` queryset yields plain dicts (no model instance), so `rows()` returns those annotated dicts projected onto your declared columns (any extra annotation keys are appended) — no FK `expand` applies to a values-queryset since it's already reduced to scalars.
 
 ## Exposing to agents (MCP)
 

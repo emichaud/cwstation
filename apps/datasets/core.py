@@ -212,7 +212,12 @@ class Dataset:
         for name, typ in cols:
             if name not in filter_names:
                 continue
-            meta = _build_filter_meta(model, name)
+            # _build_filter_meta needs a MODEL field, so a computed (annotated)
+            # column declared filterable produced no widget at all — a builder
+            # UI could not offer the control even though the filter applies
+            # (v0.21.11 fixed the applying half). Fall back to a synthesized
+            # widget typed from the annotation.
+            meta = _build_filter_meta(model, name) or self._computed_filter_meta(name)
             if meta:
                 # Date/datetime columns also accept explicit half-open bounds
                 # (<col>__gte / <col>__lt) — advertise so UIs can offer a range
@@ -227,6 +232,90 @@ class Dataset:
             "columns": columns,
             "filters": filters,
         }
+
+    # -- computed-column filter widgets --------------------------------------
+
+    #: Distinct-value ceiling for turning a computed column into a dropdown.
+    #: Same number ``_build_filter_meta`` uses for model fields, deliberately —
+    #: the two paths should feel identical to a builder UI.
+    _COMPUTED_CHOICE_MAX = 30
+
+    def _computed_filter_meta(self, name: str) -> dict | None:
+        """Filter-widget metadata for a COMPUTED (annotated) column.
+
+        Mirrors ``_build_filter_meta``'s conventions, including its
+        distinct-value probe, so the widget and the comparison agree. That
+        pairing is the whole point: in this framework a **choice widget means
+        an exact match** and a text widget means ``icontains`` — and computed
+        columns always compare exactly (see ``_filter_annotated_column``), so
+        a dropdown is the only widget whose semantics we can honour.
+
+        Returns ``None`` — i.e. advertise nothing, as before — when we cannot:
+
+        * the name isn't an annotation (nothing to introspect);
+        * the annotation is an **aggregate** (the distinct probe would mean a
+          GROUP BY over the whole table, and the filter is a HAVING clause);
+        * there are too many distinct values, which would need a text box
+          promising substring matching that the exact comparison won't deliver.
+
+        The filter itself still applies in every one of those cases; it just
+        isn't offered as a control. Honest beats convenient — a widget that
+        lies is worse than no widget.
+        """
+        from django.db import models as _m
+
+        try:
+            annotation = self._queryset().query.annotations.get(name)
+        except Exception:  # noqa: BLE001 — a dataset that can't build is not our problem here
+            return None
+        if annotation is None:
+            return None
+
+        meta: dict[str, Any] = {"name": name, "label": _label_for(self.model, name)}
+
+        try:
+            output_field = annotation.output_field
+        except Exception:  # noqa: BLE001 — mixed-type expression
+            output_field = None
+
+        # Booleans and dates need no probe — their domain is known up front.
+        if isinstance(output_field, _m.BooleanField):
+            meta["type"] = "boolean"
+            meta["choices"] = [("", "All"), ("true", "Yes"), ("false", "No")]
+            return meta
+
+        if isinstance(output_field, (_m.DateField, _m.DateTimeField)):
+            meta["type"] = "choice"
+            meta["is_date"] = True
+            meta["choices"] = [
+                ("", "All"),
+                ("today", "Today"),
+                ("yesterday", "Yesterday"),
+                ("week", "Past 7 days"),
+                ("month", "This month"),
+                ("year", "This year"),
+            ]
+            return meta
+
+        if getattr(annotation, "contains_aggregate", False):
+            return None
+
+        try:
+            qs = self._queryset()
+            if qs.values(name).distinct().count() > self._COMPUTED_CHOICE_MAX:
+                return None
+            values = (
+                qs.values_list(name, flat=True)
+                .distinct()
+                .order_by(name)[: self._COMPUTED_CHOICE_MAX]
+            )
+            choices = [("", "All")] + [(str(v), str(v)) for v in values if v is not None]
+        except Exception:  # noqa: BLE001 — un-probeable expression: offer nothing
+            return None
+
+        meta["type"] = "choice"
+        meta["choices"] = choices
+        return meta
 
     # -- shared filter application (one contract for rows/series/scalar) ------
 
