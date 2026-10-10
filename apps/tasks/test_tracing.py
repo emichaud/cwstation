@@ -138,17 +138,44 @@ class _RealisticTaskResult:
     status = "RUNNING"
 
 
-@pytest.mark.parametrize(
-    "signals_module",
-    [
-        "django_tasks.signals",  # sent by django_tasks_db's db_worker (production)
-        "django.tasks.signals",  # sent by Django's own backends (incl. ImmediateBackend)
-    ],
-)
-def test_receivers_are_connected_to_both_task_signal_pairs(signals_module):
-    """Both pairs must be connected. Subscribing to only one is a silent
-    failure — trace_id just goes empty when the TASKS backend changes, with
-    no exception to notice. See tracing.py's module docstring."""
+def _available_signal_modules() -> list[str]:
+    """Every task-signals module importable on THIS install.
+
+    ``django_tasks_db`` <= 0.12 shipped its own ``django_tasks`` package and
+    its ``db_worker`` sent those signals; 0.13 dropped it for Django's
+    built-in ``django.tasks``. So "both pairs exist" was only true for one
+    dependency generation — the durable invariant is that tracing subscribes
+    to *every pair that does* exist, which is what these tests assert.
+    """
+    import importlib
+
+    found = []
+    for name in ("django_tasks.signals", "django.tasks.signals"):
+        try:
+            importlib.import_module(name)
+        except ImportError:
+            continue
+        found.append(name)
+    return found
+
+
+def test_at_least_one_task_signal_pair_is_available():
+    """Guards the guard: if this ever returns nothing, the parametrised test
+    below would vacuously pass by collecting zero cases."""
+    assert _available_signal_modules(), "no task-signals module importable at all"
+
+
+def test_every_available_signal_pair_is_subscribed():
+    """Subscribing to fewer pairs than exist is a SILENT failure — trace_id
+    just goes empty when the TASKS backend changes, with no exception to
+    notice. Catches both "a dependency added a pair we ignore" and "a pair
+    went away and we still hard-code it". See tracing.py's module docstring."""
+    assert len(tracing.SIGNAL_PAIRS) == len(_available_signal_modules())
+
+
+@pytest.mark.parametrize("signals_module", _available_signal_modules())
+def test_receivers_are_connected_to_every_available_task_signal_pair(signals_module):
+    """Each available pair really binds and resets the trace id."""
     import importlib
 
     mod = importlib.import_module(signals_module)
@@ -170,7 +197,9 @@ def test_connections_are_idempotent_when_the_module_is_imported_twice():
 
     importlib.reload(tracing)
 
-    from django_tasks.signals import task_finished, task_started
+    # Whichever pair this install actually has (see _available_signal_modules).
+    mod = importlib.import_module(_available_signal_modules()[-1])
+    task_started, task_finished = mod.task_started, mod.task_finished
 
     task_started.send(sender=object, task_result=_RealisticTaskResult())
     task_finished.send(sender=object, task_result=_RealisticTaskResult())
@@ -201,7 +230,7 @@ def test_a_real_enqueued_task_runs_with_a_trace_id_bound():
     hand-sent signals, no stand-ins. Under test settings that's Django's
     ImmediateBackend, which executes inline on enqueue(); under dev/production
     it's django_tasks_db's worker. Both are covered because tracing.py
-    subscribes to both signal pairs.
+    subscribes to every signal pair available on the install.
 
     This is the test that could not exist before that change: test settings
     use the backend whose signals tracing.py wasn't listening to, so the real

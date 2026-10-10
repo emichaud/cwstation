@@ -9,6 +9,44 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+### Security
+- **Django floor raised to 6.1.2** (released 2026-10-06), which fixes four
+  security issues. Two apply to any SmallStack install: **CVE-2026-77050**
+  (denial of service in `get_supported_language_variant()`, i.e. Accept-Language
+  parsing) and **CVE-2026-84429** (denial of service in HTTP header parsing).
+  The other two are GeoDjango request forgery (**CVE-2026-87890**, not applicable
+  — SmallStack doesn't use spatial lookups) and privilege abuse in model
+  formsets with editable primary keys (**CVE-2026-87975**). The floor is raised
+  rather than only re-locked, so a downstream resolve can't land on a
+  vulnerable version.
+
+### Changed
+- **Dependencies refreshed across the board** (`uv lock --upgrade`): notably
+  django-tasks-db 0.12→0.13, django-filter 25.2→26.2, gunicorn 25→26,
+  mcp 1.27→2.3, psycopg 3.3.6, starlette 1.3→1.7, tzdata 2025.3→2026.5, plus
+  dev tooling (ruff 0.15→0.17, mypy 2.3→2.4, django-stubs 6.0→6.1).
+- **`apps/tasks/tracing.py` survives the django-tasks-db 0.13 restructure.**
+  0.13 dropped the bundled `django_tasks` package for Django's own
+  `django.tasks`, so the unguarded `from django_tasks.signals import …` at
+  import time broke startup outright (`manage.py check` included). That import
+  is now guarded exactly like the built-in one already was, so trace binding
+  keeps working on **either** version rather than the one that happened to be
+  installed. The tracing tests were asserting "both signal pairs exist" — true
+  for one dependency generation only; they now assert the durable invariant:
+  *every* pair available on this install is subscribed (and at least one is).
+- Six `form_valid()` overrides carry a scoped `# type: ignore[override]`:
+  django-stubs 6.1 flags narrowing the parameter to the view's own `form_class`
+  as a Liskov violation. The narrower type is accurate at runtime (Django only
+  passes `get_form()`'s result) and more useful to a reader; the formally-correct
+  fix — parameterising `UpdateView[Model, Form]` — needs
+  `django_stubs_ext.monkeypatch()` at runtime, and django-stubs is dev-only here.
+
+Verified on **Python 3.13 and 3.14**, and on **SQLite and Postgres 16**:
+2,684 / 2,685 tests green, ruff + mypy clean. `requires-python` stays at
+`>=3.12` — Django 6.1 supports it and it's maintained until 2028, so raising
+the floor would break downstreams for no gain. (Django 6.2 is **not** released;
+6.1.2 is the current stable.)
+
 ### Added
 - **`schema()["filters"]` now advertises a widget for computed (annotated)
   dataset columns.** v0.21.11 made those filters apply; this makes a builder UI

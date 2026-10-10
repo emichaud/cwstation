@@ -27,8 +27,10 @@ logging feature follows.
 There are **two** identically-named signal pairs in this stack, and which one
 fires depends on the configured ``TASKS`` backend:
 
-- ``django_tasks.signals`` — the small package ``django_tasks_db`` depends on.
-  ``django_tasks_db``'s ``db_worker`` is the only thing that sends these.
+- ``django_tasks.signals`` — the small package ``django_tasks_db`` **<= 0.12**
+  depended on; its ``db_worker`` was the only thing that sent these. Version
+  0.13 dropped that package for Django's own, so this pair is absent on a
+  current install and the import below is guarded.
 - ``django.tasks.signals`` — Django's own built-in Tasks framework (where
   ``apps/tasks/tasks.py``'s ``@task`` decorator comes from). Django's own
   backends, including ``ImmediateBackend``, are the only things that send
@@ -53,12 +55,23 @@ from __future__ import annotations
 import logging
 import threading
 
-from django_tasks.signals import task_finished as dtdb_task_finished
-from django_tasks.signals import task_started as dtdb_task_started
-
 from apps.smallstack.logging import bind_trace_id, reset_trace_id
 
 logger = logging.getLogger(__name__)
+
+# The legacy ``django_tasks`` package. ``django_tasks_db`` <= 0.12 depended on
+# it and its ``db_worker`` sent those signals; 0.13 dropped it in favour of
+# Django's own built-in ``django.tasks``, so the module is simply absent there.
+# Guarded for the same reason the core import below is: a project pinned to the
+# older ``django_tasks_db`` must keep its trace binding, and a project on the
+# newer one must not fail to start. Whichever pairs exist get subscribed.
+try:
+    from django_tasks.signals import task_finished as dtdb_task_finished
+    from django_tasks.signals import task_started as dtdb_task_started
+
+    _LEGACY_SIGNALS = [(dtdb_task_started, dtdb_task_finished)]
+except ImportError:  # django_tasks_db >= 0.13 (or the package isn't installed)
+    _LEGACY_SIGNALS = []
 
 # Django's built-in Tasks framework (Django 5.2+). Guarded rather than assumed:
 # this module must not be the reason a project on an older Django fails to
@@ -107,7 +120,7 @@ def _reset_trace_for_task(sender, task_result, **kwargs) -> None:
 # module docstring for why there is more than one. dispatch_uid makes this
 # idempotent: apps.py imports this module from ready(), and a double import
 # (autoreloader, a test importing it directly) must not register twice.
-SIGNAL_PAIRS = [(dtdb_task_started, dtdb_task_finished), *_CORE_SIGNALS]
+SIGNAL_PAIRS = [*_LEGACY_SIGNALS, *_CORE_SIGNALS]
 
 for _started, _finished in SIGNAL_PAIRS:
     _started.connect(_bind_trace_for_task, dispatch_uid="smallstack.tasks.tracing.bind")
