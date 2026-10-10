@@ -205,6 +205,60 @@ def _apply_ordering(qs, request: HttpRequest, crud_config) -> QuerySet:
     return _apply_ordering_fields(qs, ordering, allowed)
 
 
+def _filter_annotated_column(qs, field_name: str, annotation, value: str) -> QuerySet:
+    """Apply one filter to an annotated (computed) column.
+
+    Mirrors the model-field branches in :func:`_apply_list_filters`, typed from
+    the annotation's ``output_field``: booleans accept true/1/yes and
+    false/0/no, date/datetime take the same presets, and everything else is an
+    **exact** match — the pipeline's own default (see its final
+    ``qs.filter(**{field_name: value})``), and the right reading for computed
+    columns, which are overwhelmingly categorical: bands, routes, flags.
+
+    An annotation whose ``output_field`` Django can't infer still filters
+    exactly; an unparseable bool/date value narrows nothing rather than raising
+    (absent-not-error, as elsewhere in this pipeline).
+    """
+    from datetime import timedelta
+
+    from django.db import models as _m
+    from django.utils import timezone
+
+    try:
+        output_field = annotation.output_field
+    except Exception:  # noqa: BLE001 — mixed-type expression; fall through to exact
+        output_field = None
+
+    if isinstance(output_field, _m.BooleanField):
+        lowered = value.lower()
+        if lowered in ("true", "1", "yes"):
+            return qs.filter(**{field_name: True})
+        if lowered in ("false", "0", "no"):
+            return qs.filter(**{field_name: False})
+        return qs
+
+    if isinstance(output_field, (_m.DateField, _m.DateTimeField)):
+        today = timezone.localdate()
+        prefix = (
+            f"{field_name}__date"
+            if isinstance(output_field, _m.DateTimeField)
+            else field_name
+        )
+        if value == "today":
+            return qs.filter(**{prefix: today})
+        if value == "yesterday":
+            return qs.filter(**{prefix: today - timedelta(days=1)})
+        if value == "week":
+            return qs.filter(**{f"{prefix}__gte": today - timedelta(days=7)})
+        if value == "month":
+            return qs.filter(**{f"{prefix}__month": today.month, f"{prefix}__year": today.year})
+        if value == "year":
+            return qs.filter(**{f"{prefix}__year": today.year})
+        return qs
+
+    return qs.filter(**{field_name: value})
+
+
 def _apply_list_filters(qs, request: HttpRequest, crud_config) -> QuerySet:
     """Apply query-param filters to a queryset using configured filter_fields."""
     from datetime import timedelta
@@ -232,6 +286,19 @@ def _apply_list_filters(qs, request: HttpRequest, crud_config) -> QuerySet:
         try:
             model_field = crud_config.model._meta.get_field(field_name)
         except Exception:
+            # Not a model field — but it may still be a REAL column on this
+            # queryset: an annotation. Datasets' computed columns
+            # (``columns=[("hours_band", "str")]``) are exactly that, and
+            # dropping the filter here silently returned EVERY row — the
+            # dangerous failure for an analytical surface, where a tile
+            # labelled "business hours" then shows all hours with no error.
+            # Only *declared* filter fields reach this loop, so an annotation
+            # here was deliberately made filterable by its author; a genuinely
+            # unknown key is still tolerated-and-ignored as before.
+            annotation = qs.query.annotations.get(field_name)
+            if annotation is None:
+                continue
+            qs = _filter_annotated_column(qs, field_name, annotation, value)
             continue
         from django.db import models as _m
 

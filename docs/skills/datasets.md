@@ -250,7 +250,23 @@ def tickets_by_assignee(request=None):
 
 Model-field columns need nothing; only computed ones need the `(name, type)` hint.
 
-Every operation works on a computed dataset: `list_datasets()`, `schema()`, `series()`, `scalar()`, and `rows()`. A `.values().annotate()` queryset yields plain dicts (no model instance), so `rows()` returns those annotated dicts projected onto your declared columns (any extra annotation keys are appended) — no FK `expand` applies to a values-queryset since it's already reduced to scalars.
+Every operation works on a computed dataset: `list_datasets()`, `schema()`, `series()`, `scalar()`, and `rows()`.
+
+**Filtering a computed column.** List it in `filterable=` and the usual flat
+param works — `?hours_band=business`, `?answered=1` — on every read path
+(`rows`/`series`/`scalar`, REST, MCP, stored slices). The comparison is typed
+from the annotation's `output_field`: booleans take `1/0/true/false`,
+date/datetime take the same presets as model dates (`today`, `week`, …), and
+everything else is an **exact** match — computed columns are overwhelmingly
+categorical (bands, routes, flags), so `?hours_band=busi` matches nothing
+rather than guessing. (Before v0.21.11 these filters were silently dropped and
+returned **every row** — no error, so a tile labelled "business hours" showed
+all hours. If you are on an older release, that is the bug.)
+
+> One current limit: `schema()["filters"]` lists widget metadata for
+> model-field columns only, so a *builder UI* won't auto-offer a control for a
+> computed column — pass the param directly (REST/MCP/a stored slice), or
+> render your own control. The filter itself applies either way. A `.values().annotate()` queryset yields plain dicts (no model instance), so `rows()` returns those annotated dicts projected onto your declared columns (any extra annotation keys are appended) — no FK `expand` applies to a values-queryset since it's already reduced to scalars.
 
 ## Exposing to agents (MCP)
 

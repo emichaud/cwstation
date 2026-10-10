@@ -9,6 +9,24 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+### Fixed
+- **Filters on computed (annotated) dataset columns are no longer silently
+  ignored.** `_apply_list_filters` resolved every declared filter name with
+  `model._meta.get_field()` and skipped the filter when that raised — so a
+  plain filter on an annotation (`?hours_band=business`, `?route=on_call`,
+  `?answered=1`) was dropped and the query returned **every row**. No error and
+  no empty result, which is the dangerous shape for an analytical surface: a
+  tile labelled "business hours" quietly showing all hours. It also broke two
+  documented promises — "every operation works on a computed dataset" and the
+  one-filter-contract-for-rows/series/scalar invariant. The pipeline now
+  consults `qs.query.annotations` before giving up and types the comparison
+  from the annotation's `output_field` (booleans take 1/0/true/false,
+  date/datetime take the usual presets, everything else is an exact match —
+  computed columns are categorical). Genuinely unknown keys are still
+  tolerated-and-ignored, and only *declared* filter fields are considered, so
+  nothing new is filterable by accident. Annotated CRUDView querysets get the
+  same fix for free. (Downstream-reported; they patched their own copy.)
+
 ## [0.21.10] - 2026-09-28
 
 ### Fixed
