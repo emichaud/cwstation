@@ -9,6 +9,8 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+## [0.21.11] - 2026-10-10
+
 ### Fixed
 - **Filters on computed (annotated) dataset columns are no longer silently
   ignored.** `_apply_list_filters` resolved every declared filter name with
@@ -1797,7 +1799,8 @@ Condensed highlights of the v0.11 series (see git history for per-patch detail):
 See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full record of the
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
-[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.21.10...HEAD
+[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.21.11...HEAD
+[0.21.11]: https://github.com/emichaud/django-smallstack/compare/v0.21.10...v0.21.11
 [0.21.10]: https://github.com/emichaud/django-smallstack/compare/v0.21.9...v0.21.10
 [0.21.9]: https://github.com/emichaud/django-smallstack/compare/v0.21.8...v0.21.9
 [0.21.8]: https://github.com/emichaud/django-smallstack/compare/v0.21.7...v0.21.8
