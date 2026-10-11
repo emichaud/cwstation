@@ -11,14 +11,25 @@ listed, no downstream migration is required.
 
 ## Unreleased — task reliability: lost-task reaper + retries
 
-Run `make migrate`. **Coming from v0.21.8** — or from any earlier release, since `apps/tasks`
-had no migrations at all before this change — it applies **four**:
+Run `make migrate`. It applies **five** migrations.
+
+This note deliberately does **not** name the release you are coming from. A version is only a
+proxy for "which migrations you already have", and the proxy goes stale every time `main`
+releases — it has already gone stale twice in this document while the feature was in review.
+Migration ids don't drift. So the state these five assume is:
+
+- `apps/tasks` has **no** migrations applied — it had none at all before this feature; and
+- `scheduler` is at **`0003_scheduledjob_auto_retired`**.
+
+That is every release before this one. Confirm with
+`manage.py showmigrations tasks scheduler`; if it matches, the list below is what you get.
 
 | Migration | What it does |
 |---|---|
 | `tasks.0001_initial` | The first models in `apps/tasks`: `WorkerHeartbeat`, `TaskAttempt` |
 | `tasks.0002_worker_incarnation` | Keys worker liveness to a process, not to `--worker-id`. **Not additive — see below** |
 | `tasks.0003_late_completion_marker` | Records a chain that executed more than once. Additive |
+| `tasks.0004_widen_worker_id` | Widens `worker_id` to 128 so a worker identity cannot be silently truncated. Additive |
 | `scheduler.0004_max_retries_live` | `ScheduledJob.max_retries` help text + validator. No DDL |
 
 > **`tasks.0002_worker_incarnation` deletes rows.** It is the only destructive operation in
