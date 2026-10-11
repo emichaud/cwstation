@@ -193,8 +193,9 @@ def sweep_band(
 def _parse_in_band(text: str, band: Band) -> list[tuple[float, float]]:
     """rtl_power CSV → [(mhz, dB)] clipped to this band.
 
-    Not radiodaemon.parse_power_csv: that one clips to the FM broadcast band,
-    which would discard every sweep here.
+    Not radiodaemon.parse_power_csv: that one clips to a `RADIO_BANDS` key (the
+    two bands the *receiver* can tune), and the survey sweeps many more —
+    NOAA, the ham bands, UHF TV, HF. Same arithmetic, different band table.
     """
     bins: list[tuple[float, float]] = []
     for line in text.splitlines():

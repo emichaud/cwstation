@@ -116,7 +116,8 @@ Native <dialog> supplies the focus trap, Esc-to-close, and backdrop.
 <script>
 window.CW_RADIO = {
     controlUrl: "{% url 'cw-radio-control' %}",
-    stationsUrl: "{% url 'cw-radio-stations' %}"
+    stationsUrl: "{% url 'cw-radio-stations' %}",
+    bands: {{ radio_bands_json|safe }}
 };
 </script>
 <script src="{% static 'cw/radio.js' %}"></script>

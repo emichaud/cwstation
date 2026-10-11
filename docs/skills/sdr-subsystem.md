@@ -57,6 +57,48 @@ binaries. Getting this crossed produces noise that looks like a bad antenna.
 Direct sampling is applied **per band** (`Band.hf`), because using it on a VHF
 band just adds noise.
 
+### 3a. The seek pipeline is per band — don't hardcode FM's raster
+
+`parse_power_csv`, `find_stations`, `next_station` and `_run_sweep` all take a
+**`band`** (a `RADIO_BANDS` key). `seek()` derives it from the frequency it was
+given — `band_for(current)` — so the dial never crosses from FM into airband,
+and the API needs no new parameter.
+
+Every spacing constant lives in `RADIO_BANDS`, because one set sized for FM's
+200 kHz raster is wrong on airband's 25 kHz one:
+
+| Key | FM | AIR | What breaks if shared |
+|---|---|---|---|
+| `sweep_bin_khz` | 100 | 25 | A 100 kHz bin can't resolve a 25 kHz channel at all. |
+| `seek_separation_mhz` | 0.25 | 0.02 | FM's 0.25 collapses ten airband channels into one "station". |
+| `seek_eps_mhz` | 0.15 | 0.02 | FM's guard band skips six airband channels per press. |
+| `step` / `decimals` | 0.1 / 1 | 0.025 / 3 | Snapping to 0.1 MHz puts 121.550 on a channel nobody is on. |
+
+`SEEK_THRESHOLD_DB` stays shared (it's a dB margin, not a spacing). The grid
+snap is `round(mhz / step) * step` — it reproduces the old `round(mhz, 1)`
+exactly on FM, which is why that refactor was safe.
+
+**One band rule, used everywhere.** `band_for()` decides what's tunable and
+`tunable_ranges()` words the rejection; both the receiver (`_validate_freq`)
+and the preset endpoint (`api.radio_stations`) go through them. Don't give the
+preset endpoint its own range check — it used to have one, pinned to FM, which
+meant an airband station could be tuned but not saved.
+`test_preset_validation_matches_the_receivers` is the guard.
+
+Two things worth knowing before you trust a seek result:
+
+- **Airband is voice, not carriers.** A channel idle during the one sweep is
+  invisible, so an airband seek reports what was *talking just then* — unlike
+  FM, where a station is always there. Don't read an empty result as a hardware
+  fault. (`bandscan`'s `reference` flag marks the same distinction.)
+- **`parse_power_csv` clipping is load-bearing.** `rtl_power` rounds the range
+  outward to a whole number of hops, so a sweep of 88–108 returns bins past
+  108 that otherwise read as stations off the end of the dial.
+
+`TestSeekOnAirband` pins all of it, and each test was verified to fail against
+the FM-hardcoded version — but per "Working on it" below, the numbers are still
+only unit-test truth. Confirm a seek on a real dongle before claiming it works.
+
 ### 4. `-M wbfm` is a preset — don't add `-s`
 
 `wbfm` expands to `-s 170k -r 32k -E deemp -A fast …`. Passing your own `-s`
@@ -199,3 +241,14 @@ within a couple of dB.
 - The seven-segment display font (`DSEG7`, OFL, bundled in `static/cw/fonts/`)
   renders `!` as a blank cell — used to pad `88.1` so it sits where `108.1` would.
   Anything set in that family shows digits only; units must not inherit it.
+- **The faceplate reads the band table, it doesn't hardcode FM.** `RADIO_BANDS`
+  ships to the page as `window.CW_RADIO.bands` (`RadioView.get_context_data`),
+  and `radio.js` derives *everything* band-dependent from it: `fmt()` decimals,
+  the `showFreq` pad width, the ghost digits, the band badge, the tick labels,
+  the ± step, and the "this preset is tuned" tolerance (`step / 2`). Don't
+  reintroduce a `toFixed(1)` — it renders 121.550 as a channel nobody is on.
+- **A range input clamps assignments to `[min, max]`.** The dial ships
+  FM-ranged, so `freq.value = <airband>` silently reads back as `108` unless
+  `applyBand()` widens `min`/`max` **first**. Every assignment to `freq.value`
+  must be preceded by `applyBand()`; this bit the test harness before it bit a
+  user.

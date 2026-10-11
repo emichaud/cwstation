@@ -49,10 +49,17 @@ class TestValidation:
     """Nothing reaches the argv unvalidated — the frequency comes from a slider
     but the endpoint accepts arbitrary JSON."""
 
-    @pytest.mark.parametrize("freq", [87.9, 108.1, 7.03, 0, -100, 1e9])
-    def test_rejects_frequency_outside_the_fm_band(self, freq: float):
-        with pytest.raises(RadioError, match="outside the FM broadcast band"):
+    # Below FM, in the FM→AIR gap, below and above AIR, plus HF and nonsense.
+    @pytest.mark.parametrize("freq", [87.9, 108.1, 117.9, 137.1, 7.03, 0, -100, 1e9])
+    def test_rejects_frequency_outside_the_tunable_bands(self, freq: float):
+        with pytest.raises(RadioError, match="outside the tunable bands"):
             radiodaemon.start(freq, sink=fake_sink([]))
+
+    @pytest.mark.parametrize("freq", [88.0, 100.3, 108.0, 118.0, 121.5, 137.0])
+    def test_accepts_frequencies_in_either_band(self, freq: float):
+        """Band edges included — validation runs before any argv is built, so
+        this asserts acceptance without needing a dongle."""
+        assert radiodaemon._validate_freq(freq) == freq
 
     @pytest.mark.parametrize("freq", ["nonsense", None, "100.3; rm -rf /"])
     def test_rejects_non_numeric_frequency(self, freq: object):
@@ -117,31 +124,105 @@ class TestSeekMath:
     )
 
     def test_parse_power_csv(self):
-        bins = radiodaemon.parse_power_csv(self.CSV)
+        bins = radiodaemon.parse_power_csv(self.CSV, "fm")
         assert len(bins) == 10
         assert bins[0][0] == pytest.approx(89.0)   # centre of the first bin
         assert bins[-1][0] == pytest.approx(107.0)
 
+    def test_parse_power_csv_clips_to_the_band_asked_for(self):
+        """The FM sweep's bins are all outside airband, so asking for AIR must
+        discard every one rather than reporting stations on the wrong band."""
+        assert radiodaemon.parse_power_csv(self.CSV, "air") == []
+
+    def test_parse_power_csv_rejects_an_unknown_band(self):
+        with pytest.raises(RadioError, match="Unknown band"):
+            radiodaemon.parse_power_csv(self.CSV, "shortwave")
+
     def test_find_stations_skips_weak_signals(self):
-        bins = radiodaemon.parse_power_csv(self.CSV)
-        freqs = [f for f, _ in radiodaemon.find_stations(bins)]
+        bins = radiodaemon.parse_power_csv(self.CSV, "fm")
+        freqs = [f for f, _ in radiodaemon.find_stations(bins, "fm")]
         assert freqs == [97.0, 103.0]              # the +6 dB bump at 93 is skipped
-        loose = [f for f, _ in radiodaemon.find_stations(bins, threshold_db=5.0)]
+        loose = [f for f, _ in radiodaemon.find_stations(bins, "fm", threshold_db=5.0)]
         assert 93.0 in loose                       # …but a loose threshold admits it
 
     def test_next_station_picks_by_direction_and_wraps(self):
         freqs = [92.5, 97.1, 103.1]
         nxt = radiodaemon.next_station
-        assert nxt(freqs, 97.1, "up") == 103.1
-        assert nxt(freqs, 97.1, "down") == 92.5
-        assert nxt(freqs, 103.1, "up") == 92.5      # wrap at the top edge
-        assert nxt(freqs, 92.5, "down") == 103.1    # wrap at the bottom edge
-        assert nxt([97.1], 97.1, "up") is None      # only the station we're on
-        assert nxt([], 100.0, "up") is None
+        assert nxt(freqs, 97.1, "up", "fm") == 103.1
+        assert nxt(freqs, 97.1, "down", "fm") == 92.5
+        assert nxt(freqs, 103.1, "up", "fm") == 92.5      # wrap at the top edge
+        assert nxt(freqs, 92.5, "down", "fm") == 103.1    # wrap at the bottom edge
+        assert nxt([97.1], 97.1, "up", "fm") is None      # only the station we're on
+        assert nxt([], 100.0, "up", "fm") is None
 
     def test_seek_rejects_bad_direction(self):
         with pytest.raises(RadioError, match="direction"):
             radiodaemon.seek("sideways", 100.3)
+
+
+class TestSeekOnAirband:
+    """Seek on the 25 kHz airband raster — the FM-sized constants would have
+    collapsed adjacent channels into one station and snapped them off-channel."""
+
+    # Ten 25 kHz airband bins from 121.400. hz_low is offset half a step so the
+    # bin centres land *on* the raster (rtl_power reports centres, so a bin
+    # starting at a whole channel would centre between two). Two active
+    # channels 50 kHz apart — 121.500 and 121.550 — with a floor bin between,
+    # since the peak test needs each to be a local maximum.
+    CSV = (
+        "2026-08-29, 12:00:00, 121387500, 121637500, 25000, 512, "
+        "-33.0, -32.0, -31.5, -32.5, -3.0, -32.0, -4.0, -31.0, -32.3, -31.7\n"
+    )
+
+    def test_nearby_channels_stay_distinct(self):
+        bins = radiodaemon.parse_power_csv(self.CSV, "air")
+        assert bins, "the airband sweep must survive clipping to AIR"
+        freqs = [f for f, _ in radiodaemon.find_stations(bins, "air", threshold_db=12.0)]
+        # These sit 50 kHz apart: inside FM's 0.25 MHz separation, which would
+        # have discarded the weaker as a sidelobe of the stronger.
+        assert len(freqs) == 2
+        assert freqs == [pytest.approx(121.500), pytest.approx(121.550)]
+        # Proof the FM constants really would have merged them.
+        fm_like = radiodaemon.find_stations(bins, "fm", threshold_db=12.0)
+        assert len(fm_like) == 1
+
+    def test_frequencies_keep_25khz_resolution(self):
+        """Three decimals, not one. Rounding to FM's 0.1 MHz grid would put
+        121.550 on 121.5 or 121.6 — a channel the aircraft isn't on."""
+        bins = radiodaemon.parse_power_csv(self.CSV, "air")
+        freqs = [f for f, _ in radiodaemon.find_stations(bins, "air", threshold_db=12.0)]
+        off_raster = [f for f in freqs if abs(f / 0.025 - round(f / 0.025)) > 1e-6]
+        assert not off_raster, f"not on the 25 kHz raster: {off_raster}"
+        # The discriminator: 121.550 survives only at 25 kHz resolution.
+        assert pytest.approx(121.550) in freqs
+
+    def test_eps_is_small_enough_to_step_one_channel(self):
+        """FM's 0.15 MHz guard band would skip six airband channels."""
+        freqs = [121.500, 121.525, 121.550]
+        nxt = radiodaemon.next_station
+        assert nxt(freqs, 121.500, "up", "air") == 121.525
+        assert nxt(freqs, 121.525, "down", "air") == 121.500
+        assert nxt(freqs, 121.550, "up", "air") == 121.500   # wrap
+
+    def test_sweep_argv_uses_the_bands_range_and_bin_width(self, monkeypatch):
+        """A 100 kHz bin can't resolve a 25 kHz channel — airband must sweep
+        its own range at its own resolution."""
+        seen: list[list[str]] = []
+
+        class _Done:
+            stdout = ""
+            stderr = "stub"
+
+        def fake_run(argv, **kw):
+            seen.append(argv)
+            return _Done()
+
+        monkeypatch.setattr(radiodaemon.shutil, "which", lambda _n: "/usr/bin/rtl_power")
+        monkeypatch.setattr(radiodaemon.subprocess, "run", fake_run)
+        for band, expect in (("fm", "88M:108M:100k"), ("air", "118M:137M:25k")):
+            with pytest.raises(RadioError):   # empty stdout → "produced nothing"
+                radiodaemon._run_sweep(0, band)
+            assert expect in seen[-1], f"{band}: got {seen[-1]}"
 
 
 class TestRetuneValidation:
@@ -149,7 +230,7 @@ class TestRetuneValidation:
         """A bad frequency must refuse without killing what's playing."""
         died = []
         monkeypatch.setattr(radiodaemon, "_stop_locked", lambda: died.append(1))
-        with pytest.raises(RadioError, match="outside the FM broadcast band"):
+        with pytest.raises(RadioError, match="outside the tunable bands"):
             radiodaemon.retune(7.03)
         assert died == []
 
@@ -280,10 +361,27 @@ class TestStationsEndpoint:
         r = self._post(client_logged, {"name": "WXYZ", "freq_mhz": 101.1})
         assert r.status_code == 409
 
-    def test_out_of_band_frequency_is_rejected(self, client_logged):
-        r = self._post(client_logged, {"name": "Shortwave", "freq_mhz": 7.03})
+    @pytest.mark.parametrize("freq", [7.03, 87.9, 108.1, 117.9, 137.1])
+    def test_out_of_band_frequency_is_rejected(self, client_logged, freq):
+        r = self._post(client_logged, {"name": "Nope", "freq_mhz": freq})
         assert r.status_code == 400
         assert not RadioStation.objects.exists()
+
+    @pytest.mark.parametrize("freq", [100.3, 121.5, 118.0, 137.0])
+    def test_a_preset_can_be_saved_on_any_tunable_band(self, client_logged, freq):
+        """A preset you can save but can't tune would be a trap, so the
+        endpoint accepts exactly what the receiver does — airband included."""
+        r = self._post(client_logged, {"name": f"P{freq}", "freq_mhz": freq})
+        assert r.status_code == 200, r.content
+        assert RadioStation.objects.get().freq_mhz == pytest.approx(freq)
+
+    def test_preset_validation_matches_the_receivers(self, client_logged):
+        """The two rules must not drift apart — this is the actual invariant,
+        and it keeps holding if a third band is added."""
+        for freq in (87.9, 100.3, 108.1, 117.9, 121.5, 137.1, 7.03):
+            tunable = radiodaemon.band_for(freq) is not None
+            saved = self._post(client_logged, {"name": str(freq), "freq_mhz": freq})
+            assert (saved.status_code == 200) is tunable, f"{freq}: {saved.content!r}"
 
     def test_rename_and_delete(self, client_logged):
         created = self._post(client_logged, {"name": "WXYZ", "freq_mhz": 100.3}).json()
@@ -326,6 +424,20 @@ class TestRadioPage:
     def test_anonymous_is_redirected(self, client):
         r = client.get(reverse("cw-radio"))
         assert r.status_code == 302 and "login" in r["Location"]
+
+    def test_band_table_is_shipped_to_the_faceplate(self, client):
+        """The dial formats and steps per band (121.550, not 121.5), so it needs
+        the raster. Shipped from RADIO_BANDS rather than mirrored in JS — a
+        second copy would drift from the one the daemon validates against."""
+        User.objects.create_user(username="op", password="pw")
+        client.login(username="op", password="pw")
+        resp = client.get(reverse("cw-radio"))
+        shipped = json.loads(resp.context["radio_bands_json"])
+        assert shipped == radiodaemon.RADIO_BANDS
+        # …and actually reaches the page, not just the context.
+        assert "bands:" in resp.content.decode()
+        for key in ("step", "decimals", "low", "high", "label"):
+            assert key in shipped["air"], f"the faceplate needs {key}"
 
 
 @pytest.mark.django_db

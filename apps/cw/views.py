@@ -460,6 +460,16 @@ class RadioView(LoginRequiredMixin, TemplateView):
 
     template_name = "cw/radio.html"
 
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        # The faceplate formats and steps the dial per band (FM reads 100.3,
+        # airband reads 121.500). Shipped from RADIO_BANDS rather than mirrored
+        # in JS, so the raster can't drift from the one the daemon validates.
+        from .radiodaemon import RADIO_BANDS
+
+        context["radio_bands_json"] = json.dumps(RADIO_BANDS)
+        return context
+
 
 class AntennaSurveyView(LoginRequiredMixin, TemplateView):
     """The antenna bench — sweep bands, score them, compare runs.

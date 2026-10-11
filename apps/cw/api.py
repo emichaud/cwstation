@@ -793,7 +793,7 @@ def radio_stations(request: APIRequest) -> dict[str, Any] | Any:
     GET  → list
     POST → create {name, freq_mhz} | update {id, name?, freq_mhz?} | delete {id, delete: true}
     """
-    from .radiodaemon import FM_BAND_MHZ
+    from .radiodaemon import band_for, tunable_ranges
 
     if request.method == "GET":
         return {
@@ -831,9 +831,10 @@ def radio_stations(request: APIRequest) -> dict[str, Any] | Any:
             freq = float(data["freq_mhz"])
         except (TypeError, ValueError):
             return api_error("Frequency must be a number", 400)
-        low, high = FM_BAND_MHZ
-        if not low <= freq <= high:
-            return api_error(f"Frequency must be between {low:g} and {high:g} MHz", 400)
+        # The same rule the receiver tunes by — a preset you can save but can't
+        # tune would be a trap, so this accepts any band in RADIO_BANDS.
+        if band_for(freq) is None:
+            return api_error(f"Frequency must be within {tunable_ranges()}", 400)
         station.freq_mhz = freq
     if not station.name or station.freq_mhz is None:
         return api_error("Both name and freq_mhz are required", 400)

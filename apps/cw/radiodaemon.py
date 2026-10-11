@@ -7,7 +7,7 @@ log lines, and stop it. One managed receiver per server process; the dongle is
 exclusive hardware.
 
 Everything is validated before it reaches the argv (frequency must be a float
-inside the FM broadcast band, device index an int); nothing is ever passed
+inside one of the `RADIO_BANDS`, device index an int); nothing is ever passed
 through a shell.
 
 Three structural rules, learned the hard way:
@@ -41,10 +41,36 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-# FM broadcast band. This dongle (R820T) can't tune below ~24 MHz, so AM
-# broadcast and the HF CW bands are out of reach entirely — see the project
-# help for the upconverter options.
-FM_BAND_MHZ = (88.0, 108.0)
+# The tunable bands. The frequency alone determines the band and therefore the
+# demodulation mode — the ranges don't overlap, so nothing else needs asking.
+# FM broadcast is wideband FM; airband (aircraft voice) is AM. AM *broadcast*
+# (530–1710 kHz) is absent deliberately: it sits below the R820T's ~24 MHz
+# tuner floor, so no RTL stick without direct sampling can hear it at all.
+#
+# The `sweep_*`/`seek_*` keys tune the seek pipeline per band, for the same
+# reason `bandscan.Band` carries `dwell_s`/`floor_pct`: one set of constants
+# sized for FM's 200 kHz raster is wrong on airband's 25 kHz one. A sweep bin
+# of 100 kHz can't resolve a 25 kHz channel at all, and an FM-sized 0.25 MHz
+# separation would collapse ten airband channels into one "station".
+RADIO_BANDS: dict[str, dict[str, Any]] = {
+    "fm": {"label": "FM", "low": 88.0, "high": 108.0, "mode": "wbfm",
+           "step": 0.1, "decimals": 1,
+           "sweep_bin_khz": 100, "seek_separation_mhz": 0.25,
+           "seek_eps_mhz": 0.15},
+    "air": {"label": "AIR", "low": 118.0, "high": 137.0, "mode": "am",
+            "step": 0.025, "decimals": 3,
+            "sweep_bin_khz": 25, "seek_separation_mhz": 0.02,
+            "seek_eps_mhz": 0.02},
+}
+
+# Kept for callers/tests that reason about the FM band specifically.
+FM_BAND_MHZ = (RADIO_BANDS["fm"]["low"], RADIO_BANDS["fm"]["high"])
+
+# rtl_fm's AM demodulator outputs hiss between transmissions; airband is idle
+# most of the time, so a squelch keeps the scanner experience sane. rtl_fm's
+# -l unit is mean sample amplitude, not dB; 40 opens for voice and stays shut
+# on the R820T's idle noise at typical gains.
+AM_SQUELCH_LEVEL = 40
 
 # rtl_fm's wbfm preset demodulates to 32 kHz mono signed 16-bit.
 AUDIO_RATE = 32000
@@ -52,9 +78,9 @@ _CHUNK_BYTES = 4096
 
 # Seek: a station must rise this far above the band's median floor to count.
 # Real FM carriers here measured +30 dB and up; empty channels sit within a few
-# dB of the floor, so 12 gives a wide margin on both sides.
+# dB of the floor, so 12 gives a wide margin on both sides. Shared across bands;
+# the *spacing* constants are per band, in `RADIO_BANDS`.
 SEEK_THRESHOLD_DB = 12.0
-SEEK_MIN_SEPARATION_MHZ = 0.25
 
 _DEVICE_RE = re.compile(r"^\s*(\d+):\s+(\S.*?)\s*$")
 _PIDFILE = Path(tempfile.gettempdir()) / "cw-radio-rtl_fm.pid"
@@ -390,15 +416,33 @@ def _reap_stale() -> None:
 # ── lifecycle (all public entry points hold _op_lock) ──────────────────────
 
 
+def band_for(freq_mhz: float) -> str | None:
+    """Which band a frequency belongs to, or None if it's between/outside them."""
+    for key, band in RADIO_BANDS.items():
+        if band["low"] <= freq_mhz <= band["high"]:
+            return key
+    return None
+
+
+def tunable_ranges() -> str:
+    """The tunable ranges as operator-readable prose, for rejection messages.
+
+    Shared so the receiver and the preset endpoint reject out-of-band
+    frequencies in the same words — and, more importantly, by the same rule.
+    """
+    return " or ".join(
+        f"{b['low']:g}–{b['high']:g} MHz ({b['label']})" for b in RADIO_BANDS.values()
+    )
+
+
 def _validate_freq(freq_mhz: Any) -> float:
     try:
         freq = float(freq_mhz)
     except (TypeError, ValueError) as e:
         raise RadioError(f"Not a frequency: {freq_mhz!r}") from e
-    low, high = FM_BAND_MHZ
-    if not low <= freq <= high:
+    if band_for(freq) is None:
         raise RadioError(
-            f"{freq:g} MHz is outside the FM broadcast band ({low:g}–{high:g} MHz)."
+            f"{freq:g} MHz is outside the tunable bands ({tunable_ranges()})."
         )
     return freq
 
@@ -568,14 +612,28 @@ def status() -> dict[str, Any]:
 # ── seek: sweep the band, find the strong carriers ─────────────────────────
 
 
-def parse_power_csv(text: str) -> list[tuple[float, float]]:
-    """rtl_power CSV → sorted [(freq_mhz, dB)] bins inside the FM band.
+def band_cfg(band: str) -> dict[str, Any]:
+    """The `RADIO_BANDS` entry for a key, or a RadioError naming the valid ones."""
+    try:
+        return RADIO_BANDS[band]
+    except KeyError:
+        valid = ", ".join(RADIO_BANDS)
+        raise RadioError(f"Unknown band: {band!r} (expected one of {valid}).") from None
+
+
+def parse_power_csv(text: str, band: str) -> list[tuple[float, float]]:
+    """rtl_power CSV → sorted [(freq_mhz, dB)] bins inside `band`.
 
     Each line: date, time, hz_low, hz_high, hz_step, samples, dB, dB, ...
     One sweep spans several lines (the dongle hops in ~2 MHz chunks).
+
+    Clipping matters: rtl_power rounds the range it was asked for outward to a
+    whole number of hops, so a sweep of 88–108 returns bins beyond 108 that
+    would otherwise read as stations off the end of the dial.
     """
+    cfg = band_cfg(band)
     bins: list[tuple[float, float]] = []
-    low_mhz, high_mhz = FM_BAND_MHZ
+    low_mhz, high_mhz = cfg["low"], cfg["high"]
     for line in text.splitlines():
         parts = [p.strip() for p in line.split(",")]
         if len(parts) < 7:
@@ -595,14 +653,19 @@ def parse_power_csv(text: str) -> list[tuple[float, float]]:
 
 def find_stations(
     bins: list[tuple[float, float]],
+    band: str,
     threshold_db: float = SEEK_THRESHOLD_DB,
 ) -> list[tuple[float, float]]:
     """Peaks that rise `threshold_db` above the band's median floor.
 
     Greedy strongest-first with a minimum separation, so one wide carrier
-    doesn't register as three stations. Frequencies snap to the 0.1 MHz grid
-    broadcasters actually use. Returns [(freq_mhz, snr_db)] sorted by freq.
+    doesn't register as three stations. Frequencies snap to the channel raster
+    the band's transmitters actually use (`step`). Returns [(freq_mhz, snr_db)]
+    sorted by freq.
     """
+    cfg = band_cfg(band)
+    step, decimals = cfg["step"], cfg["decimals"]
+    separation = cfg["seek_separation_mhz"]
     if len(bins) < 8:
         return []
     dbs = [db for _, db in bins]
@@ -617,22 +680,25 @@ def find_stations(
     candidates.sort(reverse=True)
     kept: list[tuple[float, float]] = []
     for snr, mhz in candidates:
-        if any(abs(mhz - k) < SEEK_MIN_SEPARATION_MHZ for k, _ in kept):
+        if any(abs(mhz - k) < separation for k, _ in kept):
             continue
-        kept.append((round(mhz, 1), round(snr, 1)))
+        # Snap to the band's raster — `round(mhz / step) * step` reproduces the
+        # old `round(mhz, 1)` exactly on FM's 0.1 MHz step.
+        kept.append((round(round(mhz / step) * step, decimals), round(snr, 1)))
     kept.sort()
     return kept
 
 
 def next_station(
-    freqs: list[float], current: float, direction: str
+    freqs: list[float], current: float, direction: str, band: str
 ) -> float | None:
     """The nearest station strictly beyond `current`, wrapping at band edges.
 
     A small guard band keeps "seek" from re-finding the station it's sitting
-    on when the peak snapped a bin away from the dial.
+    on when the peak snapped a bin away from the dial. It is sized per band:
+    FM's 0.15 MHz would swallow six airband channels.
     """
-    eps = 0.15
+    eps = band_cfg(band)["seek_eps_mhz"]
     if not freqs:
         return None
     if direction == "up":
@@ -646,16 +712,17 @@ def next_station(
     return target
 
 
-def _run_sweep(device_index: int) -> list[tuple[float, float]]:
-    """One rtl_power pass over the FM band. Claims the dongle for a few
+def _run_sweep(device_index: int, band: str) -> list[tuple[float, float]]:
+    """One rtl_power pass over `band`. Claims the dongle for a few
     seconds — callers must have stopped rtl_fm first."""
+    cfg = band_cfg(band)
     if not shutil.which("rtl_power"):
         raise RadioError(
             "Seeking needs rtl_power from the rtl-sdr tools (brew install librtlsdr)."
         )
     argv = [
         "rtl_power",
-        "-f", f"{FM_BAND_MHZ[0]:g}M:{FM_BAND_MHZ[1]:g}M:100k",
+        "-f", f"{cfg['low']:g}M:{cfg['high']:g}M:{cfg['sweep_bin_khz']:g}k",
         "-i", "1", "-1",
         "-d", str(int(device_index)),
         "-",
@@ -667,7 +734,7 @@ def _run_sweep(device_index: int) -> list[tuple[float, float]]:
         raise RadioError("The band sweep timed out.") from e
     except OSError as e:
         raise RadioError(f"Couldn't run rtl_power: {e}") from e
-    bins = parse_power_csv(out.stdout)
+    bins = parse_power_csv(out.stdout, band)
     if not bins:
         tail = (out.stderr or "").strip().splitlines()[-1:] or ["no output"]
         raise RadioError(f"The band sweep produced nothing — {tail[0]}")
@@ -686,19 +753,27 @@ def seek(
     with rtl_power, skips everything under the threshold, tunes the next
     carrier in `direction` (wrapping at the band edge). If nothing qualifies,
     resumes whatever was playing before and raises.
+
+    Seeks within the band `from_mhz` sits in — the dial never crosses from FM
+    into airband, which is what an operator means by "next station". Note that
+    airband is voice, not carriers: a channel idle during the one sweep is
+    invisible, so a seek there reports what was talking just then.
     """
     if direction not in ("up", "down"):
         raise RadioError("direction must be 'up' or 'down'")
     current = _validate_freq(from_mhz)
+    band = band_for(current)
+    if band is None:  # unreachable — _validate_freq rejects anything outside one
+        raise RadioError(f"{current:g} MHz is not in a tunable band.")
     with _op_lock:
         was_playing = None
         if _state["proc"] is not None and _state["proc"].poll() is None:
             was_playing = _state["freq_mhz"]
         _stop_locked()
         time.sleep(0.2)
-        bins = _run_sweep(device_index)
-        stations = find_stations(bins)
-        target = next_station([f for f, _ in stations], current, direction)
+        bins = _run_sweep(device_index, band)
+        stations = find_stations(bins, band)
+        target = next_station([f for f, _ in stations], current, direction, band)
         if target is None:
             if was_playing is not None:
                 _start_locked(was_playing, device_index, sink=sink)

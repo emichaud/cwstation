@@ -25,6 +25,38 @@
   var state = {};
   var poll = null;
 
+  /* ---- bands ---------------------------------------------------------------
+   * Shipped from radiodaemon.RADIO_BANDS via the template, so the raster the
+   * faceplate shows is the one the daemon validates. FM reads to 0.1 MHz;
+   * airband channels are 25 kHz apart and need three decimals — formatting
+   * everything at one decimal put 121.550 on a channel nobody is on.
+   */
+  var BANDS = cfg.bands || {};
+  var BAND_KEYS = Object.keys(BANDS);
+  // Used only if the template shipped nothing, so the dial degrades to FM
+  // rather than throwing on every render.
+  var FALLBACK_BAND = { label: "FM", low: 88, high: 108, step: 0.1, decimals: 1 };
+
+  function bandFor(mhz) {
+    var n = Number(mhz);
+    for (var i = 0; i < BAND_KEYS.length; i++) {
+      var b = BANDS[BAND_KEYS[i]];
+      if (n >= b.low && n <= b.high) return b;
+    }
+    return null;
+  }
+
+  // The band a reading belongs to. A frequency in the gap between bands falls
+  // back to the first rather than failing — the daemon is what rejects it.
+  function bandOf(mhz) {
+    return bandFor(mhz) || BANDS[BAND_KEYS[0]] || FALLBACK_BAND;
+  }
+
+  // "100.3" on FM, "121.500" on airband.
+  function fmt(mhz) {
+    return Number(mhz).toFixed(bandOf(mhz).decimals);
+  }
+
   function get(url) {
     return fetch(url, { credentials: "same-origin" })
       .then(function (r) { return r.json(); })
@@ -56,9 +88,57 @@
   function showFreq(mhz) {
     // The display holds seven-segment digits only; the MHz unit is printed on
     // the glass. DSEG renders "!" as a blank cell — pad so 88.1 sits where
-    // 108.1 would, and the digits don't slide around while tuning.
-    var text = Number(mhz).toFixed(1);
-    freqVal.textContent = (text.length < 5 ? "!" : "") + text;
+    // 108.1 would, and the digits don't slide around while tuning. The width
+    // is the band's widest reading: 5 cells on FM, 7 on airband.
+    var band = bandOf(mhz);
+    var text = Number(mhz).toFixed(band.decimals);
+    var width = Number(band.high).toFixed(band.decimals).length;
+    var pad = new Array(Math.max(0, width - text.length) + 1).join("!");
+    freqVal.textContent = pad + text;
+  }
+
+  /* The dial is a range input, and assigning outside [min,max] clamps — so the
+   * dial has to be moved onto the band before a frequency on it can be
+   * written, or an airband preset would silently read back as 108. */
+  function applyBand(mhz) {
+    var band = bandOf(mhz);
+    if (freq.dataset.band === band.label) return;
+    freq.dataset.band = band.label;
+    freq.min = band.low;
+    freq.max = band.high;
+    freq.step = band.step;
+    var badge = document.querySelector(".fm-band");
+    if (badge) badge.textContent = band.label;
+    renderGhost(band);
+    renderScale(band);
+  }
+
+  /* The unlit seven-segment background behind the reading. It has to be as
+   * wide as the band's widest value or the lit digits overhang it — 188.8 on
+   * FM, 188.888 on airband. The lead cell is a 1 because every frequency in
+   * both bands starts with one. */
+  function renderGhost(band) {
+    var ghost = document.querySelector(".fm-digits .ghost");
+    if (!ghost) return;
+    var whole = String(Math.floor(band.high));
+    var text = "1" + new Array(whole.length).join("8");
+    if (band.decimals > 0) {
+      text += "." + new Array(band.decimals + 1).join("8");
+    }
+    ghost.textContent = text;
+  }
+
+  // The printed tick labels under the dial, evenly spaced across the band.
+  function renderScale(band) {
+    var nums = document.querySelector(".fm-scale-nums");
+    if (!nums) return;
+    var TICKS = 6;
+    var out = "";
+    for (var i = 0; i < TICKS; i++) {
+      var v = band.low + ((band.high - band.low) * i) / (TICKS - 1);
+      out += "<span>" + Math.round(v) + "</span>";
+    }
+    nums.innerHTML = out;
   }
 
   /* ---- receiver presence (the model plate) -------------------------------
@@ -106,8 +186,9 @@
     if (state.running) {
       chassis.dataset.state = "on";
       pill.dataset.state = "live";
-      pill.textContent = "● on air · " + Number(state.freq_mhz).toFixed(1);
+      pill.textContent = "● on air · " + fmt(state.freq_mhz);
       showFreq(state.freq_mhz);
+      applyBand(state.freq_mhz);
       freq.value = state.freq_mhz;
       startPoll();
     } else {
@@ -164,15 +245,18 @@
         continue;
       }
       b.className = "fm-preset";
-      var mhz = Number(s.freq_mhz).toFixed(1);
-      var label = s.name === mhz ? "FM " + mhz : s.name;
+      var band = bandOf(s.freq_mhz);
+      var mhz = Number(s.freq_mhz).toFixed(band.decimals);
+      var label = s.name === mhz ? band.label + " " + mhz : s.name;
       b.innerHTML =
         '<span class="n">P' + (i + 1) + "</span>" +
         '<span class="name"></span>' +
         '<span class="mhz">' + mhz + " MHz</span>";
       b.querySelector(".name").textContent = label;
       b.title = "Tune " + mhz + " MHz";
-      if (state.running && Math.abs(state.freq_mhz - s.freq_mhz) < 0.05) {
+      // Half a channel — 0.05 on FM, 0.0125 on airband, where a flat 0.05
+      // would light up the neighbouring channel's preset too.
+      if (state.running && Math.abs(state.freq_mhz - s.freq_mhz) < band.step / 2) {
         b.setAttribute("aria-selected", "true");
       }
       b.addEventListener("click", makePresetHandler(s));
@@ -191,6 +275,7 @@
 
   function makePresetHandler(s) {
     return function () {
+      applyBand(s.freq_mhz);
       freq.value = s.freq_mhz;
       showFreq(s.freq_mhz);
       tune(s.freq_mhz);
@@ -229,7 +314,7 @@
       title: "Save preset",
       mhz: mhz,
       withInput: true,
-      defaultName: mhz.toFixed(1),
+      defaultName: fmt(mhz),
       okLabel: "Save",
       onSubmit: function (name) {
         if (!name.trim()) return Promise.resolve("Give it a name.");
@@ -255,7 +340,7 @@
 
   function openModal(opts) {
     $("fm-modal-title").textContent = opts.title;
-    $("fm-modal-mhz").textContent = Number(opts.mhz).toFixed(1);
+    $("fm-modal-mhz").textContent = fmt(opts.mhz);
     $("fm-modal-field").hidden = !opts.withInput;
     $("fm-modal-name").value = opts.defaultName || "";
     var ok = $("fm-modal-ok");
@@ -289,7 +374,7 @@
 
   /* ---- tuning ------------------------------------------------------------ */
   function tune(mhz) {
-    say("Tuning " + Number(mhz).toFixed(1) + "…");
+    say("Tuning " + fmt(mhz) + "…");
     post(cfg.controlUrl, { action: "tune", freq_mhz: Number(mhz) }).then(function (r) {
       if (!r.ok) { say(r.error || "Couldn't tune.", "error"); return; }
       say("");
@@ -317,7 +402,7 @@
         return;
       }
       var found = r.data.seek && r.data.seek.found;
-      say(found ? "Locked " + Number(found).toFixed(1) + " MHz." : "", "ok");
+      say(found ? "Locked " + fmt(found) + " MHz." : "", "ok");
       renderState(r.data);
     });
   }
@@ -335,8 +420,14 @@
   }
 
   /* ---- wiring ------------------------------------------------------------ */
-  function nudge(delta) {
-    freq.value = (Number(freq.value) + delta).toFixed(1);
+  // `dir` is ±1 channel; the size of a channel is the band's (0.1 MHz on FM,
+  // 25 kHz on airband). Clamped to the band, and re-rounded to its decimals so
+  // repeated presses can't accumulate float drift.
+  function nudge(dir) {
+    var band = bandOf(freq.value);
+    var next = Number(freq.value) + dir * band.step;
+    next = Math.min(band.high, Math.max(band.low, next));
+    freq.value = next.toFixed(band.decimals);
     showFreq(freq.value);
     // Retune live if we're already playing — that's how a real tuner behaves.
     if (state.running) tune(freq.value);
@@ -344,8 +435,8 @@
 
   freq.addEventListener("input", function () { showFreq(freq.value); });
   freq.addEventListener("change", function () { if (state.running) tune(freq.value); });
-  $("fm-down").addEventListener("click", function () { nudge(-0.1); });
-  $("fm-up").addEventListener("click", function () { nudge(0.1); });
+  $("fm-down").addEventListener("click", function () { nudge(-1); });
+  $("fm-up").addEventListener("click", function () { nudge(1); });
   $("fm-seek-down").addEventListener("click", function () { seek("down"); });
   $("fm-seek-up").addEventListener("click", function () { seek("up"); });
   $("fm-listen").addEventListener("click", function () { tune(freq.value); });
@@ -356,6 +447,7 @@
     get(cfg.controlUrl + "?refresh=1").then(renderState);
   });
 
+  applyBand(freq.value);   // primes min/max/step + the scale from the band table
   showFreq(freq.value);
   loadStations().then(function () {
     return get(cfg.controlUrl);
