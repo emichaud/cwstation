@@ -397,6 +397,16 @@ def _mark_superseded(
     )
 
 
+def retry_of(result_id: UUID | str) -> UUID | None:
+    """The result id of the retry enqueued for ``result_id``, or ``None``.
+
+    One indexed lookup on the unique ``TaskAttempt.parent_id``. Used by the
+    log receiver to tell "failed, being retried" from "failed, final" without
+    re-deriving the retry decision.
+    """
+    return TaskAttempt.objects.filter(parent_id=result_id).values_list("result_id", flat=True).first()
+
+
 def record_late_completion(result_id: UUID | str, *, now: datetime | None = None) -> LateCompletion | None:
     """Did ``result_id`` finish *after* something already retried it? Record it.
 

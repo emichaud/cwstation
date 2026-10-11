@@ -85,6 +85,24 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
   reference, and `UPGRADING.md`.
 
 ### Compatibility
+- **A failed attempt that is being retried no longer logs like a real failure.**
+  Django's `log_task_finished` logs every `FAILED` result at `ERROR` with a
+  traceback, including attempts this layer is in the middle of absorbing — so a
+  task that fails twice and succeeds paged someone twice, and the feature's
+  success became its own false-alarm source. SmallStack now owns that record
+  (`apps/tasks/signals.py`): an attempt with a retry enqueued logs `WARNING`
+  with `retrying_as=<id>` and no traceback, a final failure keeps `ERROR` with
+  the traceback, and both use the same `django.tasks` logger and
+  `Task id=… path=… state=…` prefix so existing alert rules and parsers still
+  match. `SMALLSTACK_TASKS_SOFTEN_RETRYABLE_LOGS=False` restores Django's stock
+  behaviour.
+- **`django-tasks-db` is pinned to one minor** (`>=0.13,<0.14`). `apps/tasks`
+  shadows that package's `db_worker`, subclasses it, and imports its
+  `DatabaseBackend` and `DBTaskResult`, so a minor bump can stop the whole
+  reliability layer importing — which is exactly what 0.12 → 0.13 did. A floor
+  alone could not have caught it. The 0.12 compatibility shim is gone with it:
+  unreachable under the pin, so untestable, and its failure mode was a double
+  delivery that enqueues a retry and then cancels it.
 - **Works with django-tasks-db 0.13** (shipped in v0.22.0) and still with 0.12.
   0.13 removed its bundled `django_tasks` package, so the reliability modules
   now import `TaskResultStatus` from `django.tasks`. Before this change the app

@@ -10,6 +10,11 @@ worker (:func:`_from_database_worker`). Retrying needs ``DatabaseBackend``
 anyway: it is the backend that can defer a retry and that ``DBTaskResult`` rows
 belong to.
 
+This module also owns the **severity** of a failed attempt's log record — see
+:func:`log_task_outcome`. Django logs every ``FAILED`` result at ``ERROR`` with
+a traceback, which for a retryable attempt describes a failure this layer is in
+the middle of absorbing.
+
 **This receiver must never raise.** Upstream sends ``task_finished`` *inside*
 its ``try`` on the success path — an exception here would flip a successful
 task to ``FAILED`` — and *outside* it on the failure path, where an exception
@@ -19,15 +24,26 @@ would crash the worker loop. The repair sweep retries anything missed here.
 from __future__ import annotations
 
 import logging
+import sys
 from typing import Any
 
+from django.conf import settings
 from django.tasks import TaskResultStatus
-from django.tasks.signals import task_finished
+from django.tasks.backends.base import BaseTaskBackend
+from django.tasks.signals import log_task_finished, task_finished
 from django_tasks_db.backend import DatabaseBackend
 
-from .reliability import maybe_retry, record_late_completion
+from .reliability import maybe_retry, record_late_completion, retry_of
 
 logger = logging.getLogger(__name__)
+# Django's own task logger: keep using it so existing alert rules and log
+# parsers keyed on "django.tasks" keep matching after we take the record over.
+django_tasks_logger = logging.getLogger("django.tasks")
+
+
+def _reset_sender_warning() -> None:
+    """Test hook: re-arm the once-per-process unknown-sender warning."""
+    _from_database_worker.warned = False  # type: ignore[attr-defined]
 
 
 def _from_database_worker(sender: Any) -> bool:
@@ -36,12 +52,39 @@ def _from_database_worker(sender: Any) -> bool:
     Upstream is inconsistent about ``sender``: its success path passes the
     backend **instance** (``task.get_backend()``, despite the variable being
     named ``backend_type``) and its failure path passes the backend **class**.
-    Both forms are accepted; anything else (``ImmediateBackend`` sends its
-    class) is ignored.
+    Both forms are accepted.
+
+    Three outcomes, deliberately distinguished:
+
+    * a ``DatabaseBackend`` (either form) — ours, act on it;
+    * some *other* backend — a legitimate ignore, silently. ``ImmediateBackend``
+      sends its class on every task in the test suite, so this must stay quiet;
+    * anything else — the shape of the contract we filter on has changed. We
+      still fail closed, because acting on an unrecognised sender is worse, but
+      we say so **once per process**: a filter that silently stops matching
+      turns retries into a no-op that no test notices, and "silently correct
+      until it isn't" is precisely how the 0.12 signal change went unseen. The
+      asymmetry above exists only because upstream is inconsistent; if it ever
+      normalises, this line is what tells us.
     """
     if isinstance(sender, DatabaseBackend):
         return True
-    return isinstance(sender, type) and issubclass(sender, DatabaseBackend)
+    if isinstance(sender, type) and issubclass(sender, DatabaseBackend):
+        return True
+    # A different task backend reporting its own work: not ours, not a problem.
+    if isinstance(sender, BaseTaskBackend):
+        return False
+    if isinstance(sender, type) and issubclass(sender, BaseTaskBackend):
+        return False
+    if not getattr(_from_database_worker, "warned", False):
+        _from_database_worker.warned = True  # type: ignore[attr-defined]
+        logger.warning(
+            "tasks: task_finished sender %r is not a task backend — retries will not fire for it. "
+            "If django-tasks-db changed what it passes as sender, apps/tasks/signals.py "
+            "needs updating; until then failed attempts fall back to the repair sweep.",
+            sender if isinstance(sender, type) else type(sender),
+        )
+    return False
 
 
 def retry_failed_task(sender: Any, task_result: Any, **kwargs: Any) -> None:
@@ -70,18 +113,79 @@ def retry_failed_task(sender: Any, task_result: Any, **kwargs: Any) -> None:
         logger.warning("tasks: retry check for %s failed", getattr(task_result, "id", "?"), exc_info=True)
 
 
-# django-tasks-db <= 0.12 sent its *own* bundled ``django_tasks.signals``
-# instead of Django's. Subscribe to every pair present on this install (the same
-# approach tracing.py takes), so a project still locked to 0.12 keeps immediate
-# retries rather than silently falling back to the repair sweep. On 0.13+ the
-# legacy package is gone and only Django's signal is connected.
-FINISHED_SIGNALS = [task_finished]
-try:
-    from django_tasks.signals import task_finished as legacy_task_finished
-except ImportError:
-    pass
-else:
-    FINISHED_SIGNALS.append(legacy_task_finished)
+def log_task_outcome(sender: Any, task_result: Any, **kwargs: Any) -> None:
+    """Log a finished task, at a severity that reflects whether it was absorbed.
 
-for _signal in FINISHED_SIGNALS:
-    _signal.connect(retry_failed_task, dispatch_uid="smallstack.tasks.signals.retry_failed_task")
+    Replaces Django's ``log_task_finished``, which logs **every** ``FAILED``
+    result at ``ERROR`` with a traceback — including an attempt this layer is
+    about to retry. The feature's whole proposition is that a transient failure
+    is absorbed; logging each absorbed attempt at the severity operators page on
+    means the feature's success manufactures false alarms, and no amount of
+    documentation reaches an alerting pipeline. Worse, it inverts the rule the
+    rest of this layer follows: a *real* signal must be recorded, so a non-event
+    must not be shouted.
+
+    So: an attempt with a retry already enqueued logs at ``WARNING`` and says
+    so; a final failure keeps ``ERROR`` and the traceback. Same
+    ``django.tasks`` logger and same ``Task id=… path=… state=…`` prefix, so
+    existing log rules and parsers keyed on either still match.
+
+    This runs *after* :func:`retry_failed_task` (connected first, below), which
+    is what makes "is a retry already enqueued" answerable by a single indexed
+    lookup rather than a re-derivation of the retry decision.
+    """
+    retry_id = None
+    soften = getattr(settings, "SMALLSTACK_TASKS_SOFTEN_RETRYABLE_LOGS", True)
+    try:
+        if soften and task_result.status == TaskResultStatus.FAILED:
+            retry_id = retry_of(task_result.id)
+    except Exception:  # noqa: BLE001 - never raise from a receiver; fall back to ERROR
+        retry_id = None
+    # Sent from inside upstream's except block, so the exception is still live.
+    exc_info = sys.exc_info()
+    if retry_id is not None:
+        django_tasks_logger.warning(
+            "Task id=%s path=%s state=%s retrying_as=%s",
+            task_result.id,
+            task_result.task.module_path,
+            task_result.status,
+            retry_id,
+        )
+        return
+    django_tasks_logger.log(
+        logging.ERROR if task_result.status == TaskResultStatus.FAILED else logging.INFO,
+        "Task id=%s path=%s state=%s",
+        task_result.id,
+        task_result.task.module_path,
+        task_result.status,
+        exc_info=exc_info if exc_info[0] else None,
+    )
+
+
+# One signal, one subscription. ``pyproject.toml`` pins django-tasks-db to
+# >=0.13,<0.14, so the bundled ``django_tasks`` package of <= 0.12 cannot be
+# present and there is no second signal to hear. An earlier revision subscribed
+# to both "defensively": with the floor at 0.13 that branch is unreachable, so
+# no test can ever exercise it — and its failure mode is a *double delivery* of
+# one task to this receiver, which enqueues a retry and then immediately cancels
+# it as a superseded one. Untestable defensive code against a severe silent
+# failure is worse than no code.
+task_finished.connect(retry_failed_task, dispatch_uid="smallstack.tasks.signals.retry_failed_task")
+
+# Take over the finished-task log record (see log_task_outcome). Django connects
+# log_task_finished at import of django.tasks.signals, i.e. before this module
+# runs, so it would otherwise log ERROR before we know a retry is coming — a
+# logging filter cannot fix that, the ordering is the problem. Connected *after*
+# retry_failed_task so the retry already exists by the time we log.
+#
+# If the disconnect ever fails (Django renamed or re-registered the receiver),
+# do not connect ours: two receivers would log every task twice, which is worse
+# than the severity being wrong. Say so once, loudly, instead.
+if task_finished.disconnect(log_task_finished):
+    task_finished.connect(log_task_outcome, dispatch_uid="smallstack.tasks.signals.log_task_outcome")
+else:  # pragma: no cover - only reachable if Django changes its own wiring
+    logger.warning(
+        "tasks: could not take over django.tasks' task_finished logger, so every retryable "
+        "attempt will be logged at ERROR with a traceback even though it is being retried. "
+        "Alert on scheduler run status or chain outcomes rather than on django.tasks ERROR."
+    )

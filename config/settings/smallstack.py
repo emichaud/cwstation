@@ -384,6 +384,15 @@ SMALLSTACK_TASKS_LOST_AFTER_SECONDS = config("SMALLSTACK_TASKS_LOST_AFTER_SECOND
 # upstream worker): a long task and a dead worker look alike, so be patient.
 SMALLSTACK_TASKS_ORPHAN_SECONDS = config("SMALLSTACK_TASKS_ORPHAN_SECONDS", default=86_400, cast=int)
 
+# A failed attempt that is being retried logs at WARNING ("state=FAILED
+# retrying_as=<id>") instead of Django's ERROR-with-traceback, so an absorbed
+# transient failure does not page anyone. A *final* failure still logs ERROR
+# with the traceback. False => Django's stock behaviour, every FAILED attempt
+# at ERROR. Same "django.tasks" logger either way.
+SMALLSTACK_TASKS_SOFTEN_RETRYABLE_LOGS = config(
+    "SMALLSTACK_TASKS_SOFTEN_RETRYABLE_LOGS", default=True, cast=bool
+)
+
 # Retries (apps/tasks/reliability.py). Attempts (counting the first run) for a
 # task with no @retry_policy or one that doesn't set max_attempts. 1 = no
 # retries: execution is at-least-once, so retrying is opt-in per task.

@@ -197,11 +197,18 @@ class TestWorkerRetries:
         retry.assert_not_called()
         late.assert_not_called()
 
-    def test_every_available_finished_signal_is_subscribed(self):
-        """Django's signal always; django-tasks-db <= 0.12's own one when installed."""
-        assert signals.task_finished in signals.FINISHED_SIGNALS
-        for sig in signals.FINISHED_SIGNALS:
-            assert any(getattr(ref(), "__name__", None) == "retry_failed_task" for _key, ref, *_ in sig.receivers), sig
+    def test_exactly_one_subscription_to_django_s_signal(self):
+        """One signal, one receiver — and no legacy 0.12 package to hear.
+
+        The pin is `>=0.13,<0.14`, so `django_tasks` cannot be installed. A
+        second subscription would deliver one task twice, which enqueues a retry
+        and then cancels it as superseded (see TestDoubleDelivery).
+        """
+        names = [getattr(ref(), "__name__", None) for _key, ref, *_ in signals.task_finished.receivers]
+        assert names.count("retry_failed_task") == 1, names
+        assert not hasattr(signals, "FINISHED_SIGNALS"), "the 0.12 dual-subscription path is back"
+        with pytest.raises(ImportError):
+            import django_tasks  # noqa: F401
 
     def test_failing_task_on_immediate_backend_is_not_retried(self, settings):
         """End to end on the backend the suite uses: no retry rows, no error."""
@@ -212,6 +219,116 @@ class TestWorkerRetries:
         assert result.status == TaskResultStatus.FAILED
         assert CALLS["n"] == 1
         assert not TaskAttempt.objects.exists()
+
+
+class TestUnrecognisedSender:
+    """V4: the filter must not fail closed into silence.
+
+    The sender shapes we match are an upstream inconsistency (instance on
+    success, class on failure). If that is ever normalised, or changed again,
+    every retry silently becomes a no-op that the repair sweep covers 30s later
+    — correct-looking and nearly invisible, which is how the 0.12 signal change
+    got as far as it did.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _rearm(self):
+        signals._reset_sender_warning()
+        yield
+        signals._reset_sender_warning()
+
+    def test_an_unrecognised_sender_warns_once_per_process(self, caplog):
+        with caplog.at_level("WARNING", logger="apps.tasks.signals"):
+            assert signals._from_database_worker("not-a-backend") is False
+            assert signals._from_database_worker(object()) is False
+            assert signals._from_database_worker(None) is False
+        warned = [r.getMessage() for r in caplog.records if "is not a task backend" in r.getMessage()]
+        assert len(warned) == 1, f"want exactly one warning per process, got {len(warned)}"
+        assert "fall back to the repair sweep" in warned[0]
+
+    def test_another_backend_is_ignored_without_warning(self, caplog):
+        """ImmediateBackend sends its class for every task in this suite."""
+        with caplog.at_level("WARNING", logger="apps.tasks.signals"):
+            assert signals._from_database_worker(ImmediateBackend) is False
+            assert signals._from_database_worker(ImmediateBackend(alias="default", params={})) is False
+        assert [r.getMessage() for r in caplog.records] == []
+
+    def test_a_recognised_sender_never_warns(self, caplog):
+        with caplog.at_level("WARNING", logger="apps.tasks.signals"):
+            assert signals._from_database_worker(DatabaseBackend) is True
+            assert signals._from_database_worker(DatabaseBackend(alias="default", params={})) is True
+        assert [r.getMessage() for r in caplog.records] == []
+
+
+class TestFailedAttemptLogSeverity:
+    """Finding B: an absorbed failure must not log like a real one.
+
+    Django's `log_task_finished` logs every FAILED result at ERROR with a
+    traceback. For an attempt being retried that is a page for a non-event, and
+    documentation cannot reach an alerting pipeline.
+    """
+
+    def _result(self, row):
+        return mock.Mock(
+            status=TaskResultStatus.FAILED, id=row.id, task=mock.Mock(module_path=row.task_path)
+        )
+
+    def test_django_s_blanket_error_logger_is_no_longer_connected(self):
+        from django.tasks.signals import log_task_finished
+
+        names = [getattr(ref(), "__name__", None) for _key, ref, *_ in signals.task_finished.receivers]
+        assert log_task_finished.__name__ not in names, "both loggers connected => every task logged twice"
+        assert "log_task_outcome" in names
+
+    def test_an_attempt_being_retried_logs_warning_not_error(self, caplog):
+        row = _failed_row(flaky)
+        retry_id = maybe_retry(row.id)
+        assert retry_id is not None
+
+        with caplog.at_level("INFO", logger="django.tasks"):
+            signals.log_task_outcome(sender=DatabaseBackend, task_result=self._result(row))
+
+        rec = next(r for r in caplog.records if "Task id=" in r.getMessage())
+        assert rec.levelname == "WARNING", f"an absorbed failure logged at {rec.levelname}"
+        assert f"retrying_as={retry_id}" in rec.getMessage()
+        assert rec.exc_info is None, "no traceback for a failure being absorbed"
+
+    def test_a_final_failure_still_logs_error_with_the_traceback(self, caplog):
+        row = _failed_row(no_policy)  # no policy => no retry => final
+        assert maybe_retry(row.id) is None
+
+        with caplog.at_level("INFO", logger="django.tasks"):
+            try:
+                raise OSError("boom")  # a live exception, as upstream's except block has
+            except OSError:
+                signals.log_task_outcome(sender=DatabaseBackend, task_result=self._result(row))
+
+        rec = next(r for r in caplog.records if "Task id=" in r.getMessage())
+        assert rec.levelname == "ERROR"
+        assert rec.exc_info is not None and rec.exc_info[0] is OSError
+        assert "retrying_as" not in rec.getMessage()
+
+    def test_the_softening_can_be_turned_off(self, caplog, settings):
+        settings.SMALLSTACK_TASKS_SOFTEN_RETRYABLE_LOGS = False
+        row = _failed_row(flaky)
+        assert maybe_retry(row.id) is not None
+
+        with caplog.at_level("INFO", logger="django.tasks"):
+            signals.log_task_outcome(sender=DatabaseBackend, task_result=self._result(row))
+
+        rec = next(r for r in caplog.records if "Task id=" in r.getMessage())
+        assert rec.levelname == "ERROR", "the opt-out must restore Django's stock severity"
+
+    def test_a_successful_task_still_logs_info(self, caplog):
+        row = _failed_row(flaky)
+        DBTaskResult.objects.filter(id=row.id).update(status="SUCCESSFUL")
+        result = mock.Mock(
+            status=TaskResultStatus.SUCCESSFUL, id=row.id, task=mock.Mock(module_path=row.task_path)
+        )
+        with caplog.at_level("INFO", logger="django.tasks"):
+            signals.log_task_outcome(sender=DatabaseBackend, task_result=result)
+        rec = next(r for r in caplog.records if "Task id=" in r.getMessage())
+        assert rec.levelname == "INFO"
 
 
 class TestMaybeRetry:

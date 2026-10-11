@@ -235,6 +235,11 @@ Two things worth knowing before you change the first two:
 SMALLSTACK_TASKS_DEFAULT_MAX_ATTEMPTS = 1     # attempts for undecorated tasks (1 = no retries)
 SMALLSTACK_TASKS_BACKOFF_SECONDS = 5          # UPPER BOUND of the first delay (actual: 2.5-5s), doubles per attempt
 SMALLSTACK_TASKS_BACKOFF_MAX_SECONDS = 600    # delay cap
+
+# A failed attempt that is being retried logs WARNING, not Django's stock
+# ERROR-with-traceback, so an absorbed transient failure doesn't page anyone.
+# A *final* failure still logs ERROR. False => Django's stock behaviour.
+SMALLSTACK_TASKS_SOFTEN_RETRYABLE_LOGS = True
 ```
 
 See `docs/skills/background-tasks.md` → Reliability.
