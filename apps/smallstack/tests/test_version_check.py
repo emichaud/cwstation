@@ -50,7 +50,10 @@ def test_warns_when_the_installed_distribution_is_stale(monkeypatch, settings):
 
     assert _ids(results) == ["smallstack.W001"]
     assert stale in results[0].msg and declared in results[0].msg
-    assert "uv sync" in results[0].hint
+    # The remedy must be the command that actually works here: a bare `uv sync`
+    # installs the package but prunes the dev extras (pytest/ruff/mypy).
+    assert "make setup" in results[0].hint
+    assert "uv sync --extra dev" in results[0].hint
 
 
 def test_silent_when_the_distribution_is_not_installed(monkeypatch):

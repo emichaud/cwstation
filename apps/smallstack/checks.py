@@ -70,8 +70,10 @@ def check_reported_version_is_not_stale(app_configs: Any, **kwargs: Any) -> list
             "The installed distribution is stale, so every version surface is reporting the old "
             "number.",
             hint=(
-                "Reinstall the package so the metadata catches up — `uv sync` (or `pip install "
-                "-e .`). This normally means a version bump was committed without reinstalling: "
+                "Reinstall the package so the metadata catches up — `make setup`, or "
+                "`uv sync --extra dev` (a bare `uv sync` installs it but prunes the dev extras, "
+                "taking pytest/ruff/mypy with them). This normally means a version bump was "
+                "committed without reinstalling: "
                 "SMALLSTACK_VERSION, MCP_SERVER_VERSION and the OpenAPI info.version all derive "
                 "from the installed distribution, so they will agree with each other and still be "
                 "wrong. Set SMALLSTACK_VERSION explicitly if you version your API contract "
