@@ -181,9 +181,17 @@ task_finished.connect(retry_failed_task, dispatch_uid="smallstack.tasks.signals.
 # If the disconnect ever fails (Django renamed or re-registered the receiver),
 # do not connect ours: two receivers would log every task twice, which is worse
 # than the severity being wrong. Say so once, loudly, instead.
-if task_finished.disconnect(log_task_finished):
+TOOK_OVER_TASK_LOGGING = task_finished.disconnect(log_task_finished)
+if TOOK_OVER_TASK_LOGGING:
     task_finished.connect(log_task_outcome, dispatch_uid="smallstack.tasks.signals.log_task_outcome")
 else:  # pragma: no cover - only reachable if Django changes its own wiring
+    # Warned here *and* reported by tasks.W005, because this is a fail-safe that
+    # degrades back into the exact defect it was built to fix. A warning emitted
+    # once during app startup can be missed entirely — wrong log level, a worker
+    # whose stderr nobody tails, a container that restarts — and then the only
+    # evidence that retryable failures are paging people is the paging. A system
+    # check is asked for by name on every manage.py command, so it cannot rot
+    # quietly.
     logger.warning(
         "tasks: could not take over django.tasks' task_finished logger, so every retryable "
         "attempt will be logged at ERROR with a traceback even though it is being retried. "

@@ -23,6 +23,7 @@ def test_no_check_fires_on_shipped_defaults():
     assert _ids(checks.check_db_worker_is_not_shadowed(None)) == []
     assert _ids(checks.check_lost_after_is_several_beats(None)) == []
     assert _ids(checks.check_use_tz_is_enabled(None)) == []
+    assert _ids(checks.check_retryable_failures_are_not_logged_as_errors(None)) == []
 
 
 @pytest.mark.django_db  # some of Django's own deploy checks touch the connection
@@ -100,6 +101,32 @@ class TestRatioCheck:
     def test_a_nonsense_beat_interval_is_reported_not_divided_by(self, settings):
         settings.SMALLSTACK_TASKS_HEARTBEAT_SECONDS = 0
         assert _ids(checks.check_lost_after_is_several_beats(None)) == ["tasks.W003"]
+
+
+class TestLogTakeoverCheck:
+    """tasks.W005 — the Finding B fail-safe must not degrade silently.
+
+    `signals.py` disconnects Django's blanket ERROR logger for finished tasks.
+    If that ever fails it deliberately leaves Django's in place rather than
+    double-logging, which means it falls back into the exact defect it was built
+    to fix. A startup warning can be missed; a check is asked for by name on
+    every manage.py command.
+    """
+
+    def test_silent_when_the_takeover_succeeded(self):
+        from apps.tasks import signals
+
+        assert signals.TOOK_OVER_TASK_LOGGING is True, "the takeover itself regressed"
+        assert checks.check_retryable_failures_are_not_logged_as_errors(None) == []
+
+    def test_warns_when_the_takeover_failed(self, monkeypatch):
+        from apps.tasks import signals
+
+        monkeypatch.setattr(signals, "TOOK_OVER_TASK_LOGGING", False)
+        results = checks.check_retryable_failures_are_not_logged_as_errors(None)
+        assert _ids(results) == ["tasks.W005"]
+        assert "being retried" in results[0].msg
+        assert "chain_outcome" in results[0].hint
 
 
 class TestUseTzCheck:

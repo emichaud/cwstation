@@ -106,6 +106,40 @@ def check_lost_after_is_several_beats(app_configs: Any, **kwargs: Any) -> list[C
 
 
 @register()
+def check_retryable_failures_are_not_logged_as_errors(app_configs: Any, **kwargs: Any) -> list[CheckWarning]:
+    """SmallStack must own the finished-task log record, or absorbed failures page.
+
+    ``signals.py`` disconnects Django's ``log_task_finished`` — which logs every
+    ``FAILED`` result at ``ERROR`` with a traceback, including attempts being
+    retried — and installs one that logs an absorbed failure at ``WARNING``. If
+    that takeover fails, the fail-safe deliberately leaves Django's receiver in
+    place rather than double-logging every task, which means it degrades back
+    into precisely the defect it exists to fix. Silently, unless something says
+    so on every command.
+    """
+    if not django_apps.is_installed(OUR_APP):
+        return []
+    from apps.tasks import signals
+
+    if signals.TOOK_OVER_TASK_LOGGING:
+        return []
+    return [
+        CheckWarning(
+            "SmallStack could not take over django.tasks' finished-task logger, so every failed "
+            "attempt is logged at ERROR with a traceback — including ones being retried.",
+            hint=(
+                "Django's django.tasks.signals.log_task_finished could not be disconnected, most "
+                "likely because Django changed how it registers it. Until apps/tasks/signals.py is "
+                "updated, a task that fails and then succeeds on retry will still raise ERRORs: "
+                "alert on scheduler run status or apps.tasks.reliability.chain_outcome() rather "
+                "than on django.tasks ERROR records."
+            ),
+            id="tasks.W005",
+        )
+    ]
+
+
+@register()
 def check_use_tz_is_enabled(app_configs: Any, **kwargs: Any) -> list[CheckWarning]:
     """The reaper needs aware datetimes, and fails *silently* without them.
 

@@ -297,6 +297,7 @@ none fires on shipped defaults:
 | `tasks.W002` | `LOST_AFTER_SECONDS` < 3 x `HEARTBEAT_SECONDS` | a live worker that misses a couple of beats has its running tasks failed and possibly re-run |
 | `tasks.W003` | `HEARTBEAT_SECONDS` is not positive | not a usable beat interval |
 | `tasks.W004` | `USE_TZ = False` | the reaper raises on every pass, and the failure is swallowed to keep workers alive — so it simply never reaps |
+| `tasks.W005` | SmallStack could not disconnect Django's blanket finished-task ERROR logger | every failed attempt logs `ERROR` with a traceback, including ones being retried (see `logging-audit.md`) |
 
 ### Retries with backoff
 
