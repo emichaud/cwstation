@@ -9,6 +9,23 @@ Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
 ## [Unreleased]
 
+### Changed
+- **The shipped workers now run under a readable label.** Every `db_worker`
+  launch site passed no `--worker-id`, so upstream's random 32-char default
+  became the label and the heartbeat table read
+  `oxp0RB1Z85F7X4yFX7IO8Vc1kAedLTER#a1b2c3…` — useless to an operator trying to
+  tell one worker from another. The inline worker in `docker-entrypoint.sh` is
+  now `web` (accurate: it runs inside the web container), `utils/dev_services.sh`
+  is `dev`, and the commented-out separate worker container in
+  `config/deploy.yml` is `worker` so it can't collide with the inline one if
+  someone uncomments it. All three honour **`SMALLSTACK_WORKER_ID`** for
+  deployments running several. Reusing a label across restarts is safe — the
+  worker appends a per-process token (`web#a1b2c3…`), which is what v0.23.0's
+  incarnation change made true — so this only needed the labels, no behaviour
+  change. A guard test pins every shipped launch site, since these are shell and
+  YAML that no unit test executes and a dropped flag would silently restore the
+  unreadable default. (Downstream-reported from a production migration.)
+
 ## [0.23.0] - 2026-10-11
 
 ### Added

@@ -39,11 +39,20 @@ supercronic -passthrough-logs /app/scripts/smallstack-cron &
 
 # Run db_worker inline by default (single-container deployment)
 # Set WORKER_INLINE=false to disable when using a separate worker container.
+#
+# --worker-id is the operator's LABEL, not an identity: db_worker mints a
+# per-process incarnation (`<label>#<token>`) and hands that to the queue, so
+# reusing one label across restarts is safe and the heartbeat table stays
+# readable. Without it the label is upstream's 32-char random id, which tells
+# an operator nothing. "web" is accurate here — this worker runs inside the web
+# container. Override with SMALLSTACK_WORKER_ID when you run several (per host,
+# per queue); a separate worker container sets its own on its command line.
 if [ "${WORKER_INLINE:-true}" = "true" ]; then
     echo "Starting inline db_worker..."
     (
         while true; do
-            python manage.py db_worker --queue-name "*"
+            python manage.py db_worker --queue-name "*" \
+                --worker-id "${SMALLSTACK_WORKER_ID:-web}"
             echo "Inline worker exited (code $?), restarting in 5s..."
             sleep 5
         done

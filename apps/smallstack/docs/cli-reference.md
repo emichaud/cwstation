@@ -233,7 +233,7 @@ uv run python manage.py db_worker --batch        # drain the queue, then exit
 | Flag | What it does |
 |---|---|
 | `--queue-name` | Comma-separated queues, or `*` for all |
-| `--worker-id` | Stable id (≤ 64 chars); default is random per process |
+| `--worker-id` | Stable **label** (≤ 64 chars). Safe to reuse across restarts — the worker appends a per-process token (`web#a1b2c3…`), so a restart can't hide a predecessor's abandoned task. Shipped defaults: `web` (inline worker in the Docker image), `dev` (`utils/dev_services.sh`), `worker` (the optional separate container in `config/deploy.yml`); override any of them with `SMALLSTACK_WORKER_ID`. Omit it entirely and the label is upstream's random 32-char id, which makes the heartbeat table unreadable |
 | `--batch` | Exit when nothing is ready (cron / job runners) |
 | `--reload` / `--no-reload` | Autoreload on code change (default: on under `DEBUG`) |
 | `--max-tasks N` | Exit after N tasks |
