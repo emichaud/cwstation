@@ -63,7 +63,10 @@ INSTALLED_APPS = [
     "apps.runbook",  # Runbook: versioned markdown documents (label: smallstack_runbook)
     "apps.scheduler",  # Scheduler: DB-backed recurring jobs over django.tasks
     "apps.webhooks",  # Webhooks: outbound event delivery + inbound receivers
+    "apps.notifications",  # Notifications: in-app bell/inbox primitive (label: smallstack_notifications)
+    "apps.approvals",  # Approvals: side-car human-approval gate (label: smallstack_approvals)
     "apps.feeds",  # Feeds: RSS/Atom publish (enable_rss) + consume (collector)
+    # (Approvals scenario demos are appended below, only when present.)
     # Django built-in apps
     "django.contrib.admin",
     "django.contrib.auth",
@@ -109,6 +112,9 @@ MIDDLEWARE = [
     "django_htmx.middleware.HtmxMiddleware",
     "apps.smallstack.middleware.HtmxLoginRedirectMiddleware",
     "apps.activity.middleware.ActivityMiddleware",
+    # Retires a notification only once its target actually opened (2xx), so a
+    # click that 403s doesn't consume the unread badge.
+    "apps.notifications.middleware.NotificationReadOnArrivalMiddleware",
     "axes.middleware.AxesMiddleware",
     "csp.middleware.CSPMiddleware",
 ]
@@ -127,6 +133,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "apps.smallstack.context_processors.branding",
+                "apps.notifications.context_processors.notifications",
                 "apps.runbook.context_processors.runbook_settings",
             ],
         },
@@ -220,6 +227,13 @@ SQLITE_OPTIONS = {
         "PRAGMA cache_size=2000;"
     ),
 }
+
+# Cookie SameSite — pinned explicitly (these are Django's defaults) so a
+# downstream enabling cross-origin SPA access doesn't weaken them unknowingly.
+# The MCP OAuth consent POST and every session-authenticated form rely on it
+# alongside CSRF tokens. Don't set "None" without understanding that trade.
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
 
 # Content Security Policy (django-csp)
 # Styles, fonts, and images allow "https:" so CDN frameworks (Bootstrap, Tailwind,

@@ -186,7 +186,7 @@
       "id": "background-tasks",
       "file": "background-tasks.md",
       "name": "Background Tasks",
-      "description": "Django Tasks framework with django-tasks-db backend. Task definition, enqueuing, the db_worker management command, inline vs separate worker deployment, and scaling guidance.",
+      "description": "Django Tasks framework with django-tasks-db backend. Task definition, enqueuing, the db_worker management command (with worker heartbeat + lost-task reaper), @retry_policy retries with backoff, inline vs separate worker deployment, and scaling guidance.",
       "keywords": [
         "task",
         "background",
@@ -197,9 +197,15 @@
         "cron",
         "db_worker",
         "WORKER_INLINE",
-        "inline"
+        "inline",
+        "retry",
+        "retry_policy",
+        "backoff",
+        "reaper",
+        "WorkerLost",
+        "stuck RUNNING"
       ],
-      "use_when": "Adding background jobs, configuring the worker deployment (inline vs separate), or understanding the task queue."
+      "use_when": "Adding background jobs, making a task retry on failure, diagnosing a task stuck RUNNING, configuring the worker deployment (inline vs separate), or understanding the task queue."
     },
     {
       "id": "activity-tracking",

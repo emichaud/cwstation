@@ -3,6 +3,7 @@ receiver endpoint, the delivery tick, and the test/replay/reveal actions."""
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from typing import Any
 
@@ -22,6 +23,8 @@ from apps.smallstack.mixins import StaffRequiredMixin
 
 from . import services
 from .models import WebhookDelivery, WebhookEndpoint, WebhookReceipt, WebhookReceiver
+
+logger = logging.getLogger("smallstack.webhooks")
 
 LOCALHOST_IPS = {"127.0.0.1", "::1"}
 
@@ -545,6 +548,10 @@ def pair_smallstack(request: HttpRequest) -> HttpResponse:
         "Retrieve secrets later via the staff Reveal action here; rotate via Rotate."
     )
     messages.success(request, "\n".join(lines))
+    for warning in result.get("warnings") or []:
+        # e.g. a loopback target blocked by the SSRF guard — say it here rather
+        # than leaving it buried in a failed delivery's error field. (F-06.)
+        messages.warning(request, warning)
     return redirect("webhooks/endpoints-detail", pk=result["endpoint_id"])
 
 
@@ -662,15 +669,47 @@ def incoming_webhook(request: HttpRequest, slug: str) -> HttpResponse:
         if resp is not None:
             return resp
 
+    # Size cap before the body is read or anything touches the DB — this route
+    # is public and unauthenticated. (Audit 2026-09-13, C6.)
+    max_bytes = int(getattr(settings, "SMALLSTACK_WEBHOOK_INBOUND_MAX_BYTES", 1_048_576))
+    try:
+        declared = int(request.META.get("CONTENT_LENGTH") or 0)
+    except ValueError:
+        declared = 0
+    if declared > max_bytes:
+        return JsonResponse({"error": "payload too large"}, status=413)
+
     raw = request.body
+    if len(raw) > max_bytes:
+        return JsonResponse({"error": "payload too large"}, status=413)
     origin = request.headers.get(services.ORIGIN_HEADER, "")
 
     # 2. Verifier seam (F-016): default "hmac" is the current raw-body HMAC check;
     #    a provider scheme (Stripe t.body, GitHub sha256=) is a plug-in.
     verifier = hooks.get_verifier(receiver.verifier)
     try:
-        verified = bool(verifier(raw, dict(request.headers), receiver))
-    except Exception:  # noqa: BLE001 — a broken verifier fails closed (unverified)
+        # Case-INSENSITIVE, and a real mutable dict. HTTP header names are
+        # case-insensitive and Django's HttpHeaders honours that; a plain
+        # `dict(request.headers)` froze Django's own canonicalisation, so a
+        # receiver configured with the documented "X-SmallStack-Signature"
+        # spelling silently 401'd while an undocumented "X-Smallstack-Signature"
+        # worked (F-06). The first fix used Django's CaseInsensitiveMapping, which
+        # is IMMUTABLE — narrowing a seam documented as `dict[str, str]`, so a
+        # third-party verifier doing `headers.pop(...)` started 401ing on a
+        # correct credential (F-37). hooks.CaseInsensitiveDict satisfies both.
+        header_map = hooks.CaseInsensitiveDict(request.headers)
+        verified = bool(verifier(raw, header_map, receiver))
+    except Exception:
+        # A broken verifier fails CLOSED (unverified) — but never silently. This
+        # exception used to be swallowed whole, so a verifier raising on a
+        # perfectly good signature was indistinguishable from a forged one, with
+        # nothing in the log to diagnose. (F-37.)
+        logger.exception(
+            "webhooks: verifier %r raised for receiver %r — treating the delivery "
+            "as UNVERIFIED. Fix the verifier; a raised exception is not a rejection.",
+            receiver.verifier or "hmac",
+            receiver.slug,
+        )
         verified = False
 
     # Snapshot a safe subset of headers (never store cookies/authorization raw).
@@ -681,16 +720,32 @@ def incoming_webhook(request: HttpRequest, slug: str) -> HttpResponse:
     }
 
     if receiver.require_signature and not verified:
-        WebhookReceipt.objects.create(
+        # Anyone can POST here without a credential, so a rejection must not
+        # cost a full-size durable row each time: keep a short excerpt plus a
+        # digest (enough to debug a mis-set secret), and stop recording once a
+        # receiver has taken a burst of rejections this minute. (Audit C6.)
+        limit = int(getattr(settings, "SMALLSTACK_WEBHOOK_REJECTED_PER_MINUTE", 30))
+        recent = WebhookReceipt.objects.filter(
             receiver=receiver,
-            source_ip=request.META.get("REMOTE_ADDR"),
-            headers=safe_headers,
-            body=raw.decode("utf-8", "replace")[:100_000],
-            verified=False,
-            origin=origin,
             status=WebhookReceipt.Status.REJECTED,
-            error="signature verification failed",
-        )
+            received_at__gte=timezone.now() - timedelta(minutes=1),
+        ).count()
+        if recent < limit:
+            import hashlib
+
+            WebhookReceipt.objects.create(
+                receiver=receiver,
+                source_ip=request.META.get("REMOTE_ADDR"),
+                headers=safe_headers,
+                body=raw[:1024].decode("utf-8", "replace"),
+                verified=False,
+                origin=origin[:200],
+                status=WebhookReceipt.Status.REJECTED,
+                error=(
+                    f"signature verification failed "
+                    f"(body {len(raw)} bytes, sha256 {hashlib.sha256(raw).hexdigest()}; first 1 KB kept)"
+                ),
+            )
         return JsonResponse({"error": "invalid signature"}, status=401)
 
     # 3. Loop guard (F-020): drop an event this SmallStack originated (a two-way S2S

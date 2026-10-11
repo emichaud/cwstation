@@ -101,8 +101,45 @@ running two on purpose only wastes work.
   every missed interval.
 - **Failure email**: set `SMALLSTACK_SCHEDULER_FAILURE_EMAILS` to notify on a
   failed run (reuses `send_email_task`).
-- **Retries**: currently lean on `django.tasks`' own retry semantics. Per-schedule
-  `max_retries` is a reserved field (not yet enforced).
+- **What the status monitor calls unhealthy**: a job counts as overdue once it is
+  `SMALLSTACK_SCHEDULER_OVERDUE_GRACE_SECONDS` (default 300) past due — the grace
+  absorbs normal tick jitter — and a job's failure rate is only judged once it has
+  `SMALLSTACK_SCHEDULER_FAILURE_MIN_SAMPLE` (default 5) recorded runs, so one
+  failure on a brand-new job doesn't turn the card red.
+- **Retries**: `ScheduledJob.max_retries` (form, REST, MCP; the form and the DRF
+  serializer cap it at 10 — see the note below). When > 0, each run's first
+  attempt is enqueued together with a pinned budget of `max_retries + 1`
+  attempts (`apps.tasks.reliability.pin_max_attempts`, in one transaction).
+  It pins the **attempt count only**. Which exceptions retry (`retry_on`),
+  whether a worker death retries (`retry_lost`) and the backoff still come from
+  the task's own `@retry_policy` — so `max_retries=5` on a task declaring
+  `retry_on=(OSError,)` will **not** retry a `ValueError` at all. 0 = the task's
+  policy applies (none unless decorated). It is operator-owned, **not** a
+  `@scheduled` argument: `@scheduled`'s extra kwargs are task kwargs, so for
+  code-declared jobs put `@retry_policy` on the task instead. See
+  `docs/skills/background-tasks.md` → Reliability.
+- **`max_retries` on a task with no `@retry_policy`** gets a deliberately
+  conservative fallback (`reliability.IMPLICIT_PINNED_POLICY`): any exception the
+  task *raises* is retried, but a run whose **worker died mid-task** is not
+  re-run. Re-running a half-finished task is an at-least-once decision about a
+  body nobody marked repeatable, and an operator typing a number into a form
+  can't know whether it's idempotent — only an explicit
+  `@retry_policy(retry_lost=True)` may opt into that. The operator control is
+  never more aggressive than the decorator.
+- **The cap (`ScheduledJob.MAX_RETRIES_CAP`, 10) is enforced on every write path
+  an operator or client can reach**: the form, REST and MCP all run the model's
+  `MaxValueValidator` through `full_clean`, and all three reject 11 as a
+  validation error rather than storing it. It is *not* a database constraint,
+  so code calling `ScheduledJob.objects.create(max_retries=99)` or
+  `pin_max_attempts()` directly bypasses it and `_decide` will honour whatever
+  budget it finds — that is a deliberate escape hatch for code, not a hole in
+  the API.
+- **Runs follow the retry chain**: reconcile reads a run's outcome from the
+  *latest* attempt (`chain_outcome`), not the first. A run stays `queued` while
+  it's `RETRYING` (and the overlap guard counts it as unfinished). It ends
+  `success` with "(attempt N)" or `failed` with "after N attempts: …", and
+  there's one failure email, after the final attempt. A failed attempt that
+  still has budget but that no retry picked up within an hour is final.
 
 ## Run lifecycle (why a just-run job shows `queued`)
 

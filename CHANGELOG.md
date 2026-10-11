@@ -7,6 +7,875 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Breaking-change migration recipes live in [`UPGRADING.md`](UPGRADING.md).
 
+## [Unreleased]
+
+## [0.23.1] - 2026-10-11
+
+### Changed
+- **The shipped workers now run under a readable label.** Every `db_worker`
+  launch site passed no `--worker-id`, so upstream's random 32-char default
+  became the label and the heartbeat table read
+  `oxp0RB1Z85F7X4yFX7IO8Vc1kAedLTER#a1b2c3…` — useless to an operator trying to
+  tell one worker from another. The inline worker in `docker-entrypoint.sh` is
+  now `web` (accurate: it runs inside the web container), `utils/dev_services.sh`
+  is `dev`, and the commented-out separate worker container in
+  `config/deploy.yml` is `worker` so it can't collide with the inline one if
+  someone uncomments it. All three honour **`SMALLSTACK_WORKER_ID`** for
+  deployments running several. Reusing a label across restarts is safe — the
+  worker appends a per-process token (`web#a1b2c3…`), which is what v0.23.0's
+  incarnation change made true — so this only needed the labels, no behaviour
+  change. A guard test pins every shipped launch site, since these are shell and
+  YAML that no unit test executes and a dropped flag would silently restore the
+  unreadable default. (Downstream-reported from a production migration.)
+
+## [0.23.0] - 2026-10-11
+
+### Added
+- **Lost tasks no longer stay `RUNNING` forever.** `django-tasks-db` never
+  finished a task whose worker was SIGKILLed, OOM-killed or replaced mid-run.
+  SmallStack now ships its own `db_worker`, which shadows the upstream command
+  (same arguments; every existing entrypoint, compose, Kamal and dev-script
+  invocation picks it up unchanged). Each worker writes a `WorkerHeartbeat` row
+  (`apps.tasks`), refreshes it every `SMALLSTACK_TASKS_HEARTBEAT_SECONDS` (15),
+  and runs a reaper at startup and then every 4 beats — about once a minute at
+  the default interval, and proportionally less often if you raise it (the
+  4-beat period is fixed, so `HEARTBEAT_SECONDS=300` means a reap every 20
+  minutes). The reaper fails a
+  `RUNNING` task as `apps.tasks.exceptions.WorkerLost` when its worker exited, or
+  hasn't heartbeated for `SMALLSTACK_TASKS_LOST_AFTER_SECONDS` (90), or has no
+  heartbeat row at all and the task started more than
+  `SMALLSTACK_TASKS_ORPHAN_SECONDS` (86400) ago. The traceback's last line
+  explains why — naming the host, pid and last-seen time when there is a
+  heartbeat row to read them from, and how long the task has been `RUNNING` when
+  there isn't — and the scheduler's run summary shows it.
+  The update is conditional on `status=RUNNING`, so a late finish always wins
+  and concurrent reapers are safe. Timestamps are written and compared on the
+  **database** clock, so the thresholds don't measure NTP skew between hosts.
+  `manage.py reap_tasks [--dry-run]` runs a
+  pass by hand. `SMALLSTACK_TASKS_HEARTBEAT_ENABLED=False` turns the worker back
+  into a plain pass-through — note that this also removes the only thing that
+  *runs* the reaper, so if you disable it, schedule `manage.py reap_tasks`
+  yourself or nothing will ever reap. New migration: `tasks.0001_initial`; run
+  `migrate`.
+- **Task retries with backoff** (`apps/tasks/reliability.py`). Put
+  `@retry_policy(max_attempts=3, backoff=5, backoff_max=600, retry_on=(OSError,))`
+  above `@task`. When an attempt fails, a fresh copy of the task is enqueued
+  with `run_after` set by exponential backoff with jitter. It keeps the same
+  args, queue, priority and backend. Every attempt is its own result row, so
+  every traceback is kept. A `TaskAttempt` row links each retry to its chain.
+  Its `parent_id` is unique, so the three paths that can retry (the worker's
+  `task_finished` signal, the reaper for lost tasks, and a repair sweep for
+  retries a crash skipped) never produce two retries. By default a lost or
+  force-stopped attempt is retried too (`retry_lost=True`). **Retries are
+  opt-in**: `SMALLSTACK_TASKS_DEFAULT_MAX_ATTEMPTS` defaults to 1 because
+  execution is at-least-once. The built-in email tasks (`send_email_task`,
+  `send_html_email_task`, `send_welcome_email`) now retry up to 3 attempts on
+  `OSError` (SMTP and socket errors). `SMALLSTACK_TASKS_BACKOFF_SECONDS` (5) and
+  `SMALLSTACK_TASKS_BACKOFF_MAX_SECONDS` (600) set the defaults. Retries only
+  happen on the database backend; `ImmediateBackend` behaves as before.
+- **Scheduled jobs retry: `ScheduledJob.max_retries` is live.** It was
+  "Reserved" until now. It's editable in the scheduler form, REST and MCP, where
+  a validator caps it at 10 (the cap is not a database constraint). When greater
+  than 0, each run's first attempt is enqueued in the same transaction as a
+  pinned budget of `max_retries + 1` attempts. This pins the **attempt count
+  only** — which exceptions retry (`retry_on`), whether a worker death retries
+  (`retry_lost`) and the backoff still come from the task's own `@retry_policy`,
+  so `max_retries=5` on a task declaring `retry_on=(OSError,)` will not retry a
+  `ValueError`. On a task with **no** `@retry_policy` the pinned budget uses a
+  deliberately conservative fallback: any exception the task *raises* retries,
+  but a run whose worker died mid-task is **not** re-run, because re-running a
+  half-finished task is an at-least-once decision only an explicit
+  `@retry_policy(retry_lost=True)` may make. 0 (the default) means
+  the task's policy applies unchanged. The scheduler now reads a run's outcome
+  from the **latest attempt** of its retry chain
+  (`apps.tasks.reliability.chain_outcome`). A run stays `QUEUED` while a retry
+  is pending, so the overlap guard keeps waiting for it. The run ends `SUCCESS`
+  with an "(attempt N)" suffix if a retry succeeds. The failure email goes out
+  once, after the last attempt, with an "after N attempts:" message. A failed
+  attempt with budget left that no retry ever picks up is treated as final
+  after an hour. Migration: `scheduler.0004_max_retries_live` (help text and
+  validator only).
+- **Explorer → System** now also lists **Worker heartbeats** (which workers are
+  alive, when each was last seen or stopped) and **Task attempts** (retry
+  chains). Both are read-only.
+- **Scheduler failure emails include the error** ("Error: after 3 attempts:
+  …"), not just the first attempt's result id.
+- Docs: a Reliability section in `docs/skills/background-tasks.md` and in the
+  help page. Also updated the scheduler skill and help pages (retries), the CLI
+  reference (`db_worker`, `reap_tasks`), `cli-tools.md`, the settings
+  reference, and `UPGRADING.md`.
+
+### Compatibility
+- **A failed attempt that is being retried no longer logs like a real failure.**
+  Django's `log_task_finished` logs every `FAILED` result at `ERROR` with a
+  traceback, including attempts this layer is in the middle of absorbing — so a
+  task that fails twice and succeeds paged someone twice, and the feature's
+  success became its own false-alarm source. SmallStack now owns that record
+  (`apps/tasks/signals.py`): an attempt with a retry enqueued logs `WARNING`
+  with `retrying_as=<id>` and no traceback, a final failure keeps `ERROR` with
+  the traceback, and both use the same `django.tasks` logger and
+  `Task id=… path=… state=…` prefix so existing alert rules and parsers still
+  match. `SMALLSTACK_TASKS_SOFTEN_RETRYABLE_LOGS=False` restores Django's stock
+  behaviour.
+- **`django-tasks-db` is pinned to one minor** (`>=0.13,<0.14`). `apps/tasks`
+  shadows that package's `db_worker`, subclasses it, and imports its
+  `DatabaseBackend` and `DBTaskResult`, so a minor bump can stop the whole
+  reliability layer importing — which is exactly what 0.12 → 0.13 did. A floor
+  alone could not have caught it. The 0.12 compatibility shim is gone with it:
+  unreachable under the pin, so untestable, and its failure mode was a double
+  delivery that enqueues a retry and then cancels it.
+- **Works with django-tasks-db 0.13** (shipped in v0.22.0) and still with 0.12.
+  0.13 removed its bundled `django_tasks` package, so the reliability modules
+  now import `TaskResultStatus` from `django.tasks`. Before this change the app
+  failed to start at all on 0.13. 0.13's worker also sends Django's own
+  `django.tasks.signals`, the same signals `ImmediateBackend` sends, where
+  0.12 sent a private pair. The retry receiver therefore now acts only when
+  `sender` is a `DatabaseBackend`. It accepts both the instance (upstream's
+  success path) and the class (its failure path). It also stays subscribed to
+  0.12's signal when that package is present. 0.13's new
+  `db_worker --exclude-queues` passes through, and the heartbeat row records it
+  ("* (excluding email)").
+- **Every failed attempt now logs at ERROR, retried or not.** On 0.13 the worker
+  sends Django's signals, and Django's own `log_task_finished` receiver logs
+  each `FAILED` result to the `django.tasks` logger at ERROR, with the
+  traceback. That includes attempts `@retry_policy` is about to retry. The
+  retry itself still logs at INFO (`apps.tasks.reliability`: "retrying … as …").
+  If you alert on ERROR, key the alert on the chain's final outcome (the
+  scheduler's failure email, or `chain_outcome`), not on individual attempts.
+- **`safe_reap()` no longer closes a caller's database connection.** It
+  refreshed connections with `close_old_connections()`, which closes any
+  connection inside an `atomic()` block. On Postgres that killed the caller's
+  transaction ("the connection is closed"), while SQLite's in-memory test
+  database ignored it. It now skips connections in an atomic block
+  (`heartbeat.refresh_owned_connections`). The worker's own calls run in
+  autocommit and were never affected. This predates 0.13. Three tests had been
+  failing on Postgres only. The full suite now passes on SQLite and on
+  Postgres 16.
+
+## [0.22.0] - 2026-10-10
+
+### Removed
+- **The `mcp` SDK is no longer a dependency.** SmallStack implements the
+  protocol itself — JSON-RPC envelope, `initialize`/`tools/list`/`tools/call`
+  dispatch and OAuth are plain Django in `apps/mcp/views.py` — and the package
+  was declared for one thing: a singleton `mcp.server.lowlevel.Server` that
+  nothing ever read. Removing it drops **20 packages** from every install
+  (`pydantic`, `starlette`, `uvicorn`, `sse-starlette`, `httpx2`, `jsonschema`,
+  `pyjwt[crypto]`, `opentelemetry-api`, `anyio`, `cryptography` and others —
+  several of them ASGI machinery SmallStack never runs). The MCP surface is
+  unchanged: tools, `@tool`, `TOOL_REGISTRY`, `/mcp`, OAuth, Claude Desktop and
+  `MCP_SERVER_NAME` all behave exactly as before. `mcp_doctor` loses its
+  `"mcp package"` row, which only verified that its own dependency was
+  importable; every check describing the live surface stays. **If your own code
+  does `import mcp`, declare it in your own `pyproject.toml`** — see
+  `UPGRADING.md`. A new test guards against the import creeping back, because
+  it would keep working in any virtualenv that still has the package and fail
+  only on a clean install.
+
+### Security
+- **Django floor raised to 6.1.2** (released 2026-10-06), which fixes four
+  security issues. Two apply to any SmallStack install: **CVE-2026-77050**
+  (denial of service in `get_supported_language_variant()`, i.e. Accept-Language
+  parsing) and **CVE-2026-84429** (denial of service in HTTP header parsing).
+  The other two are GeoDjango request forgery (**CVE-2026-87890**, not applicable
+  — SmallStack doesn't use spatial lookups) and privilege abuse in model
+  formsets with editable primary keys (**CVE-2026-87975**). The floor is raised
+  rather than only re-locked, so a downstream resolve can't land on a
+  vulnerable version.
+
+### Changed
+- **Dependencies refreshed across the board** (`uv lock --upgrade`): notably
+  django-tasks-db 0.12→0.13, django-filter 25.2→26.2, gunicorn 25→26,
+  mcp 1.27→2.3, psycopg 3.3.6, starlette 1.3→1.7, tzdata 2025.3→2026.5, plus
+  dev tooling (ruff 0.15→0.17, mypy 2.3→2.4, django-stubs 6.0→6.1).
+- **`apps/tasks/tracing.py` survives the django-tasks-db 0.13 restructure.**
+  0.13 dropped the bundled `django_tasks` package for Django's own
+  `django.tasks`, so the unguarded `from django_tasks.signals import …` at
+  import time broke startup outright (`manage.py check` included). That import
+  is now guarded exactly like the built-in one already was, so trace binding
+  keeps working on **either** version rather than the one that happened to be
+  installed. The tracing tests were asserting "both signal pairs exist" — true
+  for one dependency generation only; they now assert the durable invariant:
+  *every* pair available on this install is subscribed (and at least one is).
+- Six `form_valid()` overrides carry a scoped `# type: ignore[override]`:
+  django-stubs 6.1 flags narrowing the parameter to the view's own `form_class`
+  as a Liskov violation. The narrower type is accurate at runtime (Django only
+  passes `get_form()`'s result) and more useful to a reader; the formally-correct
+  fix — parameterising `UpdateView[Model, Form]` — needs
+  `django_stubs_ext.monkeypatch()` at runtime, and django-stubs is dev-only here.
+
+Verified on **Python 3.13 and 3.14**, and on **SQLite and Postgres 16**:
+2,684 / 2,685 tests green, ruff + mypy clean. `requires-python` stays at
+`>=3.12` — Django 6.1 supports it and it's maintained until 2028, so raising
+the floor would break downstreams for no gain. (Django 6.2 is **not** released;
+6.1.2 is the current stable.)
+
+### Added
+- **`schema()["filters"]` now advertises a widget for computed (annotated)
+  dataset columns.** v0.21.11 made those filters apply; this makes a builder UI
+  able to *offer* them. The widget is typed from the annotation — booleans get
+  All/Yes/No, date/datetime get the usual preset dropdown plus `range`, and
+  anything else gets a dropdown of the values actually present (probed, capped
+  at 30 distinct — the ceiling model fields already use). The pairing is the
+  point: a **choice widget means an exact match** in this framework and
+  computed columns compare exactly, so a dropdown is the only control whose
+  semantics are honest. Two cases stay unadvertised on purpose — **aggregate**
+  annotations (probing the domain would mean a GROUP BY over the table, and the
+  filter is a `HAVING`) and computed strings with **>30 distinct values** (a
+  text box would promise substring matching the exact comparison won't
+  deliver). Not offered ≠ not supported: the filter still applies when the
+  param is passed.
+
+## [0.21.11] - 2026-10-10
+
+### Fixed
+- **Filters on computed (annotated) dataset columns are no longer silently
+  ignored.** `_apply_list_filters` resolved every declared filter name with
+  `model._meta.get_field()` and skipped the filter when that raised — so a
+  plain filter on an annotation (`?hours_band=business`, `?route=on_call`,
+  `?answered=1`) was dropped and the query returned **every row**. No error and
+  no empty result, which is the dangerous shape for an analytical surface: a
+  tile labelled "business hours" quietly showing all hours. It also broke two
+  documented promises — "every operation works on a computed dataset" and the
+  one-filter-contract-for-rows/series/scalar invariant. The pipeline now
+  consults `qs.query.annotations` before giving up and types the comparison
+  from the annotation's `output_field` (booleans take 1/0/true/false,
+  date/datetime take the usual presets, everything else is an exact match —
+  computed columns are categorical). Genuinely unknown keys are still
+  tolerated-and-ignored, and only *declared* filter fields are considered, so
+  nothing new is filterable by accident. Annotated CRUDView querysets get the
+  same fix for free. (Downstream-reported; they patched their own copy.)
+
+## [0.21.10] - 2026-09-28
+
+### Fixed
+- **`help_article_count()` no longer re-parses the whole markdown corpus on
+  Postgres.** The last ENGINE-string check in `apps/help/search.py` (everything
+  else had moved to `connection.vendor`) was written when only SQLite had a
+  help FTS table, so **every non-SQLite engine — i.e. production** — counted
+  articles by calling `build_search_index()`: a full re-read and re-render of
+  every markdown doc, ~1.5s locally and seconds on a small box. `@lru_cache`
+  bounded it, but `sync_help_index()` *clears* that cache, so after v0.21.9
+  gave Postgres a real lazy index build, each build made the next count pay the
+  parse again. Postgres has had `help_articles_search_idx` since v0.21.9, so it
+  now takes the same cheap `COUNT(*)` as SQLite — and the number means the same
+  thing on both engines (rows in the index, which is what "currently indexed"
+  claims). Guarded by a test that fails if a count ever parses markdown.
+  (Downstream-reported, with their own equivalent guard.)
+
+### Changed
+- **`test_transaction_safety.py` no longer fails a downstream that routes help
+  search differently.** The v0.21.9 memo self-heal tests drove
+  `search_help_articles()`, so they also asserted *which engines route to FTS* —
+  a separate contract, and one a downstream may legitimately override. They now
+  drive the engine's FTS query path directly (where the fix lives), and the
+  routing contract gets **its own named test**, so a diverging project sees one
+  honest failure instead of three misleading ones. `docs/skills/testing.md`
+  gains the general rule with the three cases that taught it.
+
+## [0.21.9] - 2026-09-28
+
+### Fixed
+- **`rebuild_search_index` can run inside an open transaction again, and
+  `ensure_index` stops locking provisioned tables.** The Postgres backend
+  guarded its GIN index with `_index_exists` but issued the column
+  `ALTER TABLE … ADD COLUMN IF NOT EXISTS` unconditionally. Verified against
+  PG 16, that costs two things even as a no-op: it takes an
+  **AccessExclusiveLock** on the table (every `post_migrate`, every rebuild —
+  briefly blocking every reader and writer on a live table), and Postgres
+  refuses it outright when the transaction holds pending **deferred**
+  constraint trigger events (`cannot ALTER TABLE "x" because it has pending
+  trigger events`). A new `_column_exists` guard mirrors the existing index
+  guard, so a provisioned model issues **no DDL at all**. Note the refined
+  mechanism vs. the downstream report: plain writes aren't enough — a
+  non-deferrable FK's after-row trigger fires at end of statement, so it takes
+  `SET CONSTRAINTS ALL DEFERRED` (what `loaddata` does) or a deferrable
+  constraint. (Downstream item #6.)
+- **Help search no longer poisons the caller's transaction on Postgres.** Every
+  raw query in `apps/help/search.py` sat inside a bare `except Exception` —
+  including the "does my FTS table exist?" probe, which asks by running
+  `SELECT COUNT(*)` and catching the failure. On Postgres that aborts the whole
+  transaction, so the swallowed probe killed every later query in the request:
+  help-search 500s, the activity middleware's log write, and (how it was found)
+  two unrelated approvals *search* tests. All six such cursors now run in
+  `transaction.atomic()`. Second layer: `_HELP_INDEX_BUILT` is a process-global
+  memo of *database* state, so a dropped/restored index left help search empty
+  until the process restarted — a failed query now clears the memo and the next
+  call rebuilds. Found by running the full suite against a real Postgres 16;
+  **both suites are now fully green on both backends** (2,664 PG / 2,663 SQLite).
+- **`test_orphan_renders_muted_with_remove` no longer assumes `pk == 1`.**
+  Postgres sequences are not transactional — `nextval()` survives the test
+  rollback — so the hard-coded pk passed in isolation and failed whenever an
+  earlier test in the session created a `MonitoredSurface`; SQLite's rowid
+  counter rolls back, hiding it. The test now asserts the row's own pk. This
+  was the downstream's one undiagnosed failure; diagnosed and reproduced here
+  against a real Postgres 16.
+
+### Documentation
+- `sqlite-vs-postgres.md`: a dedicated section on **`except Exception` around a
+  DB statement** — the bug hit four times in one week — including *"the visible
+  error is not the culprit; read the Postgres server log"* and *"probe by
+  failing is not free"*. Plus **sequences are not transactional** — never assert a
+  literal primary key (plus the checklist item), and **existence-check DDL
+  before issuing it** — `IF NOT EXISTS` is not free (AccessExclusiveLock +
+  the deferred-trigger-events refusal, with the exact conditions).
+
+## [0.21.8] - 2026-09-27
+
+### Fixed
+- **The test suite's throwaway MCP tables no longer break Postgres teardown.**
+  The root `conftest.py` creates `mcp_server_widget`/`mcp_server_gadget`
+  (managed=False, schema_editor) with real FK constraints to `accounts_user` —
+  and since flush doesn't truncate unmanaged tables, Postgres refused to
+  TRUNCATE `accounts_user` at every `transaction=True` teardown ("cannot
+  truncate a table referenced in a foreign key constraint"), failing 46 tests
+  and leaking rows that surfaced as duplicate-username collisions later. The
+  FKs are now `db_constraint=False` (ORM joins/expansions unchanged), with an
+  introspection test that fails on any backend if a real constraint returns.
+  Fourth of the SQLite-forgives family, same downstream reporter.
+
+### Documentation
+- `sqlite-vs-postgres.md`: dots and emails tokenize **atomically with no
+  part-lexemes** on Postgres (`file`/`email` parser tokens) on both the
+  document AND query side — unlike hyphens, document-side splitting can't
+  rescue them. Searching `probe` finds `unique.probe` on SQLite and misses it
+  on Postgres.
+
+## [0.21.7] - 2026-09-27
+
+### Fixed
+- **MCP async tool dispatch keeps ORM work on the request's connection.** Async
+  tool handlers were dispatched with `asyncio.run(handler(...))`, which gives
+  asgiref no executor context — so every `sync_to_async(thread_sensitive=True)`
+  (the default; how every tool touches the ORM) ran on asgiref's process-global
+  `single_thread_executor`: one shared background thread with its own
+  long-lived connection. The tool's DB work therefore ran outside the request's
+  transaction, serialized process-wide across all tools, was one nested
+  thread-sensitive call from asgiref's "would deadlock" guard, and on Postgres
+  killed `transaction=True` test teardowns ("cursor already closed" during the
+  flush) — a downstream's 46 teardown failures. Dispatch now uses
+  `async_to_sync(handler)`, whose `CurrentThreadExecutor` hops the ORM work
+  back to the calling thread and its connection. Third instance of the
+  SQLite-forgives-Postgres-doesn't family (same downstream reporter); the
+  mechanism-pinning tests fail under the old dispatch on SQLite too
+  ("database table is locked" — the cross-connection symptom in miniature).
+
+## [0.21.6] - 2026-09-27
+
+### Fixed
+- **From-scratch `migrate` on Postgres can no longer be aborted by the search
+  index.** Three facts compounded (downstream report, validated here): the
+  search `post_save` receiver has no `sender` filter; `get_view()` resolves by
+  label string, so the *historical* model `apps.get_model()` hands a RunPython
+  migration matches the real model's registry entry; and the index is
+  provisioned at `post_migrate` — after every migration. A downstream that
+  creates a searchable row in a migration therefore wrote to the missing
+  `search_vector` column inside the migration's transaction, poisoning it —
+  the visible error was Django's own `INSERT INTO django_migrations`, and a
+  fresh Postgres build (DR restore, new region, CI) was impossible. SQLite
+  hid the category: its FTS index is a separate table and a failed statement
+  doesn't poison the transaction. The handlers now require
+  `view.model is sender` (historical models no-op) and wrap each index write
+  in `transaction.atomic()` — a savepoint — so "a search index write should
+  never break a model save" is finally true on Postgres, not just SQLite.
+- **Telemetry's synchronous flush no longer manages a connection it doesn't
+  own.** `_write()` unconditionally called `close_old_connections()` and, on
+  error, `connection.close()` — correct on the worker thread (which owns its
+  thread-local connection), wrong on the `flush()` path, which runs on the
+  CALLER's thread: `start_worker=False` mode, tests, and `logging.shutdown()`
+  at interpreter exit. On Postgres that closes a live request's (or test
+  transaction's) connection; SQLite's shared in-memory connection made both
+  calls no-ops, hiding it. Connection management is now gated to the worker
+  path, and the batch insert runs in `transaction.atomic()` so a failed write
+  can't poison a caller's transaction either. (Same downstream report — two
+  independent instances of code silently depending on SQLite's forgiving
+  semantics.)
+- The `config/settings/test.py` comment claiming "CI runs both backends" is
+  corrected (this repo deliberately ships no CI); it now recommends the cheap
+  gate for downstreams that add CI — a from-scratch `migrate` against an empty
+  Postgres — and the sqlite-vs-postgres skill checklist gained the same item.
+
+## [0.21.5] - 2026-09-27
+
+### Fixed
+- **The 90-day timeline no longer shows a permanent false red square on the day
+  currently crossing the retention boundary.** The pruner advances one minute at
+  a time, so a day takes ~24 hours to fold into its summary — throughout, the
+  summary holds the already-pruned prefix and raw beats hold the remainder.
+  `_daily_uptime_map` *chose* the summary outright, scoring a flawless mid-fold
+  day at `prefix/1440` (live downstream evidence: 563/1440 ⇒ 39.097% "down"),
+  while `_uptime_over_window` handled the same day correctly — the two public
+  surfaces contradicted each other, and exactly one day per monitor is always
+  mid-fold. The map now **sums** the two halves (disjoint by construction), with
+  the raw half SLA-scoped on *both* terms so excluded-maintenance beats can't
+  re-enter the `max(observed, expected)` denominator through the raw side.
+  Four regression tests, three of which fail against the previous code.
+  (Downstream report; validated live.)
+
+## [0.21.4] - 2026-09-27
+
+### Fixed
+- **Heartbeat tests no longer hard-code the brand name or one theme's markup.**
+  A rebranded downstream (`BRAND_NAME=Planner`) or one overriding the
+  `detail_grid.html` display template inherited three false test failures. The
+  public-status assertions now read `settings.BRAND_NAME`, and the boolean-
+  rendering test asserts the actual regression invariant (False renders
+  differently from True) via a template-agnostic extractor instead of pinning
+  upstream's ✓/— glyphs. (Downstream report; verified non-vacuous — simulating
+  the original all-booleans-truthy bug still fails the rewritten test.)
+- **Daily uptime summaries prorate their expected-checks denominator.** Three
+  spans nobody agreed to monitor were read as downtime by the flat
+  `86400 // interval` denominator: the epoch's first partial day (~6% "down"
+  even with every check green), a monitor added mid-day (same shape — its epoch
+  is its first beat), and SLA-excluded maintenance (a 4h excluded window capped
+  an honest day at 83%, defeating `exclude_from_sla=True`). The summary writer
+  now computes `expected_intervals_for_day` (epoch row → day-in-progress →
+  excluded windows) **and** moves beats recorded inside excluded windows out of
+  `ok_count`/`fail_count` into `maintenance_count` — mirroring the raw span's
+  `_uptime_over_window` semantics; shrinking the denominator alone would have
+  left `max(recorded, expected)` resurrecting the excluded time. The 90-day
+  timeline's raw branch uses the same math, so a day's uptime no longer changes
+  when it crosses the retention boundary. Missing beats inside the monitored
+  span still count as downtime (deliberately: for a self-pinged monitor, "cron
+  didn't run" and "host was down" are the same event). A fully excluded day
+  writes `expected_count=0` and renders "No data". New
+  `manage.py heartbeat --reprorate` backfills existing summaries — expected
+  depends only on the date, the epoch row, and the maintenance windows, so
+  unlike `--repair-summaries` it fixes history (run repair first).
+- **One host setting now satisfies both email links and webhooks.** Emails built
+  outside a request (approval notifications, welcome mail) read `SITE_DOMAIN`,
+  while webhooks read `SITE_URL` — so a deployment that configured its host the
+  way `webhook_doctor` instructs still sent dead `localhost:8000` email links,
+  and the Approvals status monitor stayed DOWN telling it to set a *second*
+  variable. `site_base_url()` (in `apps/accounts/emails.py`) now resolves
+  `SITE_DOMAIN`+`USE_HTTPS` → a URL-shaped `SITE_URL`/`SMALLSTACK_SITE_URL`/
+  `BASE_URL` → the localhost default, and every consumer (branded emails, the
+  welcome task, the `ApprovalsFanoutMonitor` link check) shares it. The monitor
+  message now names both knobs, and `.env.example` finally documents
+  `SITE_DOMAIN`/`USE_HTTPS`/`SITE_URL` (it mentioned none of them).
+
+## [0.21.3] - 2026-09-26
+
+### Fixed
+- **Public status pages no longer paint all history "down" at 0.07% on long-running
+  sites.** The heartbeat pruner runs every minute (the ping view calls it), so one
+  calendar day is pruned across ~1440 tiny batches — but `_write_daily_summaries`
+  *overwrote* the day's `HeartbeatDaily` row with only the current batch, so every
+  fully-summarized day converged to its final single beat: 1/1440 ⇒ `uptime_pct =
+  0.069%` ⇒ "down" (while the raw-retention window stayed green — the "only ~7 days
+  survive" symptom). Summaries now **accumulate** across batches (counts merge,
+  response times weighted-average), the aggregate-then-delete pair runs in one
+  transaction, and the timeline/calendar/SLA maths are unchanged. Deployments that
+  ran the buggy pruner: `manage.py heartbeat --repair-summaries` deletes the
+  corrupted rows (recorded beats < 5% of expected — the bug's fingerprint; genuine
+  full days and recorded outages are kept), after which those days honestly render
+  "No data". The true counts are unrecoverable.
+
+### Added
+- **User-facing help pages for the scheduler** (`/smallstack/help/smallstack/scheduler/`)
+  — the control console, `@scheduled` cadences, tick triggers, and the run lifecycle
+  finally have a human-readable page (the skill doc existed; Help had nothing).
+- **Webhooks help covers the v0.19 event picker** — the annotated checkbox event
+  list, the Advanced custom-pattern disclosure, and every-surface pattern validation.
+- **Background Tasks help no longer steers cron work to Celery** — the comparison
+  table predated the `@scheduled` scheduler; it now says scheduling is built in and
+  links to the scheduler page.
+
+### Documentation
+- **The palette count is corrected in the three files the v0.21.1 sweep missed.**
+  `README.md` (four claims), `CLAUDE.md` and `apps/smallstack/docs/tldr.md` still said
+  **five** palettes; there are **six** (`django`, `dark-blue`, `purple`, `orange`,
+  `high-contrast`, `gold`). `CLAUDE.md` also named the palettes by label rather than id,
+  omitted `gold`, and left the default unstated — it is `purple`
+  (`SMALLSTACK_COLOR_PALETTE`). These are the read-first files for a new contributor and
+  for an agent onboarding to the repo, so they were contradicting
+  `docs/skills/modern-dark-theme.md`, which v0.21.1 had already fixed.
+
+## [0.21.2] - 2026-09-26
+
+### Removed
+- **The approvals scenario test-harness apps no longer ship in the base template.**
+  `apps/demo_purchasing`, `apps/demo_agentops` and `apps/demo_access` — plus
+  `manage.py approval_scenario` and `manage.py seed_approval_scenarios` — were the QA
+  workspace's test vehicle for the v0.21.x approvals work. They drove the findings but
+  were never meant to land in the starter template: a fresh clone got three extra apps,
+  six extra migrations, and 29 routes under `/demo/` without opting in. The apps, their
+  conditional `INSTALLED_APPS` registration, and the `/demo/` URL mounting are all
+  removed; the framework itself never referenced them, so no framework behavior changes.
+  If you cloned at v0.21.0/v0.21.1 and migrated, see "Scenario demo apps" in
+  `UPGRADING.md` for what the leftovers are (inert) and how to drop them.
+
+## [0.21.1] - 2026-09-26
+
+Fixes for findings from the 2026-09-26 test rounds. Each carries a regression test that
+fails against the old code.
+
+### Fixed
+- **Turning the approval email channel off no longer holds the status page down.**
+  `SMALLSTACK_APPROVALS_EMAILS_ENABLED=False` still enqueued a `notify_*` task per request —
+  the gate lived only at *send* time — so with no worker those rows sat READY forever and
+  `ApprovalsFanoutMonitor` counted exactly them. A **core-category** service card sat
+  permanently DOWN telling the operator to start a mail worker they had deliberately chosen
+  not to run, and `UPGRADING.md` recommended that very setting as the remedy for the
+  symptom. Nothing to send now means nothing to queue, and the monitor ignores a backlog
+  while the channel is off, so rows left from before the switch don't hold it down either.
+- **The approvals monitor no longer reports "email queue drained" while mail is queued.** It
+  now distinguishes *stale* from *queued-but-young* and says which it found — the note
+  described the opposite of the situation on the one channel that fails silently.
+- **The approvals monitor reports every fault in one check.** The `SITE_DOMAIN` branch
+  returned before the backlog was looked at, so an install with both faults learned about
+  the second only after fixing the first.
+- **The notifications inbox has an `<h1>`** — its page heading was an `<h2>`, leaving the
+  page with no `h1` at all and breaking the document outline and heading-jump navigation.
+- **Unread notifications are announced to screen readers.** Unread state was carried only by
+  an `aria-hidden` dot and bold weight, so the state the screen exists to convey was
+  sighted-only (WCAG 1.3.1 / 1.4.1). A visually-hidden "Unread." marker now precedes the row.
+- **The sidebar no longer claims you are on the Dashboard when you are not.** The dashboard
+  lives at `/smallstack/`, which prefixes every admin route, so any page without its own nav
+  entry — the notifications inbox, reached from the topbar bell — lit it up. Nav items gain
+  `active_exact`, set on the dashboard root.
+
+### Changed
+- `nav.register(...)` accepts `active_exact=True`: the item goes active only on an exact path
+  match, never on a prefix. For a section root that is the difference between "you are here"
+  and "you are somewhere below here".
+
+### Documentation
+- **`docs/skills/modern-dark-theme.md` was wrong about the palettes it is the read-first
+  authority for**: it claimed **five**, named a `dark-purple` that does not exist (the id is
+  `purple`), omitted `gold`, and said the default was `django` when it is `purple`. Corrected,
+  with a pointer to `UserProfile.color_palette.choices` + `palettes.css` as the authoritative
+  list. The same claims are fixed in seven other docs.
+- **`UPGRADING.md` under-counted the migrations**: it said "Four", which is what the
+  approvals/notifications *review* added. Coming from v0.20.1 — the only previously released
+  version — you apply **thirteen**. Now stated with the breakdown.
+- **The bundled scenario demo apps are documented.** `apps/demo_purchasing`, `demo_agentops`
+  and `demo_access` ship as of v0.21.0 and register themselves when present, so a fresh clone
+  gets three extra apps, six extra migrations and 29 routes under `/demo/`. `UPGRADING.md`
+  now says so and gives the one-line opt-out; `config/settings/base.py`'s comment no longer
+  claims they are "deliberately not tracked".
+
+## [0.21.0] - 2026-09-26
+
+Fixes from the 2026-09-13 base-framework audit (v0.20.1). Each carries a
+regression test that fails against the old code.
+
+### Security
+- **MCP now checks the *user's* staff flag, not just the token's label.** Any
+  tool at `requires_access="staff"` (or `"auth"`) also requires
+  `token.user.is_staff`, matching REST. Previously a staff-level token held by a
+  non-staff user — flag cleared after minting, or minted for them by another
+  staffer — kept full staff read/write over MCP (26 of 40 tools, incl.
+  `create_webhook`). The token form also refuses to mint staff/auth-level
+  tokens for non-staff users. (C1)
+- **`/media/` no longer serves access-controlled files.** Runbook bodies were
+  reachable anonymously at `/media/runbook/<key>.md`. The media route now 404s
+  prefixes listed in the new `SMALLSTACK_PRIVATE_MEDIA_PREFIXES` (default
+  `runbook/`, env-overridable, comma-separated); profile photos stay public.
+  The gate compares the resolved file path the server would open — not URL
+  strings — so `..` tricks (`/media/%2e%2e/media/runbook/x.md`) and symlinks
+  can't slip past it. (C2)
+- **API tokens no longer leak into logs.** An `HttpRequest` in a log record's
+  `extra` (every `django.request` 4xx/5xx) is reduced to method + path, so a
+  feed's `?token=` never reaches JSON log lines or `LogRecord.extra`. Gunicorn's
+  access log format drops the query string too. (C3)
+- **Webhook delivery can't be redirected into the private network.** 3xx
+  responses are recorded as failures, never followed, and the connected
+  socket's peer address is re-checked before any byte is sent — closing the
+  DNS-rebinding window as well. (C4)
+- **REST detail/update/delete and bulk endpoints honour `get_list_queryset`**,
+  as REST list and all MCP verbs already did. A fork scoping rows per owner
+  leaked other tenants' rows at `/api/<base>/<pk>/`. (C5)
+- **Inbound webhook receiver hardened**: bodies over
+  `SMALLSTACK_WEBHOOK_INBOUND_MAX_BYTES` (1 MB) get 413 before anything is
+  stored; signature-rejected receipts keep a 1 KB excerpt + SHA-256 and stop
+  being recorded past `SMALLSTACK_WEBHOOK_REJECTED_PER_MINUTE` (30); new
+  `prune_webhook_receipts` command (in the shipped crontab). (C6)
+- **Runbook images get server-generated names and a pinned content type.**
+  Only png/jpg/gif/webp are accepted by the form; any other stored name
+  (service/bundle paths, pre-fix uploads) is served as an
+  `application/octet-stream` download, never rendered. (C7)
+- **OAuth consent POST requires a CSRF token** (`AuthorizeView` is no longer
+  `csrf_exempt`), and `SESSION_COOKIE_SAMESITE`/`CSRF_COOKIE_SAMESITE` are
+  pinned to `"Lax"`. The consent page's CSP override regains `base-uri`,
+  `object-src`, `font-src`, `connect-src`. (C8, H5)
+- **Abandoned OAuth codes are scrubbed**: past their TTL the plaintext key is
+  cleared and the never-delivered token deactivated. (C9b)
+- **Passwordless login**: attempts are spent atomically before the code check
+  (parallel guesses bypassed the 5-attempt limit) and codes per account are
+  capped by `SMALLSTACK_LOGIN_CODES_PER_HOUR` (5). (H3)
+- **`.dockerignore` excludes `backups/`, `data/`, `.secret_key`, `.kamal/` and
+  nested `*.sqlite3`** — `COPY . .` was baking DB snapshots into images. (H1)
+- `SMALLSTACK_PUBLIC_STATUS_ENABLED=False` now also closes the per-monitor
+  detail page to anonymous visitors (C9a). New `SMALLSTACK_PUBLIC_PROFILES`
+  flag (default on) lets a deployment require sign-in for `/profile/<username>/`,
+  which otherwise answers "does this account exist" (C9d).
+
+### Fixed
+- **The telemetry `after_id` cursor skipped records.** It filtered by pk but
+  ordered by ts, so batch-inserted records captured earlier than their pk
+  suggests were never returned — with `has_more=False`. Cursor mode now pages
+  in pk order. Affects `/api/logger/records/`, MCP `logs_search`, and
+  `logs --follow`. (D1)
+- **A scheduler fire that failed to enqueue was lost silently.** Any enqueue
+  exception now records a FAILED run and `last_status="failed"`; an unknown
+  `queue_name` is rejected by `ScheduledJob.clean()`. (D2)
+- **The shipped crontab now drives the webhook retry tick** (`POST
+  /webhooks/tick/` every minute) — failed deliveries were never retried or
+  dead-lettered — **and nightly `run_retention`**, the only driver of runbook
+  document TTL expiry. (D3, D4)
+- `api_doctor` and the OpenAPI validity tests validate the spec actually
+  served (custom endpoints included: 68 operations, not 42), via the new
+  `build_served_spec()`. (D5)
+- A log-capture window that would capture nothing extra (a typo, or a level at
+  or above the baseline) is refused with a clear message on every channel
+  instead of being audited and reported as active. (D6)
+- Dynamic status monitors: a DB error is logged instead of silently dropping
+  every endpoint/surface monitor from the tick; one bad row no longer drops
+  the rest. (D7)
+- Bulk deletes log at WARNING, so the v0.20.0 summary line actually reaches
+  the log viewer at the default baseline. (D8)
+- Smaller: heartbeat log uses `attach_display_helpers` (D9); the log viewer
+  gains a CRITICAL filter and flags unknown levels (D10a); write give-ups count
+  toward `dropped` (D10b); `reset_schedule` reports a failed re-sync (D10c);
+  bulk-delete and help-search failures are logged (D10d); the api/mcp/webhook
+  doctors report a missing schema instead of a traceback (D10f); CRUD lists
+  fall back to pk order when the queryset is unordered — fixes
+  `UnorderedObjectListWarning` on the user list (D10g).
+- Dataset CSV export is capped by `SMALLSTACK_DATASET_CSV_MAX_ROWS` (50,000);
+  over the cap is a 400 asking the caller to filter or page. (C9c)
+
+### Added — approvals + notifications
+
+The two primitives themselves, which had no changelog entry: ~19 *fixes* to them
+were documented below before this section said they existed. (F-56 #10)
+
+- **`apps/approvals` — a side-car human-in-the-loop approval gate.** An app (or
+  an AI agent) files an `ApprovalRequest`, a human decides it in the staff queue
+  and decision console at `/smallstack/approvals/requests/`, and the app reacts
+  through a per-kind callback. What "approved" *means* stays app-owned:
+  approvals never write your models. State machine
+  `pending → approved | rejected | canceled | expired`, every transition
+  race-safe (conditional UPDATE, single winner) and audited.
+  - `@approval_kind` registry, autodiscovered from `<app>/approvals.py`, with
+    `default_expires_in`, a `can_decide` eligibility hook that *narrows only*,
+    `assignable` allowlisting, `notify` extra recipients, and a context card
+    template per kind.
+  - One eligibility implementation (`permissions.can_decide`) shared by web,
+    REST and MCP: staff by default, self-approval blocked, assignees narrow.
+  - Surfaces: the console, `{% approval_card %}` for non-staff assignees,
+    `POST …/requests/create/` + `{id}/decide/` REST, `request_approval` /
+    `decide_approval` MCP tools, `approval_requested` / `approval_decided`
+    signals, `.created` / `.updated` webhooks carrying `data.status`, a
+    dashboard widget, and a 5-minute expiry sweep plus lazy expiry so
+    correctness never depends on the worker.
+- **`apps/notifications` — an in-app notification primitive.** A never-raising
+  `notify()` service, topbar bell with unread badge, a LoginRequired inbox at
+  `/smallstack/notifications/` (deliberately *not* staff-only), per-user REST
+  (`api/` + `api/mark-read/`), and a daily retention prune.
+- **New public notifications API** beyond `notify()`: `services.resolve(subject_key,
+  kind="")` retires every unread row about a subject, `notify(..., subject_key=…)`
+  tags a row with a producer-owned handle, and `Notification.subject_key` (indexed)
+  stores it. This is what lets a decision retire the other approvers' now-stale
+  "Approval needed" bells instead of leaving a badge that means nothing. (F-56 #3)
+- **New middleware** — `apps.notifications.middleware.NotificationReadOnArrivalMiddleware`
+  is added to `MIDDLEWARE` in `config/settings/base.py`. It marks a notification
+  read only on a 2xx arrival, so a click that dead-ends cannot silently consume
+  the badge. **A fork that pins its own `MIDDLEWARE` list must add this entry**
+  or it loses read-on-arrival. (F-56 #1)
+- **Nine settings**: `SMALLSTACK_APPROVALS_ENABLED`,
+  `SMALLSTACK_APPROVALS_ALLOW_SELF_APPROVE`, `SMALLSTACK_APPROVALS_STAFF_OVERRIDE`,
+  `SMALLSTACK_APPROVALS_DEFAULT_EXPIRES_MINUTES`, `SMALLSTACK_APPROVALS_EMAILS_ENABLED`,
+  `SMALLSTACK_APPROVALS_NOTIFY_EMAILS`, `SMALLSTACK_APPROVALS_SWEEP_ENABLED`,
+  `SMALLSTACK_NOTIFICATIONS_ENABLED`, `SMALLSTACK_NOTIFICATIONS_RETENTION_DAYS`
+  — plus the five added by the review, listed under Changed.
+
+### Changed — approvals/notifications review (2026-09-25)
+
+Behaviour changes an operator or a fork will notice. Recipes for the ones with a
+remedy are in [`UPGRADING.md`](UPGRADING.md).
+
+- **API tokens held by deactivated accounts stop working.** `APIToken` now
+  refuses a token whose user is `is_active=False` on *every* surface (REST, MCP,
+  feeds, OAuth), and approvals eligibility requires an active user too.
+  Previously an offboarded account's un-revoked token kept reading the queue and
+  **approving/rejecting**, recorded under their name. This changes behaviour at
+  every offboarding: deactivating a user is now sufficient to cut their tokens,
+  where before revocation was also required. (F-10, F-56 #4)
+- **The master switches now un-mount their app's URLs**, following the
+  `SMALLSTACK_MCP_ENABLED` precedent. With `SMALLSTACK_APPROVALS_ENABLED=False`
+  or `SMALLSTACK_NOTIFICATIONS_ENABLED=False`, the routes cease to exist rather
+  than staying live while only the fan-out died. **Consequence:** a template or
+  `reverse()` referencing e.g. `notifications:inbox` under a disabled switch now
+  raises `NoReverseMatch` (a 500) instead of rendering a dead link — guard such
+  references with the switch. (F-11, F-56 #2)
+- **New `WebhookReceiver.signature_header` default:** `"X-Signature"` →
+  `"X-SmallStack-Signature"`, matching what outbound signs, with migration
+  `webhooks/0004`. Existing receivers keep their stored value; **receivers
+  created after the upgrade expect the new spelling**, so a third-party sender
+  configured for `X-Signature` will 401 unless the field is set explicitly.
+  (F-06, F-56 #8)
+- **System-initiated audit entries create one inactive `User` row.** The first
+  write with no human actor (expiry sweep, scheduler retirement) creates an
+  `is_active=False`, non-staff account named by the new
+  `SMALLSTACK_AUDIT_SYSTEM_USERNAME` (default `"system"`), so those entries have
+  an author instead of being invisible. Expect one unfamiliar row in the user
+  list; it cannot log in. (F-15, F-56 #7)
+- **Filing an approval can now return 429.** `SMALLSTACK_APPROVALS_MAX_PENDING_PER_REQUESTER`
+  (default 50) caps one requester's open requests **per kind**; over it, REST and MCP return
+  `too_many_pending`. An agent in a retry loop could previously fill the queue
+  unbounded. (F-18, F-56 #5)
+- **Four more new settings** (F-56 #6):
+  - `SMALLSTACK_APPROVALS_EMAILS_INLINE` — defaults to `DEBUG`. Sending falls
+    back to inline only when set; **in production this means approval email
+    requires a `db_worker` draining the `email` queue.** The new
+    `approvals-fanout` monitor goes DOWN when it isn't.
+  - `SMALLSTACK_APPROVALS_EMAIL_BACKLOG_MINUTES` (15) — how stale the email
+    queue may get before that monitor complains.
+  - `SMALLSTACK_APPROVALS_LAZY_EXPIRE_LIMIT` (25) — rows lazily expired per
+    request, bounding what had been an unbounded synchronous sweep inside a GET.
+  - `SMALLSTACK_AUDIT_SYSTEM_USERNAME` (`"system"`) — see above.
+- **Generated MCP tool refusals carry a machine-readable `code`** —
+  `invalid_argument` · `not_found` · `not_permitted` · `validation_error` ·
+  `unsupported` — where they previously returned a bare English sentence. A
+  rejected create also now sets the protocol-level `isError` flag (it returned
+  `{"errors": …}` with no top-level `error` key, so a model reading the flag saw
+  success). Clients string-matching the old prose must switch to `error.code`.
+  (F-53)
+- **REST exposes `target_ref` and `assignee_usernames` on approval requests**,
+  so the API shows the target it accepts (`"app_label.model:pk"`) instead of
+  serializing it to `null`. (F-35)
+- **Four new framework migrations**: `notifications/0002` (+`subject_key` and its
+  index), `notifications/0003` (backfill — see `UPGRADING.md`), `scheduler/0003`
+  (+`auto_retired`), `webhooks/0004` (the header default above).
+
+### Security — approvals/notifications review (2026-09-25)
+
+- **Per-object authorization now covers every single-object CRUD surface.** New
+  `CRUDView.check_object_permission(obj, request)` hook, applied by the base to
+  detail, edit, delete, field-preview, related-tab, the REST detail/update/delete
+  handlers, the bulk-action view and the generated MCP `get_*`/`update_*`/`delete_*`
+  tools. Previously a view that expressed ownership by overriding one generated
+  base's `get_object` protected only that base: `/smallstack/tokens/<pk>/related/request_logs/`
+  returned **200** with another user's API-token request log — which endpoints
+  that token calls and when — to any logged-in non-staff account, while the
+  detail page beside it correctly answered 403. `tokenmgr` now uses the hook.
+  (F-27)
+- **Deactivating an account no longer widens an approval's audience.** A request
+  routed to one named assignee used to become a broadcast to every active staff
+  user the moment that assignee was offboarded (1 recipient → 6 recipients, 1
+  bell → 10), silently. The fallback remains — the request must not go unseen —
+  but it logs a warning naming the deactivated assignees and both the email
+  subject and the bell title carry `(assignee deactivated)`. (F-32)
+- **The MCP tier ladder is no longer inverted.** It ranked
+  `readonly < staff < auth`, so `requires_access="auth"` — documented as "gate to
+  any authenticated caller" — could be satisfied by *no* login token, and staff
+  were strictly less capable than non-staff on that tier. The ladder is now
+  `readonly < auth < staff`, and only the `staff` tier implies the staff flag.
+  Latent before this (nothing shipped declares `"auth"`, though a dataset author's
+  `mcp_access="auth"` reaches it). (F-26)
+- **An inbound webhook verifier that raises is logged.** The bare
+  `except Exception` around the verifier swallowed everything, so a verifier
+  raising on a *correct* signature was indistinguishable from a forged one with
+  nothing in the log. Still fails closed. (F-37)
+
+### Fixed — approvals/notifications review (2026-09-25)
+
+- **Multi-line `{# … #}` comments no longer render as page text.** Django's `{# #}`
+  is single-line only; three multi-line ones were being emitted verbatim — on the
+  approvals decision console and in *every* CRUDView's no-match empty state. Swept
+  tree-wide (12 more in `smallstack/starter.html`, which ships as "copy this
+  file"). Guarded by `apps/smallstack/test_template_hygiene.py`, which reads every
+  template in the tree and also asserts that rendered CRUD pages contain no `{#`,
+  `{%` or `{{`. (F-45)
+- **The empty state branches on filters, not on "any query param".** It tested
+  `request.GET.urlencode`, which is truthy for pagination, ordering, the display
+  toggle and the `?_notification=` marker the notification bell appends — so a
+  user who sorted an empty list or arrived from a bell row was told to "clear
+  their filters" and lost the create-the-first-one link. New
+  `has_active_filters` context flag; the four divergent copies of the empty state
+  converge on one include. (F-44)
+- **`?status=pending` on the approvals queue now agrees with its own Pending stat
+  card.** Expiry is lazy, so an overdue row's stored `status` still reads
+  `pending`; the filter matched the column while the card counted `actionable()`,
+  and the page contradicted itself by 900 rows. Both now evaluate
+  `ApprovalRequestQuerySet.for_effective_status`, on HTML, REST and MCP, and
+  `?status=expired` includes overdue-but-unswept rows. New generic
+  `CRUDView.apply_filter(qs, field_name, value, request)` hook. (F-29)
+- **`SMALLSTACK_APPROVALS_SWEEP_ENABLED` is a two-way switch again.** Retiring a
+  code-declared scheduled job whose spec disappeared had no reverse, so turning
+  the flag back on never restored the job. New `ScheduledJob.auto_retired` marks
+  automatic retirements and they are undone when the spec returns; a job an
+  operator disabled by hand stays off (and now says so in the log). A relative
+  safety valve also refuses to retire more than half the known code jobs in one
+  sync, which is the signature of a *partial* autodiscovery failure. (F-30)
+- **A verifier that mutates its headers dict works again.** The case-insensitivity
+  fix had narrowed the argument from `dict[str, str]` to Django's immutable
+  `CaseInsensitiveMapping`, so a third-party verifier doing
+  `headers.pop("X-Smallstack-Signature", "")` began returning 401 on correct
+  credentials. The argument is now `webhooks.hooks.CaseInsensitiveDict` — a real
+  mutable `dict` subclass with case-insensitive lookups. (F-37)
+- **A failing status monitor no longer renders as a green tick.** The core tier of
+  `/smallstack/status/overview/` built each service row from `Monitor.inventory()`,
+  whose base implementation returns `{"ok": True}`, so `approvals-fanout` ("191
+  approval email tasks queued and unrun") and `scheduler-tick` ("2 jobs overdue")
+  both showed "on" while recorded as FAILING. The row now needs `inventory()` **and**
+  the recorded state to be good, and carries the monitor's actionable note.
+  Not-yet-recorded still reads as fine. (F-28, F-07)
+- **Generated MCP `get_*`/`update_*`/`delete_*` tools accept `id`.** `serialize()`
+  emits the row identity as `id` and three hand-written tools accept `id`, but the
+  generated ones required `pk` — so an agent passing the id it had just been
+  handed got `{"error": "pk is required"}` on its first call, which is exactly
+  what `request_approval`'s own description told it to do. `pk` remains a
+  permanent alias; schemas declare both with `anyOf`; descriptions name the
+  parameter. (F-25)
+- **A feature's master switch degrades to 503, not 500.** New
+  `apps.smallstack.exceptions.FeatureDisabled`, translated by `api_view` for every
+  endpoint in the project. `ApprovalsDisabled` is one, so a *downstream* app's
+  endpoint that files an approval with approvals switched off returns a 503
+  envelope naming the setting instead of an unhandled 500. Approvals' own dead 503
+  handlers and OpenAPI entries are removed — those routes are unmounted whenever
+  the exception can be raised. `PermissionDenied` gets the same treatment (403).
+  (F-31)
+- **Approval emails warn when they would link to `localhost`.** Approvals mail is
+  sent without a request, so its absolute console link comes from `SITE_DOMAIN`
+  (default `localhost:8000`) — dead on every unconfigured install, including the
+  headline "non-staff assignees decide via the emailed link" story. The approvals
+  monitor now reports it. Skipped under `DEBUG` and when the email channel is off.
+  (F-33)
+- **Global search finds a non-staff assignee's own approvals.** Search was the one
+  read surface the eligibility scoper never reached (`search_access` defaults to
+  STAFF), so a user who could open and decide a request could not find it.
+  (F-43)
+- **A non-staff approver has a nav entry to the console.** The console is
+  LoginRequired + eligibility-scoped, but its only nav registration sat in the
+  staff-only ADMIN section. New `nav.register(visible=<predicate>)` for rules the
+  `auth_required`/`staff_required` flags cannot express. (F-46)
+- **Stale "Approval needed" bells created before the `subject_key` migration can
+  be retired.** New data migration backfills `subject_key` from the row's URL and
+  marks read any bell whose request is already terminal. Without it the
+  retirement feature reached only rows filed after the upgrade — 105 of 105 unread
+  rows on the reference install were unaddressable. Idempotent. (F-42)
+- The decision-email recipient rule is documented correctly at last: the set is
+  **the approvers — including the decider** — plus the requester. The bell differs
+  from the email by exactly one person (it skips the actor), and that asymmetry is
+  now stated in `emails.py` and both `.md` files. (F-04)
+
+## [0.20.1] - 2026-08-29
+
+### Changed
+- **`make lint` now runs ruff *and* mypy** — one command, the full static gate.
+  `make typecheck` existed as a deliberately separate target wired only into
+  the pre-commit hook, so *commits* were type-checked but a by-hand
+  `make test && make lint` gave no type check and no signal one existed. A
+  hand-run lint now enforces exactly what the hook enforces; the hook drops
+  its duplicate mypy step, and `make typecheck` remains for running mypy alone.
+- **CLAUDE.md gains a Types convention**: prefer strongly typed code where
+  practical, annotate signatures on new and edited code — under this mypy
+  config (`check_untyped_defs = false`) annotating a function is what opts its
+  body into checking — and keep `make lint` green before reporting work done.
+  CLI reference docs synced (`cli-reference.md`, `cli-tools.md`).
+
 ## [0.20.0] - 2026-08-16
 
 ### Added
@@ -1147,7 +2016,24 @@ Condensed highlights of the v0.11 series (see git history for per-patch detail):
 See the git tag history (`git tag`) and `ai_cowork/audit_history/` for the full record of the
 v0.8–v0.10 API-server, modern-dark-theme, search, MCP, and Postgres eras.
 
-[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.15.1...HEAD
+[Unreleased]: https://github.com/emichaud/django-smallstack/compare/v0.23.1...HEAD
+[0.23.1]: https://github.com/emichaud/django-smallstack/compare/v0.23.0...v0.23.1
+[0.23.0]: https://github.com/emichaud/django-smallstack/compare/v0.22.0...v0.23.0
+[0.22.0]: https://github.com/emichaud/django-smallstack/compare/v0.21.11...v0.22.0
+[0.21.11]: https://github.com/emichaud/django-smallstack/compare/v0.21.10...v0.21.11
+[0.21.10]: https://github.com/emichaud/django-smallstack/compare/v0.21.9...v0.21.10
+[0.21.9]: https://github.com/emichaud/django-smallstack/compare/v0.21.8...v0.21.9
+[0.21.8]: https://github.com/emichaud/django-smallstack/compare/v0.21.7...v0.21.8
+[0.21.7]: https://github.com/emichaud/django-smallstack/compare/v0.21.6...v0.21.7
+[0.21.6]: https://github.com/emichaud/django-smallstack/compare/v0.21.5...v0.21.6
+[0.21.5]: https://github.com/emichaud/django-smallstack/compare/v0.21.4...v0.21.5
+[0.21.4]: https://github.com/emichaud/django-smallstack/compare/v0.21.3...v0.21.4
+[0.21.3]: https://github.com/emichaud/django-smallstack/compare/v0.21.2...v0.21.3
+[0.21.2]: https://github.com/emichaud/django-smallstack/compare/v0.21.1...v0.21.2
+[0.21.1]: https://github.com/emichaud/django-smallstack/compare/v0.21.0...v0.21.1
+[0.21.0]: https://github.com/emichaud/django-smallstack/compare/v0.20.1...v0.21.0
+[0.20.1]: https://github.com/emichaud/django-smallstack/compare/v0.20.0...v0.20.1
+[0.20.0]: https://github.com/emichaud/django-smallstack/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/emichaud/django-smallstack/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/emichaud/django-smallstack/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/emichaud/django-smallstack/compare/v0.16.2...v0.17.0

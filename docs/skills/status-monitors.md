@@ -390,6 +390,37 @@ run `uv run python manage.py heartbeat` (or hit the ping) to record a round.
 - **Warming up:** a monitor younger than `HEARTBEAT_WARMUP_MINUTES` (default 60)
   shows a neutral "warming up" pill on the overview/board instead of a 24h % that
   doesn't yet represent a full window.
+- **Summary accumulation:** the pruner runs every minute (the ping view calls it),
+  so one calendar day is folded into `HeartbeatDaily` across ~1440 tiny batches —
+  `_write_daily_summaries` **accumulates** into the existing row. Pre-v0.21.3 it
+  overwrote per batch, so every summarized day converged to its final single beat
+  (`0.069%` uptime ⇒ the public page painted all history "down" at 0.07% while
+  raw-retention days stayed green). Deployments that ran the buggy pruner repair
+  with `manage.py heartbeat --repair-summaries` (corrupted days become "No data";
+  the true counts are unrecoverable).
+- **Prorated `expected_count` + SLA-scoped counts:** a day's expected checks
+  (`expected_intervals_for_day`) shrink for an epoch that began mid-day (which is
+  also how a monitor *added* mid-day looks — `ensure_epoch` pins the first beat)
+  and for SLA-excluded maintenance; beats inside excluded windows land in
+  `maintenance_count`, never `ok_count`/`fail_count` — mirroring
+  `_uptime_over_window`'s raw-span semantics, so a day's uptime doesn't change
+  when it crosses the retention boundary. Missing beats *inside* the monitored
+  span still count as downtime (never prorate from the first observed beat — that
+  erases midnight outages), and the epoch used is the explicit row only
+  (`get_config`), never `get_epoch`'s oldest-surviving-beat fallback. A fully
+  excluded day writes `expected_count=0` ⇒ "No data" on the timeline.
+  `manage.py heartbeat --reprorate` backfills history (needs no raw beats); run
+  `--repair-summaries` first.
+- **Mid-fold days sum, never choose:** a day takes ~24h to cross the retention
+  boundary (the pruner moves one minute per run), so its beats are split between
+  the summary (pruned prefix) and raw rows (remainder) the whole time.
+  `_daily_uptime_map` sums the halves — they're disjoint by construction — with
+  the raw half SLA-scoped on both `ok` and `observed`
+  (`_get_non_maintenance_counts`). Choosing the summary scored a flawless
+  mid-fold day at prefix/1440, a permanent false red on the 90-day strip. Note
+  the mid-fold day's `HeartbeatDaily` ROW is inherently partial until folding
+  completes — only blended readers (the timeline, the calendar) see the whole
+  day; don't classify a recent day from its summary row alone.
 
 ## Per-monitor SLA
 

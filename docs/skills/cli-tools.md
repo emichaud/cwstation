@@ -46,6 +46,7 @@ Two tables: a **task → tool map** (the most common lookups) and a **tool → d
 | trim captured log records | `uv run python manage.py prune_logs [--keep-days N --max-rows N]` |
 | run a single **heartbeat / uptime** check | `uv run python manage.py heartbeat` |
 | reset the uptime epoch after a restore | `uv run python manage.py heartbeat --reset-epoch --reset-note "..."` |
+| **a task is stuck `RUNNING`** / a worker died mid-task | `uv run python manage.py reap_tasks --dry-run` then `reap_tasks` (workers also do this every ~minute); see Explorer → System → Worker heartbeats |
 | **test the task queue + heartbeat locally** (worker + heartbeat in one process) | `make services` (= `./utils/dev_services.sh`; `ARGS="--interval 5 --smoke"` for a fast end-to-end check) |
 | **open a maintenance window** (planned downtime, SLA-excluded) | `uv run python manage.py maintenance open --minutes N --title "..."` |
 | close / list maintenance windows | `uv run python manage.py maintenance close` / `... maintenance list` |

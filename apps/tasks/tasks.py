@@ -34,9 +34,33 @@ from django.conf import settings
 from django.core.mail import send_mail
 from django.tasks import task
 
+from .reliability import retry_policy
+
 logger = logging.getLogger(__name__)
 
+# Transient mail failures (SMTP server down, connection reset, timeouts) are
+# worth retrying; OSError covers smtplib.SMTPException and socket errors.
+# Template/programming errors are not, so they fail on the first attempt.
+#
+# These tasks can send the same message twice, by two different routes, and the
+# second is much broader than the first:
+#
+# 1. The SMTP server accepted the message and the connection dropped before the
+#    reply, so the send looks failed and is retried.
+# 2. This worker is paused or partitioned for longer than
+#    SMALLSTACK_TASKS_LOST_AFTER_SECONDS (90s) *while sending* — a throttled or
+#    starved container, a snapshotted VM, a host that swaps. The reaper declares
+#    the task lost and a retry sends it; then this worker resumes and finishes
+#    its own send. No SMTP-level ambiguity is needed and nothing has to fail.
+#    See reaper.py: the double execution is recorded and logged, not prevented.
+#
+# For mail that is acceptable — a duplicate is a nuisance, not a corruption. It
+# is not a template you can copy onto a task that charges a card or ships an
+# order without making that task idempotent first.
+_email_retry = retry_policy(max_attempts=3, backoff=30, backoff_max=600, retry_on=(OSError,))
 
+
+@_email_retry
 @task(queue_name="email")
 def send_email_task(
     recipient: str | list[str],
@@ -81,6 +105,7 @@ def send_email_task(
     )
 
 
+@_email_retry
 @task(queue_name="email")
 def send_html_email_task(
     recipient: str | list[str],
@@ -154,6 +179,7 @@ def send_html_email_task(
     return email.send()
 
 
+@_email_retry
 @task(queue_name="email")
 def send_welcome_email(user_id: int) -> int:
     """
@@ -190,9 +216,13 @@ def send_welcome_email(user_id: int) -> int:
         logger.warning(f"User {user_id} has no email address")
         return 0
 
+    from apps.accounts.emails import site_base_url
+
     site_name = getattr(settings, "SITE_NAME", "SmallStack")
-    domain = getattr(settings, "SITE_DOMAIN", "localhost:8000")
-    protocol = "https" if getattr(settings, "USE_HTTPS", False) else "http"
+    # Same resolution chain as every branded email (SITE_DOMAIN, else a
+    # URL-shaped SITE_URL) so welcome links aren't dead on installs that
+    # configured their host once for webhooks.
+    protocol, _, domain = site_base_url().partition("://")
 
     context = {
         "user": user,

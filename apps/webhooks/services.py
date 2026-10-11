@@ -54,8 +54,15 @@ def signature_header_value(secret: str, body: bytes) -> str:
 
 def verify(secret: str, body: bytes, provided: str) -> bool:
     """Constant-time check of an inbound signature. Accepts a bare hex digest or
-    an ``sha256=<hex>`` prefixed value."""
-    if not provided:
+    an ``sha256=<hex>`` prefixed value.
+
+    An **empty secret never verifies.** Without this, a receiver with
+    ``secret=''`` and ``require_signature=True`` — which reads as "locked down" —
+    accepted any request whose sender computed the HMAC with the empty key, i.e.
+    anyone who knows the scheme. HMAC is happy to key on b""; nothing else was
+    checking. (F-40.)
+    """
+    if not provided or not secret:
         return False
     expected = sign(secret, body)
     candidate = provided.split("=", 1)[1] if provided.startswith("sha256=") else provided
@@ -93,20 +100,33 @@ def url_is_allowed(url: str) -> tuple[bool, str]:
         infos = socket.getaddrinfo(host, parts.port or (443 if parts.scheme == "https" else 80))
     except OSError:
         # Unresolvable at save time is not necessarily fatal (DNS may be
-        # transient); allow it and let the delivery attempt surface the error.
+        # transient); allow it. This pre-check is not the last line: at send
+        # time the delivery re-checks the socket's *connected* peer address
+        # (tasks._check_peer), which also closes the DNS-rebinding window
+        # between this lookup and the connect. (Audit C4.)
         return True, ""
     for info in infos:
-        ip = info[4][0]
-        try:
-            addr = ipaddress.ip_address(ip)
-        except ValueError:
-            continue
-        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+        ip = str(info[4][0])
+        if ip_is_blocked(ip):
             return False, (
                 f"Host {host!r} resolves to a private/loopback address ({ip}). "
                 "Set SMALLSTACK_WEBHOOK_ALLOW_PRIVATE=true to allow (dev only)."
             )
     return True, ""
+
+
+def ip_is_blocked(ip: str) -> bool:
+    """True for private/loopback/link-local/reserved addresses (the SSRF set)."""
+    try:
+        addr = ipaddress.ip_address(ip.split("%", 1)[0])
+    except ValueError:
+        return False
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        addr = addr.ipv4_mapped
+    return bool(
+        addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved
+        or addr.is_multicast or addr.is_unspecified
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -537,6 +557,19 @@ def pair_smallstack(
         f" --events '{_json.dumps(events)}'"
     )
 
+    # Pairing two instances on one box (localhost / 127.0.0.1) is the FIRST thing
+    # anyone tries, and the SSRF guard blocks it at send time with the failure
+    # buried in WebhookDelivery.error — so the demo silently delivered nothing.
+    # Surface it here, where the operator is looking. (F-06 layer 1.)
+    url_ok, url_reason = url_is_allowed(target_url)
+    warnings: list[str] = []
+    if not url_ok:
+        warnings.append(
+            f"Deliveries to {target_url} will be BLOCKED before they are sent: "
+            f"{url_reason}"
+        )
+        logger.warning("webhooks: paired endpoint target is blocked — %s", url_reason)
+
     return {
         "endpoint_id": endpoint.pk,
         "receiver_id": receiver.pk if receiver else None,
@@ -550,6 +583,7 @@ def pair_smallstack(
         "one_way": one_way,
         "endpoint_created": ep_created,
         "mirror_command": mirror_command,
+        "warnings": warnings,
     }
 
 

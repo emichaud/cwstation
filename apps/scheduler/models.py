@@ -12,14 +12,45 @@ from datetime import datetime
 from typing import Any
 
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator
 from django.db import models
 from django.utils import timezone
 
 from . import schedules
 
 
+def _backend_queues(task_path: str) -> set[str]:
+    """Queues the task's backend accepts; empty means "any" (or unknown).
+
+    Uses the task's own backend when ``task_path`` resolves, else the default
+    backend — an unresolvable path is reported separately at fire time.
+    """
+    from importlib import import_module
+
+    from django.tasks import task_backends
+
+    backend = None
+    try:
+        module_path, attr = task_path.rsplit(".", 1)
+        backend = getattr(import_module(module_path), attr).get_backend()
+    except Exception:  # noqa: BLE001 — resolution problems aren't this check's job
+        try:
+            backend = task_backends["default"]
+        except Exception:  # noqa: BLE001
+            return set()
+    return set(getattr(backend, "queues", None) or ())
+
+
 class ScheduledJob(models.Model):
     """A recurring (or one-off) schedule that enqueues a django.tasks task."""
+
+    # Ceiling on max_retries. Single source: the model validator (which is what
+    # actually enforces it, via full_clean from the form, REST and MCP), the
+    # form field's max_value (which is what the OpenAPI and MCP schemas
+    # *advertise*), and the number input's max attribute. They drifted once —
+    # the bound was enforced but not advertised, so MCP clients could not
+    # discover it — which is why there is now one constant.
+    MAX_RETRIES_CAP = 10
 
     class Type(models.TextChoices):
         ONCE = "once", "Once"
@@ -67,12 +98,32 @@ class ScheduledJob(models.Model):
         help_text="If off, skip a fire while the previous run is still unfinished.",
     )
     catch_up = models.CharField(max_length=10, choices=CatchUp.choices, default=CatchUp.RUN_ONCE)
-    max_retries = models.PositiveSmallIntegerField(default=0, help_text="Reserved (Phase 3).")
+    max_retries = models.PositiveSmallIntegerField(
+        default=0,
+        validators=[MaxValueValidator(MAX_RETRIES_CAP)],
+        help_text=(
+            "Retries after a failed run, each waiting longer than the last, when the task raises. "
+            "A run whose worker died mid-task is not re-run — only the task's own @retry_policy "
+            "can opt into that, since repeating it may duplicate work already done. "
+            "0 = use the task's @retry_policy, if it has one."
+        ),
+    )
 
     source = models.CharField(max_length=8, choices=Source.choices, default=Source.UI)
     # An operator changed the cadence in the UI. Code sync keeps their value
     # instead of reverting to the @scheduled default (task/kwargs still sync).
     schedule_overridden = models.BooleanField(default=False)
+    # Set when sync_code_jobs() disabled this row because its @scheduled spec
+    # disappeared — a feature flag turned off, or the code was removed. It is what
+    # makes the retirement REVERSIBLE: when the spec comes back, a row carrying
+    # this marker is re-enabled, while a row an operator disabled by hand stays
+    # off. Without it, `SMALLSTACK_APPROVALS_SWEEP_ENABLED=False` then `=True`
+    # left the sweep dead forever, with no log line and no UI hint. (F-30.)
+    auto_retired = models.BooleanField(
+        default=False,
+        help_text="Disabled automatically because no code spec declared it. "
+        "Re-enabled automatically if the spec returns.",
+    )
 
     # Bookkeeping maintained by the tick.
     next_run_at = models.DateTimeField(null=True, blank=True, db_index=True)
@@ -120,6 +171,14 @@ class ScheduledJob(models.Model):
             schedules.next_run(self, after=timezone.now())
         except schedules.ScheduleConfigError as exc:
             raise ValidationError({field_name: str(exc)}) from exc
+
+        # An unknown queue raises InvalidTask at enqueue time — every fire
+        # would fail. Catch it here instead. (Audit 2026-09-13, D2.)
+        queues = _backend_queues(self.task_path)
+        if queues and self.queue_name not in queues:
+            raise ValidationError(
+                {"queue_name": f"Unknown queue {self.queue_name!r}; configured: {', '.join(sorted(queues))}."}
+            )
 
     # Fields that define *when* the job fires. A change to any of them must
     # re-seed next_run_at (see save()), so a retune actually takes effect.

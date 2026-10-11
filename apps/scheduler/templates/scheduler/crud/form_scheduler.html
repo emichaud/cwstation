@@ -215,6 +215,12 @@ preview is visible while the cadence is being edited.
                 <div class="sjf-hidden-native">{{ form.catch_up }}</div>
                 <p class="crud-help">If the worker was down through one or more fires, run a single catch-up then resume — or skip them entirely.</p>
             </div>
+            <div class="crud-field sjf-field sjf-span{% if form.max_retries.errors %} has-error{% endif %}">
+                <label class="crud-label" for="{{ form.max_retries.id_for_label }}">Retries on failure</label>
+                {{ form.max_retries }}
+                <p class="crud-help">{{ form.max_retries.help_text }}</p>
+                {% if form.max_retries.errors %}<p class="crud-error">{{ form.max_retries.errors.0 }}</p>{% endif %}
+            </div>
         </div>
     </div>
 

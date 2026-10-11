@@ -534,6 +534,8 @@ class HeartbeatDashboardView(StaffRequiredMixin, TemplateView):
         from django.core.paginator import Paginator
         from django.db.models import Avg
 
+        from apps.smallstack.pagination import attach_display_helpers
+
         context = super().get_context_data(**kwargs)
         tab = self.get_tab()
         context["active_tab"] = tab
@@ -542,11 +544,7 @@ class HeartbeatDashboardView(StaffRequiredMixin, TemplateView):
         # {% sortable_th %} headers + Django pagination (was HeartbeatTable
         # + django-tables2 RequestConfig pre-v0.12).
         qs = self.get_tab_queryset(tab).order_by(self.get_ordering())
-        page_obj = Paginator(qs, self.page_size).get_page(self.request.GET.get("page"))
-        # render_paginator's template reads these display helpers.
-        page_obj.showing_start = page_obj.start_index()
-        page_obj.showing_end = page_obj.end_index()
-        page_obj.total_count = page_obj.paginator.count
+        page_obj = attach_display_helpers(Paginator(qs, self.page_size).get_page(self.request.GET.get("page")))
         context["beats"] = page_obj.object_list
         context["page_obj"] = page_obj
         context["is_paginated"] = page_obj.has_other_pages()
@@ -828,7 +826,8 @@ def _monitor_overview_state(monitor: Monitor) -> dict[str, Any]:
         "response_time_ms": data.get("response_time_ms"),
         "uptime_24h": None if warming_up else (_calc_uptime(24, monitor.key) if known else None),
         "warming_up": warming_up,
-        "note": "",
+        # The last recorded beat's note — the check()'s actionable sentence.
+        "note": data.get("note", ""),
     }
 
 
@@ -852,6 +851,11 @@ class MonitorDetailView(TemplateView):
         monitor_key = self.kwargs["monitor_key"]
         monitor = monitors.get_monitor(monitor_key)
         is_staff = bool(getattr(self.request.user, "is_staff", False))
+        # Staff always reach this page (it's their per-monitor view too); for
+        # everyone else it is part of the public status surface, so it honours
+        # SMALLSTACK_PUBLIC_STATUS_ENABLED like the rest of it. (Audit C9a.)
+        if not is_staff and not _public_status_enabled():
+            raise Http404("The public status page is disabled.")
         if monitor is None or (not is_staff and not monitor.public):
             raise Http404(f"No monitor '{monitor_key}'")
         service = monitors.get_service(monitor.service)
@@ -995,11 +999,25 @@ def _build_site_card(core_services: list[dict]) -> dict[str, Any]:
 
     The **hero** is the site monitor's *recorded* history (uptime % since the epoch,
     duration, SLA + Timeline links) — "the server is up, for how long, against its
-    SLA". The **core-service rows** use each monitor's *live* ``inventory()`` (an
-    in-process registry/connection read) so "is it wired and running" + "what's
-    behind it" stay accurate even when the per-minute runner is behind. Database,
-    Search, REST API and MCP are all sub-indicators of one Site card, not separate
-    SLAs.
+    SLA". Database, Search, REST API and MCP are all sub-indicators of one Site
+    card, not separate SLAs.
+
+    A **core-service row** combines two independent facts, and needs **both** to be
+    good before it shows a green tick:
+
+    * the monitor's live ``inventory()`` — an in-process registry/connection read,
+      so "is it wired and running" + "what's behind it" stay accurate even when the
+      per-minute runner is behind;
+    * the monitor's *recorded* state from the last run — the only thing that knows
+      about conditions ``inventory()`` cannot see in-process.
+
+    Using ``inventory()`` alone was a real hole: ``Monitor.inventory()``'s base
+    implementation returns ``{"ok": True}``, so any monitor that does not override
+    it rendered a green "on" while its recorded ``check()`` was FAILING. That hit
+    both ``approvals-fanout`` ("191 approval email tasks queued and unrun") and
+    ``scheduler-tick`` ("2 jobs overdue") — the two monitors that were actually
+    down were the two the page swore were fine. A silent failure is bad; a failure
+    that renders as a green tick on the status board is worse. (F-28.)
     """
     from django.urls import NoReverseMatch, reverse
 
@@ -1009,14 +1027,27 @@ def _build_site_card(core_services: list[dict]) -> dict[str, Any]:
         service = svc["service"]
         rows = svc["monitors"]
         monitor = rows[0]["monitor"] if rows else None
-        inv: dict[str, Any] = {"ok": svc["state"] == "operational", "summary": "", "items": []}
+        recorded_state = svc.get("state", "unknown")
+        inv: dict[str, Any] = {"ok": recorded_state == "operational", "summary": "", "items": []}
         if monitor is not None:
             try:
                 inv = monitor.inventory()
             except Exception:  # noqa: BLE001 — a broken inventory can't break the page
                 inv = {"ok": False, "summary": "check failed", "items": []}
-        ok = bool(inv.get("ok", False))
+        # Not-yet-recorded ("unknown") is not a failure — a fresh install has run
+        # no heartbeat yet, and inventory() is exactly the right answer there.
+        recorded_bad = _STATE_SEVERITY.get(recorded_state, 1) >= _STATE_SEVERITY["degraded"]
+        ok = bool(inv.get("ok", False)) and not recorded_bad
         display = _STATE_DISPLAY["operational"] if ok else _STATE_DISPLAY["down"]
+        # When the recorded check is what failed, the row must carry ITS words —
+        # the whole point of the monitor is the actionable sentence it writes
+        # ("start a worker on the 'email' queue…"), and that text was nowhere on
+        # the page.
+        summary = inv.get("summary", "")
+        if recorded_bad and rows:
+            recorded_note = rows[0].get("note") or rows[0].get("summary") or ""
+            title = getattr(rows[0].get("monitor"), "title", "") or rows[0].get("label", "")
+            summary = " — ".join(p for p in (title, recorded_note) if p) or summary
         services.append(
             {
                 "label": service.title,
@@ -1027,7 +1058,7 @@ def _build_site_card(core_services: list[dict]) -> dict[str, Any]:
                 # "down" (not "off") when a core service isn't operational — there's no
                 # per-service toggle, so "off" misreads as "someone disabled this".
                 "state_label": "on" if ok else "down",
-                "summary": inv.get("summary", ""),
+                "summary": summary,
                 "items": inv.get("items", []),
                 "detail_url": rows[0]["detail_url"]
                 if rows

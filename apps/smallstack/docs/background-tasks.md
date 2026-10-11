@@ -231,6 +231,84 @@ For model instances, pass the ID instead:
 send_welcome_email.enqueue(user_id=user.id)
 ```
 
+## When Workers Die: Lost Tasks and Retries
+
+A worker process can die mid-task: a deploy replaces the container, the machine
+runs out of memory, someone runs `kill -9`. On its own, the task engine would
+leave that task marked **Running** forever. SmallStack's `db_worker` prevents that:
+
+- Every worker records a **worker heartbeat** every 15 seconds (not the same
+  thing as the uptime heartbeat on the status page).
+- About once a minute (every 4 heartbeats), and whenever a worker starts, workers
+  check for tasks whose worker has stopped or gone quiet for 90 seconds. Those
+  tasks are marked **Failed** with the error `WorkerLost` and a message saying
+  which worker died and when it was last seen. If you change the 15-second
+  heartbeat interval, the once-a-minute check moves with it.
+
+You don't need to set anything up. The `db_worker` you already run does this.
+
+### When a task runs twice
+
+Occasionally a worker isn't really dead — just frozen long enough to look it (a
+container starved of CPU, a virtual machine paused and resumed). SmallStack
+declares its task lost and runs it again; then the original worker wakes up and
+finishes too. The task has now run twice.
+
+The result the original worker reports is kept, because it actually happened.
+What SmallStack promises is that this is never hidden from you:
+
+- the run says so — "ran more than once: attempt 1 completed after being declared lost";
+- a warning is logged naming the task;
+- it's recorded permanently under **Explorer → System → Task attempts**, in the
+  *Parent completed at* column.
+
+If the second run hadn't started yet, it's cancelled and the task ran only once.
+Tasks that must never repeat — charging a card, shipping an order — should be
+written so that running them twice is harmless.
+
+### Retrying failed tasks
+
+A task can ask to be retried when it fails. Put `@retry_policy` above `@task`:
+
+```python
+from django.tasks import task
+from apps.tasks.reliability import retry_policy
+
+@retry_policy(max_attempts=3, retry_on=(OSError,))
+@task
+def sync_invoice(invoice_id):
+    ...
+```
+
+A failed attempt is then queued again after a delay that grows each time —
+up to 5s, then up to 10s, then up to 20s, never more than 10 minutes. The
+setting is the *longest* each wait can be: the actual wait is picked at random
+between half of it and all of it (so a 5s setting waits 2.5–5s), which stops a
+batch of tasks that failed together from retrying together. Each attempt keeps
+its own record and
+error, so you can see the whole history. The built-in email tasks already retry
+up to 3 times on connection and SMTP errors.
+
+**Only retry tasks that are safe to run twice.** A retried task may repeat work
+that partly happened the first time, so retries are off unless a task asks for
+them. Scheduled jobs have their own **Retries on failure** setting (see the
+[Scheduler](/smallstack/help/smallstack/scheduler/) page).
+
+### Settings
+
+| Setting | Default | What it controls |
+|---|---|---|
+| `SMALLSTACK_TASKS_HEARTBEAT_ENABLED` | `True` | Turn the worker heartbeat and lost-task checks off |
+| `SMALLSTACK_TASKS_HEARTBEAT_SECONDS` | `15` | How often each worker checks in |
+| `SMALLSTACK_TASKS_LOST_AFTER_SECONDS` | `90` | How long a worker can be silent before its tasks are failed |
+| `SMALLSTACK_TASKS_ORPHAN_SECONDS` | `86400` | Same, for workers that never sent a heartbeat |
+| `SMALLSTACK_TASKS_DEFAULT_MAX_ATTEMPTS` | `1` | Attempts for tasks with no retry policy (1 = no retries) |
+| `SMALLSTACK_TASKS_BACKOFF_SECONDS` | `5` | Longest the first retry waits (actual wait is 2.5–5s) |
+| `SMALLSTACK_TASKS_BACKOFF_MAX_SECONDS` | `600` | Longest retry delay |
+
+Staff can see workers and retry chains in **Explorer → System → Worker
+heartbeats** and **Task attempts**.
+
 ## Task Maintenance
 
 Clean up old completed tasks periodically:
@@ -295,17 +373,19 @@ This blocks the request until the task completes, so it's only for testing.
 - Automatic worker reload in development
 - Good enough for most small-to-medium applications
 
+For **recurring work** — cron expressions, intervals, run-once-at-a-time — you don't need Celery: {{ project_name }} ships a full [scheduler](/smallstack/help/smallstack/scheduler/) on top of this task engine (`@scheduled` decorator, themed control console at `/smallstack/scheduler/`, run history, overlap and catch-up policies).
+
 For **high-volume production** systems, consider [Celery](https://docs.celeryq.dev/):
 
-| Feature | Django Tasks | Celery |
+| Feature | Django Tasks + SmallStack scheduler | Celery |
 |---------|-------------|--------|
 | Setup complexity | Simple | Moderate |
 | External dependencies | None | Redis/RabbitMQ |
-| Scheduling | Basic | Advanced (cron-like) |
-| Retries | Manual | Built-in with backoff |
-| Monitoring | Basic | Flower dashboard |
+| Scheduling | Cron / interval / once (`@scheduled`, DST-aware) | Advanced (celery beat) |
+| Retries | Manual (webhooks add their own backoff tick) | Built-in with backoff |
+| Monitoring | Scheduler console + status monitors | Flower dashboard |
 | Scaling | Limited | Distributed workers |
-| Best for | Simple apps | High-volume systems |
+| Best for | Small-to-medium apps | High-volume systems |
 
 To use Celery instead:
 
@@ -397,6 +477,18 @@ if result.status == "FAILED":
     for error in result.errors:
         print(f"Exception: {error.exception_class}")
         print(error.traceback)
+```
+
+### A task has been "Running" for a long time
+
+If its worker died, the task is marked **Failed** (`WorkerLost`) within about
+a few minutes, as long as some worker is running. If it's still Running, its worker is alive and
+the task itself is slow or stuck. Check **Explorer → System → Worker
+heartbeats** to see which is the case. To check now instead of waiting:
+
+```bash
+uv run python manage.py reap_tasks --dry-run   # show what would be failed
+uv run python manage.py reap_tasks             # fail them (and retry if allowed)
 ```
 
 ### Worker not picking up code changes

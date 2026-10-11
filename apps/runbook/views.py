@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import timedelta
 from typing import Any, Optional
 
@@ -31,7 +32,15 @@ from .forms import (
     SectionForm,
 )
 from .mixins import StaffRequiredMixin  # noqa: F401  (kept for staff-only endpoints if any)
-from .models import Document, DocumentImage, DocumentVersion, Runbook, Section, strip_frontmatter
+from .models import (
+    IMAGE_CONTENT_TYPES,
+    Document,
+    DocumentImage,
+    DocumentVersion,
+    Runbook,
+    Section,
+    strip_frontmatter,
+)
 from .utils import parse_slides, parse_steps, render_document, render_markdown
 
 # -- Dashboard ----------------------------------------------------------------
@@ -103,7 +112,15 @@ class RunbookCreateView(LoginRequiredMixin, CreateView):
         kwargs["viewer"] = self.request.user  # scope the template picker
         return kwargs
 
-    def form_valid(self, form: RunbookCreateForm) -> HttpResponse:
+    # ``# type: ignore[override]`` on form_valid below: the annotation narrows
+    # to this view's own ``form_class``, which django-stubs 6.1 flags as a Liskov
+    # violation against ``FormMixin.form_valid(form: ModelForm[Any])``. Django only
+    # ever passes ``get_form()``'s result, so the narrower type is accurate at
+    # runtime and more useful to a reader. Parameterising the base class
+    # (``UpdateView[Model, Form]``) would be the formally-correct fix, but that
+    # needs ``django_stubs_ext.monkeypatch()`` at runtime and django-stubs is a
+    # dev-only dependency here.
+    def form_valid(self, form: RunbookCreateForm) -> HttpResponse:  # type: ignore[override]
         template = form.cleaned_data.get("template")
         if template:
             _require_view(self.request.user, template)
@@ -352,7 +369,7 @@ class SectionCreateView(LoginRequiredMixin, CreateView):
         context["runbook"] = self.runbook
         return context
 
-    def form_valid(self, form: SectionForm) -> HttpResponse:
+    def form_valid(self, form: SectionForm) -> HttpResponse:  # type: ignore[override]
         form.instance.runbook = self.runbook
         return super().form_valid(form)
 
@@ -533,7 +550,7 @@ class DocumentCreateView(LoginRequiredMixin, CreateView):
         context["runbook"] = self.runbook
         return context
 
-    def form_valid(self, form: DocumentForm) -> HttpResponse:
+    def form_valid(self, form: DocumentForm) -> HttpResponse:  # type: ignore[override]
         body = form.cleaned_data["file"].read().decode("utf-8", errors="replace")
         self.object = service.create_document(
             self.runbook,
@@ -578,7 +595,7 @@ class DocumentCreateFromScratchView(LoginRequiredMixin, CreateView):
         context["from_scratch"] = True
         return context
 
-    def form_valid(self, form: DocumentCreateFromScratchForm) -> HttpResponse:
+    def form_valid(self, form: DocumentCreateFromScratchForm) -> HttpResponse:  # type: ignore[override]
         title = form.cleaned_data["title"]
         section = form.cleaned_data.get("section")
         description = form.cleaned_data.get("description", "")
@@ -646,7 +663,7 @@ class DocumentUpdateView(LoginRequiredMixin, UpdateView):
         context["runbook"] = self._runbook()
         return context
 
-    def form_valid(self, form: DocumentForm) -> HttpResponse:
+    def form_valid(self, form: DocumentForm) -> HttpResponse:  # type: ignore[override]
         self.object = form.save()
         # A file uploaded during a metadata edit becomes a new version.
         uploaded = form.cleaned_data.get("file")
@@ -992,7 +1009,19 @@ class ServeImageView(LoginRequiredMixin, View):
     def get(self, request: HttpRequest, pk: int) -> FileResponse:
         image = get_object_or_404(DocumentImage, pk=pk)
         _require_view(request.user, image.document)
-        return FileResponse(image.image.open("rb"))
+        # Pin the type from an allowlist rather than letting FileResponse guess
+        # it from the stored name; anything unrecognised (incl. pre-fix uploads
+        # that kept a client-chosen name) is a download, never rendered.
+        ext = os.path.splitext(image.image.name or "")[1].lower()
+        content_type = IMAGE_CONTENT_TYPES.get(ext)
+        if content_type is None:
+            return FileResponse(
+                image.image.open("rb"),
+                content_type="application/octet-stream",
+                as_attachment=True,
+                filename=f"image-{image.pk}.bin",
+            )
+        return FileResponse(image.image.open("rb"), content_type=content_type)
 
 
 # -- Bulk Download ------------------------------------------------------------

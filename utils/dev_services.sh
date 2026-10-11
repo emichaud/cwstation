@@ -101,6 +101,7 @@ fi
 # pointed at the uv/python process so kill_tree can reap it on exit.
 info "Starting db_worker…"
 PYTHONUNBUFFERED=1 uv run python manage.py db_worker --queue-name "$QUEUE" \
+  --worker-id "${SMALLSTACK_WORKER_ID:-dev}" \
   > >(sed "s/^/${C_WORKER}[worker]${C_RST} /") 2>&1 &
 WORKER_PID=$!
 

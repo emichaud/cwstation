@@ -104,7 +104,9 @@ X-SmallStack-Delivery: 123
 
 Delivery failures retry with exponential backoff (`SMALLSTACK_WEBHOOK_BACKOFF`), driven
 by a tick — **the framework has no automatic task retry, this is ours**. Pick exactly
-one trigger per deployment (same choices as the scheduler):
+one trigger per deployment (same choices as the scheduler). **The Docker image ships
+`POST /webhooks/tick/` every minute in `scripts/smallstack-cron`**; wire one of the others
+only if you don't deploy with that crontab:
 
 - cron/systemd: `* * * * * python manage.py run_due_deliveries`
 - localhost POST inside gunicorn: `POST /webhooks/tick/`
@@ -139,14 +141,22 @@ sc new webhookreceiver --name Stripe --slug stripe --secret "whsec_..." --user a
 
 (Or the UI at `/smallstack/webhooks/receivers/`, REST, or the `create_webhook_receiver`
 MCP tool — same fields everywhere.) Omitted fields use the model defaults:
-`require_signature=True`, `signature_header="X-Signature"`, `enabled=True`, and an
+`require_signature=True`, `signature_header="X-SmallStack-Signature"` (the header
+SmallStack's own sender emits, so a SmallStack↔SmallStack pairing verifies with no
+configuration), `enabled=True`, and an
 auto-generated `secret`. Set `--secret` when the provider hands you one (Stripe's
 `whsec_…`); read a generated one back with the Reveal button on the receiver detail
 page (staff-only, POST).
 
 The view verifies the signature (constant-time) against `secret`, using the header named
-by `signature_header` (default `X-Signature`), records a `WebhookReceipt`, and returns
+by `signature_header` (default `X-SmallStack-Signature`, **matched
+case-insensitively** like any HTTP header — set it to `X-Signature`,
+`X-Hub-Signature-256`, … for a third party), records a `WebhookReceipt`, and returns
 `202` fast (`401` on bad signature, `404` for unknown/disabled slug).
+
+> Verifiers receive a **case-insensitive mapping** of the request headers, so a
+> custom verifier can look up whatever spelling its provider documents
+> (`"Stripe-Signature"`, `"stripe-signature"` — both hit).
 
 ### 2. Write the handler
 
@@ -163,6 +173,8 @@ def on_stripe(receipt):
 ```
 
 Raising inside a handler marks the receipt `failed` (recorded, not fatal).
+Receipts are pruned by `manage.py prune_webhook_receipts` after
+`SMALLSTACK_WEBHOOK_RECEIPT_RETENTION_DAYS` (default 30; `0` keeps them forever).
 
 **Loop-safe by default (F-020).** A handler runs inside `suppress_webhooks()` — a write it
 makes into an `enable_webhooks` model emits **no** outbound event, so a write-back can't
@@ -242,6 +254,19 @@ block once.) Key points:
 - **`--verify`** (after both halves exist) fires a signed test delivery through the paired
   endpoint; check its status (`sc webhook deliveries --status success`) to confirm the peer
   accepted the local→peer direction.
+
+> **Pairing two instances on one box needs one extra setting.** A loopback or
+> private target (`http://127.0.0.1:8065/webhooks/in/…`) is refused by the SSRF
+> guard *before the request is sent*, so the delivery is recorded as failed and
+> nothing reaches the peer. Set `SMALLSTACK_WEBHOOK_ALLOW_PRIVATE=true` (dev
+> only) in the environment of **the process that sends** — i.e. the `db_worker`,
+> not just the web server. `sc webhook pair` prints a warning when the target is
+> blocked (both the two-way and `--one-way` shapes), and `sc doctor webhook`
+> reports it under "Endpoint URLs".
+
+> **Inbound dispatch needs a worker.** The receiver returns `202` immediately and
+> runs the handler in `apps.webhooks.tasks.dispatch_incoming`, so a paired
+> SmallStack does nothing until a `db_worker` runs.
 
 Because both sides run the loop guard and set `ignore_origin`, an event one side originates
 can't echo back and re-fire. The upgraded envelope (`event_id`, absolute `resource.url`)
@@ -390,7 +415,7 @@ sc doctor webhook                          # same, via the framework CLI (also p
 5. **Scripted creates honor model defaults.** `sc new` / REST `POST` / MCP `create_*`
    fill omitted fields from the model defaults, exactly like an ORM `.create()` —
    so a new endpoint/receiver is **enabled**, and a receiver keeps
-   `require_signature=True` and `signature_header="X-Signature"` unless you say
+   `require_signature=True` and `signature_header="X-SmallStack-Signature"` unless you say
    otherwise. Pass `--enabled=false` to create something switched off.
 6. **`require_signature=False` fails open — prefer a verifier.** An enabled receiver with
    signature verification off accepts unsigned/bad-signature POSTs. For a provider that

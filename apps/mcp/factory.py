@@ -16,7 +16,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from django.http import HttpRequest, QueryDict
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.http import Http404, HttpRequest, QueryDict
 
 from apps.smallstack.api import (
     apply_filters,
@@ -72,6 +73,9 @@ _ACTION_VERB = {
     Action.DELETE: "Delete a ",
 }
 
+#: Actions whose tool addresses exactly one row by identifier.
+_SINGLE_OBJECT_ACTIONS = frozenset({Action.DETAIL, Action.UPDATE, Action.DELETE})
+
 
 def _action_description(view_cls, action: Action) -> str:
     """Build the grammatically-correct per-action description for an MCP tool.
@@ -101,8 +105,17 @@ def _action_description(view_cls, action: Action) -> str:
 
     head = f"{verb}{noun}"
     if view_cls.mcp_description:
-        return f"{head} — {view_cls.mcp_description}"
-    return head
+        out = f"{head} — {view_cls.mcp_description}"
+    else:
+        out = head
+    # Name the identifier in prose, not only in inputSchema. A model reasoning
+    # from the previous tool's output ("it returned id: 2254") plus a prose
+    # instruction is the documented HITL loop, and that loop failed on its first
+    # call while `pk` was the only accepted key and the only place it was
+    # written down. (F-25.)
+    if action in _SINGLE_OBJECT_ACTIONS:
+        out = f"{out}. Identify the row by 'id' — the value list/get/create returns ('pk' is accepted as an alias)"
+    return out
 
 
 def _build_list_input_schema(view_cls) -> dict[str, Any]:
@@ -181,8 +194,8 @@ def _build_form_input_schema(view_cls, *, include_pk: bool = False) -> dict[str,
     required: list[str] = []
 
     if include_pk:
-        props["pk"] = {"type": "integer", "description": "Primary key of the record."}
-        required.append("pk")
+        # `id` is the wire name (serialize() emits it); `pk` is a permanent alias.
+        props.update(_OBJECT_ID_SCHEMA)
 
     if form_class is not None:
         try:
@@ -195,12 +208,15 @@ def _build_form_input_schema(view_cls, *, include_pk: bool = False) -> dict[str,
         except Exception:
             logger.exception("Failed to introspect form_class for %s", view_cls)
 
-    return {
+    out: dict[str, Any] = {
         "type": "object",
         "properties": props,
         "required": required,
         "additionalProperties": False,
     }
+    if include_pk:
+        out["anyOf"] = [{"required": ["id"]}, {"required": ["pk"]}]
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -263,32 +279,112 @@ def _build_list_tool(view_cls, *, base: str):
     return tool(name, desc, schema, requires_access=requires)(handler)
 
 
+# --- the single-object identifier -------------------------------------------
+#
+# `serialize()` emits the row's identity as **"id"** (apps/smallstack/api.py's
+# `_serialize`), and three hand-written tools (`logs_get`,
+# `runbook_get_document`, `decide_approval`) accept `id`. The generated
+# get_/update_/delete_ tools accepted only `pk`, so an agent that did the
+# obvious thing — take the `id` the previous tool returned and pass it to the
+# next — got `{"error": "pk is required"}` on its first call. In approvals that
+# was actively mis-instructed: `request_approval`'s own description says "poll
+# get_approval with that id". (F-25.)
+#
+# Fix: `id` is the wire name everywhere; `pk` stays a permanent alias so no
+# existing client breaks.
+
+# Refusals carry a machine-readable `code` so a model can branch on the KIND of
+# failure instead of pattern-matching English. `isError` (set by the dispatcher
+# from the presence of this "error" key) already separates failure from success;
+# without a code, an agent still cannot tell not-found from not-permitted from
+# bad-argument on a generated tool. F-20 gave the hand-written approvals tools
+# this shape and the harness asserts it; F-53 is that shape reaching the ~12
+# apps' worth of GENERATED tools, where the three cases were already
+# distinguished in code but never named.
+#
+# Codes are a closed vocabulary — add to it deliberately, since agents branch on
+# these strings: invalid_argument · not_found · not_permitted · validation_error
+# · unsupported.
+def _tool_error(code: str, message: str, **extra: Any) -> dict[str, Any]:
+    return {"error": {"code": code, "message": message, **extra}}
+
+
+_OBJECT_ID_SCHEMA = {
+    "id": {
+        "type": "integer",
+        "description": "Row id — the `id` returned by list/get/create.",
+    },
+    "pk": {
+        "type": "integer",
+        "description": "Alias for `id` (Django's primary-key name). Pass either.",
+    },
+}
+
+
+def _object_id_schema() -> dict[str, Any]:
+    """Input schema for a tool that addresses exactly one row.
+
+    Both keys are declared and exactly one is required, expressed as ``anyOf``
+    so ``additionalProperties: false`` still holds and a client that hedges by
+    sending both is not a schema violation.
+    """
+    return {
+        "type": "object",
+        "properties": dict(_OBJECT_ID_SCHEMA),
+        "anyOf": [{"required": ["id"]}, {"required": ["pk"]}],
+        "additionalProperties": False,
+    }
+
+
+def _object_id(args: dict[str, Any]) -> Any:
+    """Read the row identifier, accepting either spelling. ``id`` wins."""
+    pk = args.get("id")
+    if pk is None:
+        pk = args.get("pk")
+    return pk
+
+
+def _fetch_one(view_cls, args: dict[str, Any], request) -> Any:
+    """Resolve one row for a generated single-object tool.
+
+    Returns the instance, or an error dict ready to return to the caller. Applies
+    both halves of the single-object read contract: ``get_detail_queryset``
+    (scoping — a row you cannot see is "not found") and
+    ``check_object_permission`` (authorization — F-27), so a CRUDView that
+    expresses ownership in the hook is protected over MCP too.
+    """
+    pk = _object_id(args)
+    if pk is None:
+        return _tool_error("invalid_argument", "id is required (alias: pk)")
+    qs = view_cls.get_detail_queryset(view_cls._get_queryset(), request)
+    try:
+        obj = qs.get(pk=pk)
+    except (view_cls.model.DoesNotExist, ValueError, TypeError, ValidationError):
+        return _tool_error("not_found", f"{view_cls.model.__name__} id={pk} not found")
+    try:
+        view_cls.check_object_permission(obj, request)
+    except (PermissionDenied, Http404):
+        # Existence-hiding: an agent that may not touch the row is told the same
+        # thing as an agent naming a row that isn't there.
+        return _tool_error("not_found", f"{view_cls.model.__name__} id={pk} not found")
+    return obj
+
+
 def _build_get_tool(view_cls, *, singular: str):
     name = f"get_{singular}"
 
     def handler(args: dict[str, Any]):
         ctx = current_context()
         request = _fake_request(ctx.user)
-        qs = view_cls._get_queryset()
-        qs = view_cls.get_list_queryset(qs, request)
-        pk = args.get("pk")
-        if pk is None:
-            return {"error": "pk is required"}
-        try:
-            obj = qs.get(pk=pk)
-        except view_cls.model.DoesNotExist:
-            return {"error": f"{view_cls.model.__name__} pk={pk} not found"}
+        obj = _fetch_one(view_cls, args, request)
+        if isinstance(obj, dict):
+            return obj
         fields = view_cls._get_detail_fields() or view_cls.fields
         extra = getattr(view_cls, "api_extra_fields", [])
         expand = set(getattr(view_cls, "api_expand_fields", []) or [])
         return serialize(obj, fields, extra, expand)
 
-    schema = {
-        "type": "object",
-        "properties": {"pk": {"type": "integer", "description": "Primary key."}},
-        "required": ["pk"],
-        "additionalProperties": False,
-    }
+    schema = _object_id_schema()
     desc = _action_description(view_cls, Action.DETAIL)
     requires = "staff" if _has_staff_mixin(view_cls) else None
     return tool(name, desc, schema, requires_access=requires)(handler)
@@ -304,12 +400,12 @@ def _build_create_tool(view_cls, *, singular: str):
             view_cls._make_form_class() if hasattr(view_cls, "_make_form_class") else None
         )
         if form_class is None:
-            return {"error": "no form_class available"}
+            return _tool_error("unsupported", "no form_class available")
         # Native JSON args pass straight through (arrays/objects stay native);
         # omitted fields fall back to model defaults, mirroring REST create.
         form = form_class(merge_form_payload(form_class, args, fill_defaults=True))
         if not form.is_valid():
-            return {"errors": form.errors}
+            return _tool_error("validation_error", "the submitted fields are not valid", fields=form.errors)
         obj = form.save()
         view_cls.on_form_valid(request, form, obj, is_create=True)
         log_write(ctx.user, obj, ADDITION, "MCP")
@@ -330,19 +426,12 @@ def _build_update_tool(view_cls, *, singular: str):
     def handler(args: dict[str, Any]):
         ctx = current_context()
         request = _fake_request(ctx.user)
-        pk = args.get("pk")
-        if pk is None:
-            return {"error": "pk is required"}
-
-        qs = view_cls._get_queryset()
-        qs = view_cls.get_list_queryset(qs, request)
-        try:
-            obj = qs.get(pk=pk)
-        except view_cls.model.DoesNotExist:
-            return {"error": f"{view_cls.model.__name__} pk={pk} not found"}
+        obj = _fetch_one(view_cls, args, request)
+        if isinstance(obj, dict):
+            return obj
 
         if not view_cls.can_update(obj, request):
-            return {"error": "update not permitted"}
+            return _tool_error("not_permitted", "update not permitted")
 
         form_class = view_cls.form_class or view_cls._make_form_class()
 
@@ -350,14 +439,14 @@ def _build_update_tool(view_cls, *, singular: str):
         # with incoming args — a populated JSONField round-trips unchanged.
         merged = merge_form_payload(
             form_class,
-            {k: v for k, v in args.items() if k != "pk"},
+            {k: v for k, v in args.items() if k not in ("pk", "id")},
             instance=obj,
             instance_fields=view_cls.fields or view_cls._get_detail_fields(),
         )
 
         form = form_class(merged, instance=obj)
         if not form.is_valid():
-            return {"errors": form.errors}
+            return _tool_error("validation_error", "the submitted fields are not valid", fields=form.errors)
         obj = form.save()
         view_cls.on_form_valid(request, form, obj, is_create=False)
         log_write(ctx.user, obj, CHANGE, "MCP")
@@ -378,27 +467,18 @@ def _build_delete_tool(view_cls, *, singular: str):
     def handler(args: dict[str, Any]):
         ctx = current_context()
         request = _fake_request(ctx.user)
-        pk = args.get("pk")
-        if pk is None:
-            return {"error": "pk is required"}
-        qs = view_cls._get_queryset()
-        qs = view_cls.get_list_queryset(qs, request)
-        try:
-            obj = qs.get(pk=pk)
-        except view_cls.model.DoesNotExist:
-            return {"error": f"{view_cls.model.__name__} pk={pk} not found"}
+        obj = _fetch_one(view_cls, args, request)
+        if isinstance(obj, dict):
+            return obj
         if not view_cls.can_delete(obj, request):
-            return {"error": "delete not permitted"}
+            return _tool_error("not_permitted", "delete not permitted")
+        pk = obj.pk
         log_write(ctx.user, obj, DELETION, "MCP")  # before delete — obj.pk needed
         obj.delete()
-        return {"deleted": True, "pk": pk}
+        # Both spellings on the way out, so a caller that sent `pk` still finds it.
+        return {"deleted": True, "id": pk, "pk": pk}
 
-    schema = {
-        "type": "object",
-        "properties": {"pk": {"type": "integer", "description": "Primary key."}},
-        "required": ["pk"],
-        "additionalProperties": False,
-    }
+    schema = _object_id_schema()
     desc = _action_description(view_cls, Action.DELETE)
     requires = "staff" if _has_staff_mixin(view_cls) else None
     return tool(name, desc, schema, write=True, requires_access=requires)(handler)

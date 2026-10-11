@@ -19,12 +19,15 @@ import math
 from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse, JsonResponse, QueryDict
+from django.core.exceptions import PermissionDenied
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.http import Http404, HttpRequest, HttpResponse, JsonResponse, QueryDict
 from django.urls import URLPattern, path
 from django.views.decorators.csrf import csrf_exempt
 
 from .audit import ADDITION, CHANGE, DELETION, log_write
 from .crud import Action, BulkAction, _apply_ordering_fields
+from .exceptions import FeatureDisabled
 
 if TYPE_CHECKING:
     from django import forms
@@ -148,9 +151,18 @@ def build_api_urls(crud_config) -> list[URLPattern]:
 # ---------------------------------------------------------------------------
 
 
-def _error(message, status):
-    """Return a consistent error JsonResponse."""
-    return JsonResponse({"errors": {"__all__": [message]}}, status=status)
+def _error(message, status, code=None):
+    """Return a consistent error JsonResponse.
+
+    ``code`` is an optional machine-readable slug emitted alongside the prose, so
+    a client can branch on the *kind* of failure without matching English (the
+    same reason the MCP factory names its refusals). It is additive — the
+    ``errors`` shape every existing consumer reads is unchanged.
+    """
+    payload = {"errors": {"__all__": [message]}}
+    if code:
+        payload["code"] = code
+    return JsonResponse(payload, status=status)
 
 
 # Public alias
@@ -281,8 +293,32 @@ def api_view(methods=None, require_auth=True, require_staff=False, require_auth_
             else:
                 request.json = None
 
-            # Call the view function
-            result = fn(request, *args, **kwargs)
+            # Call the view function. Http404 — which `get_object_or_404` is the
+            # obvious way to raise, and which several hand-rolled endpoints do —
+            # used to escape into Django's HTML 404 handler, so a JSON client
+            # doing `await res.json()` threw a syntax error instead of seeing
+            # "not found". Translate it into the standard envelope here so every
+            # @api_view endpoint gets it, present and future. (F-17.)
+            # PermissionDenied and FeatureDisabled get the same treatment for the
+            # same reason: `check_object_permission` (F-27) and a feature's master
+            # switch (F-31) are both raised from code an endpoint *calls*, often in
+            # another app, so translating them per-endpoint does not scale and
+            # leaves the uncaught case as a 500.
+            try:
+                result = fn(request, *args, **kwargs)
+            except Http404 as exc:
+                return _error(str(exc) or "Not found", 404, code="not_found")
+            except PermissionDenied as exc:
+                return _error(str(exc) or "Permission denied", 403, code="permission_denied")
+            except FeatureDisabled as exc:
+                # The subclass's own `code` — declared on FeatureDisabled and,
+                # until now, read by nothing, while its docstring promised it
+                # reached the envelope. (F-54)
+                return _error(
+                    str(exc) or "This feature is disabled",
+                    503,
+                    code=getattr(exc, "code", None) or "feature_disabled",
+                )
 
             # Auto-wrap return values
             if isinstance(result, dict):
@@ -321,13 +357,17 @@ def _authenticate_api_request(
             # "credential is wrong" so CI logs and human debuggers see
             # the failure mode immediately. Round-2 audit §4.6.
             if token is not None:
-                if token.revoked_at is not None or not token.is_active:
+                reason = token.rejection_reason()
+                if reason == APIToken.REJECT_REVOKED:
                     return None, _error("Token revoked", 401)
-                if token.expires_at is not None:
-                    expired_at = token.expires_at.isoformat()
+                if reason == APIToken.REJECT_EXPIRED:
+                    expired_at = token.expires_at.isoformat() if token.expires_at else ""
                     return None, _error(f"Token expired at {expired_at}", 401)
-                # Found but failed is_valid() for some other reason —
-                # treat as inactive.
+                if reason == APIToken.REJECT_USER_INACTIVE:
+                    # Offboarding (is_active=False) invalidates every token the
+                    # account holds, even un-revoked ones. (F-10.)
+                    return None, _error("Account is deactivated", 401)
+                # Found but rejected for some other reason — treat as inactive.
                 return None, _error("Token inactive", 401)
             return None, _error("Invalid token", 401)
         request.user = user
@@ -915,7 +955,11 @@ def _make_api_detail_view(crud_config):
         if perm_err:
             return perm_err
 
-        qs = crud_config._get_queryset()
+        # Tenancy: get_detail_queryset is the single-object read scoper (it
+        # defaults to get_list_queryset). Without it a row hidden from
+        # GET /api/<base>/ was readable and editable at /api/<base>/<pk>/.
+        # (Audit 2026-09-13, C5.)
+        qs = crud_config.get_detail_queryset(crud_config._get_queryset(), request)
         expand_fields = _resolve_expand_fields(request, crud_config)
         if expand_fields:
             qs = _apply_select_related(qs, crud_config.model, expand_fields)
@@ -923,6 +967,13 @@ def _make_api_detail_view(crud_config):
             obj = qs.get(pk=pk)
         except qs.model.DoesNotExist:
             return _error("Not found", 404)
+        # Authorization: the second half of the single-object contract. Views that
+        # opt out of the read scoper express ownership here instead, and the hook
+        # must hold on every surface or it is not a gate. PermissionDenied /
+        # Http404 are translated to the envelope by api_view.
+        _check = getattr(crud_config, "check_object_permission", None)
+        if _check:
+            _check(obj, request)
 
         if request.method == "GET":
             fields = crud_config._get_detail_fields() or crud_config.fields
@@ -991,6 +1042,27 @@ def _apply_list_filter(request, qs, crud_config):
 
     import django_filters
 
+    # Per-field overrides run first, and the params they consume are withheld
+    # from the FilterSet so it cannot re-apply the stored-column meaning on top.
+    # The REST list is a *separate* filter path from the HTML one (django-filter
+    # vs _apply_list_filters), so the hook has to be honoured in both or
+    # ?status=pending means two different things on two surfaces. (F-29.)
+    params = request.GET
+    consumed: list[str] = []
+    for field_name in filter_fields:
+        value = params.get(field_name, "").strip()
+        if not value:
+            continue
+        _override = getattr(crud_config, "apply_filter", None)
+        overridden = _override(qs, field_name, value, request) if _override else NotImplemented
+        if overridden is not NotImplemented:
+            qs = overridden
+            consumed.append(field_name)
+    if consumed:
+        params = params.copy()
+        for field_name in consumed:
+            del params[field_name]
+
     fs_class = filter_class
     if not fs_class:
         fields_spec = _build_filter_fields_spec(crud_config.model, filter_fields)
@@ -999,7 +1071,7 @@ def _apply_list_filter(request, qs, crud_config):
             (django_filters.FilterSet,),
             {"Meta": type("Meta", (), {"model": crud_config.model, "fields": fields_spec})},
         )
-    filterset = fs_class(request.GET, queryset=qs)
+    filterset = fs_class(params, queryset=qs)
     if filterset.errors:
         problems = [f"{field}: {', '.join(str(e) for e in errs)}" for field, errs in filterset.errors.items()]
         return None, _error(f"Invalid filter value(s): {'; '.join(problems)}.", 400)
@@ -1205,11 +1277,11 @@ def _make_api_bulk_delete_view(crud_config):
             return _error("ids must be a non-empty list", 400)
 
         try:
-            ids = [int(pk) for pk in ids]
-        except (ValueError, TypeError):
-            return _error("ids must be integers", 400)
+            ids = crud_config._coerce_pks(ids)  # pk-type aware, not int-only (F-38)
+        except (ValueError, TypeError, DjangoValidationError):
+            return _error(f"ids must be valid {crud_config.model._meta.pk.get_internal_type()} values", 400)
 
-        qs = crud_config._get_queryset().filter(pk__in=ids)
+        qs = crud_config.get_detail_queryset(crud_config._get_queryset(), request).filter(pk__in=ids)
         objects = {obj.pk: obj for obj in qs}
         deleted_ids = []
         errors = {}
@@ -1220,6 +1292,13 @@ def _make_api_bulk_delete_view(crud_config):
                 errors[str(pk)] = "Not found"
                 continue
             if not crud_config.can_delete(obj, request):
+                errors[str(pk)] = "Permission denied"
+                continue
+            # A bulk action is a write to N single objects, so the per-object
+            # hook applies here as much as on the detail route (F-50).
+            try:
+                crud_config.check_object_permission(obj, request)
+            except (PermissionDenied, Http404):
                 errors[str(pk)] = "Permission denied"
                 continue
             try:
@@ -1275,9 +1354,9 @@ def _make_api_bulk_update_view(crud_config):
             return _error("fields must be a non-empty dict", 400)
 
         try:
-            ids = [int(pk) for pk in ids]
-        except (ValueError, TypeError):
-            return _error("ids must be integers", 400)
+            ids = crud_config._coerce_pks(ids)  # pk-type aware, not int-only (F-38)
+        except (ValueError, TypeError, DjangoValidationError):
+            return _error(f"ids must be valid {crud_config.model._meta.pk.get_internal_type()} values", 400)
 
         # Validate field names
         allowed = set(crud_config.can_bulk_update_fields())
@@ -1285,7 +1364,7 @@ def _make_api_bulk_update_view(crud_config):
         if invalid:
             return _error(f"Fields not allowed for bulk update: {', '.join(sorted(invalid))}", 400)
 
-        qs = crud_config._get_queryset().filter(pk__in=ids)
+        qs = crud_config.get_detail_queryset(crud_config._get_queryset(), request).filter(pk__in=ids)
         objects = {obj.pk: obj for obj in qs}
         updated = []
         errors = {}
@@ -1297,6 +1376,11 @@ def _make_api_bulk_update_view(crud_config):
                 errors[str(pk)] = "Not found"
                 continue
             if not crud_config.can_update(obj, request):
+                errors[str(pk)] = "Permission denied"
+                continue
+            try:
+                crud_config.check_object_permission(obj, request)  # see bulk-delete (F-50)
+            except (PermissionDenied, Http404):
                 errors[str(pk)] = "Permission denied"
                 continue
 
@@ -1889,11 +1973,25 @@ def api_openapi_schema(request: HttpRequest) -> JsonResponse:
     if request.method != "GET":
         return _error("Method not allowed", 405)
 
+    return JsonResponse(build_served_spec(server_url=request.build_absolute_uri("/")))
+
+
+def build_served_spec(server_url: str | None = None) -> dict[str, Any]:
+    """The OpenAPI spec exactly as ``/api/schema/openapi.json`` serves it.
+
+    CRUDView routes *and* ``register_api_path`` custom endpoints. api_doctor and
+    the validity tests call this rather than ``build_openapi_spec`` directly —
+    they used to omit ``custom_paths`` and so validated a spec nobody served.
+    (Audit 2026-09-13, D5.)
+    """
+    from django.urls import get_resolver
+
     from .openapi import build_openapi_spec
 
-    server_url = request.build_absolute_uri("/")
-    spec = build_openapi_spec(_api_registry, server_url=server_url, custom_paths=_custom_api_registry)
-    return JsonResponse(spec)
+    # Custom endpoints register when their urls/api modules import; loading
+    # the URLconf makes a management command or test see what a request sees.
+    get_resolver().url_patterns
+    return build_openapi_spec(_api_registry, server_url=server_url, custom_paths=_custom_api_registry)
 
 
 def _api_docs_response(request, template):

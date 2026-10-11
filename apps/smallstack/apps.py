@@ -15,6 +15,11 @@ class SmallStackConfig(AppConfig):
     help_slides_dir = "docs/slides"
 
     def ready(self):
+        # checks: warns when the version SmallStack reports has drifted from
+        # pyproject.toml — see checks.py for why all four version surfaces can
+        # agree with each other and still be wrong.
+        from apps.smallstack import checks  # noqa: F401
+
         # Import every app's views.py so CRUDView subclasses register into
         # CRUDView._registry (Django auto-imports models/admin, never views). The
         # framework core loads before every consumer, so doing this here — and
@@ -41,6 +46,9 @@ class SmallStackConfig(AppConfig):
             section="admin",
             label="Dashboard",
             url_name="smallstack_dashboard",
+            # /smallstack/ prefixes every admin route, so without this any page
+            # lacking its own nav entry lights up Dashboard. (T3.)
+            active_exact=True,
             icon_svg='<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>',  # noqa: E501
             staff_required=True,
             order=0,

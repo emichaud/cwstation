@@ -33,6 +33,9 @@ Signed outbound webhooks on model change and verified inbound receivers (seams f
 ### Background tasks & scheduler
 Django's Tasks framework is pre-configured with a database backend, plus a `@scheduled` recurring-job scheduler with a themed UI. Send emails, process data, and run jobs — no Redis or Celery to operate.
 
+### Approvals & notifications
+A generic human-in-the-loop gate: apps (or AI agents, via MCP) file an approval request, a person decides in a themed console, and your code reacts via callback, signal, webhook, or polling. Decisions and requests fan out to an in-app notification bell + inbox and branded email.
+
 ### Profile & authentication
 Complete user profile management (photo, cover image, bio, location, display name) on a custom User model with email login, password reset flows, and secure sessions.
 
@@ -40,7 +43,7 @@ Complete user profile management (photo, cover image, bio, location, display nam
 Built-in documentation with markdown support, table of contents, search, and easy-to-edit content files. Perfect for user guides or product docs.
 
 ### Theming
-Beautiful light and dark modes with five color palettes and CSS custom properties. Customize colors, shadows, and spacing from a single file. User preferences are saved.
+Beautiful light and dark modes with six color palettes and CSS custom properties. Customize colors, shadows, and spacing from a single file. User preferences are saved.
 
 ### Docker & SQLite
 Production-ready Docker (multi-service compose, health checks, background worker) with SQLite stored outside the container — reliable data storage that backs up with your VPS, no database service fees. [Upgrade to PostgreSQL](/help/smallstack/database-postgresql/) when you need it.

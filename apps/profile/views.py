@@ -43,7 +43,15 @@ class ProfileEditView(LoginRequiredMixin, UpdateView):
         """Get the current user's profile."""
         return get_object_or_404(UserProfile, user=self.request.user)
 
-    def form_valid(self, form: UserProfileForm) -> HttpResponse:
+    # ``# type: ignore[override]`` on form_valid below: the annotation narrows
+    # to this view's own ``form_class``, which django-stubs 6.1 flags as a Liskov
+    # violation against ``FormMixin.form_valid(form: ModelForm[Any])``. Django only
+    # ever passes ``get_form()``'s result, so the narrower type is accurate at
+    # runtime and more useful to a reader. Parameterising the base class
+    # (``UpdateView[Model, Form]``) would be the formally-correct fix, but that
+    # needs ``django_stubs_ext.monkeypatch()`` at runtime and django-stubs is a
+    # dev-only dependency here.
+    def form_valid(self, form: UserProfileForm) -> HttpResponse:  # type: ignore[override]
         """Add success message on form save."""
         messages.success(self.request, "Profile updated successfully.")
         return super().form_valid(form)
@@ -76,11 +84,25 @@ class PalettePreferenceView(LoginRequiredMixin, View):
 
 
 class ProfileDetailView(DetailView):
-    """View for displaying any user's public profile."""
+    """View for displaying any user's public profile.
+
+    Anonymous access is on by default; ``SMALLSTACK_PUBLIC_PROFILES = False``
+    requires sign-in. A public page answers 200/404 per username, which lets an
+    anonymous visitor enumerate accounts. (Audit 2026-09-13, C9d.)
+    """
 
     model = UserProfile
     template_name = "profile/profile_detail.html"
     context_object_name = "profile"
+
+    def dispatch(self, request: HttpRequest, *args, **kwargs):
+        from django.conf import settings
+
+        if not getattr(settings, "SMALLSTACK_PUBLIC_PROFILES", True) and not request.user.is_authenticated:
+            from django.contrib.auth.views import redirect_to_login
+
+            return redirect_to_login(request.get_full_path())
+        return super().dispatch(request, *args, **kwargs)
 
     def get_object(self, queryset: QuerySet | None = None) -> UserProfile:
         """Get the profile by username from URL."""

@@ -102,6 +102,46 @@ LOGGING["loggers"]["apps.tickets"] = {
 }
 ```
 
+### `django.tasks` — SmallStack replaces one of Django's own receivers
+
+Worth knowing before you touch task signals or alert on this logger.
+
+Django ships a `log_task_finished` receiver that logs **every** `FAILED` task
+result at `ERROR` with a traceback. SmallStack retries tasks
+(`docs/skills/background-tasks.md`), so an attempt that is about to be retried
+would raise an `ERROR` for a failure the queue then absorbs — a page for a
+non-event, and the feature's success becomes its own false-alarm source.
+
+So `apps/tasks/signals.py` **disconnects Django's receiver** and connects its
+own:
+
+| Outcome | Level | Record |
+|---|---|---|
+| Failed, retry enqueued | `WARNING` | `Task id=… path=… state=FAILED retrying_as=<id>`, no traceback |
+| Failed, final | `ERROR` | identical to Django's, traceback included |
+| Succeeded | `INFO` | identical to Django's |
+
+Same `django.tasks` logger and same `Task id=… path=… state=…` prefix, so
+existing alert rules and log parsers keep matching — only the severity of an
+absorbed failure changes. `SMALLSTACK_TASKS_SOFTEN_RETRYABLE_LOGS=False`
+restores Django's stock behaviour.
+
+Two things to keep in mind:
+
+- **It is order-dependent.** Django registers its receiver when
+  `django.tasks.signals` is imported, so it would otherwise run *before*
+  SmallStack's retry receiver has decided anything — which is why this is a
+  takeover rather than a logging filter. A filter could only have suppressed the
+  record, not corrected it, and suppressing is worse for an audit trail.
+  SmallStack's logger is connected *after* its retry receiver on purpose.
+- **If the takeover ever fails**, SmallStack deliberately does *not* connect its
+  own (two receivers would log every task twice) and reports **`tasks.W005`**
+  from `manage.py check`. If you see it, alert on scheduler run status or
+  `chain_outcome()` rather than on `django.tasks` `ERROR` until it's fixed.
+
+A task that runs more than once is a separate signal and is *recorded*, not just
+logged — see `background-tasks.md` → Reliability.
+
 ## Reading logs from a deployment you can't reach
 
 Log lines are also written to the database (`apps.telemetry`), so they're readable from inside the app. This is the answer when the log *stream* isn't reachable — a locked-down container, a managed platform with no shell.

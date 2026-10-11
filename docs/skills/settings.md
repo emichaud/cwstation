@@ -211,6 +211,39 @@ TASKS = {
 }
 ```
 
+### Background Task Reliability (smallstack.py)
+
+```python
+# Worker heartbeat + lost-task reaper (SmallStack's db_worker)
+SMALLSTACK_TASKS_HEARTBEAT_ENABLED = True     # False => plain upstream worker, AND nothing reaps
+SMALLSTACK_TASKS_HEARTBEAT_SECONDS = 15       # beat interval; reaper every 4 beats (a fixed count)
+SMALLSTACK_TASKS_LOST_AFTER_SECONDS = 90      # silent this long => its RUNNING tasks fail (WorkerLost)
+SMALLSTACK_TASKS_ORPHAN_SECONDS = 86_400      # same, for workers with no heartbeat row
+```
+
+Two things worth knowing before you change the first two:
+
+- Turning `HEARTBEAT_ENABLED` off removes the only thing that *runs* the reaper,
+  not just the heartbeat — schedule `manage.py reap_tasks` if you disable it.
+- The reap period is `4 × HEARTBEAT_SECONDS`, so raising the beat interval makes
+  reaping proportionally less frequent. Keep `LOST_AFTER_SECONDS` several beats
+  wide (the shipped 90/15 is 6 beats); too tight and a couple of skipped beats
+  under load will reap live tasks.
+
+```python
+# Retries (@retry_policy in apps/tasks/reliability.py)
+SMALLSTACK_TASKS_DEFAULT_MAX_ATTEMPTS = 1     # attempts for undecorated tasks (1 = no retries)
+SMALLSTACK_TASKS_BACKOFF_SECONDS = 5          # UPPER BOUND of the first delay (actual: 2.5-5s), doubles per attempt
+SMALLSTACK_TASKS_BACKOFF_MAX_SECONDS = 600    # delay cap
+
+# A failed attempt that is being retried logs WARNING, not Django's stock
+# ERROR-with-traceback, so an absorbed transient failure doesn't page anyone.
+# A *final* failure still logs ERROR. False => Django's stock behaviour.
+SMALLSTACK_TASKS_SOFTEN_RETRYABLE_LOGS = True
+```
+
+See `docs/skills/background-tasks.md` → Reliability.
+
 ### Inline Worker (env var, not a Django setting)
 
 `WORKER_INLINE` is a **deployment env var** checked in `docker-entrypoint.sh` (not in Django settings). It follows the same pattern as `BACKUP_CRON_ENABLED`.

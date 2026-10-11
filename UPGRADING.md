@@ -9,6 +9,273 @@ listed, no downstream migration is required.
 
 ---
 
+## v0.23.0 — task reliability: lost-task reaper + retries
+
+Run `make migrate`. It applies **five** migrations.
+
+This note deliberately does **not** name the release you are coming from. A version is only a
+proxy for "which migrations you already have", and the proxy goes stale every time `main`
+releases — it has already gone stale twice in this document while the feature was in review.
+Migration ids don't drift. So the state these five assume is:
+
+- `apps/tasks` has **no** migrations applied — it had none at all before this feature; and
+- `scheduler` is at **`0003_scheduledjob_auto_retired`**.
+
+That is every release before this one. Confirm with
+`manage.py showmigrations tasks scheduler`; if it matches, the list below is what you get.
+
+| Migration | What it does |
+|---|---|
+| `tasks.0001_initial` | The first models in `apps/tasks`: `WorkerHeartbeat`, `TaskAttempt` |
+| `tasks.0002_worker_incarnation` | Keys worker liveness to a process, not to `--worker-id`. **Not additive — see below** |
+| `tasks.0003_late_completion_marker` | Records a chain that executed more than once. Additive |
+| `tasks.0004_widen_worker_id` | Widens `worker_id` to 128 so a worker identity cannot be silently truncated. Additive |
+| `scheduler.0004_max_retries_live` | `ScheduledJob.max_retries` help text + validator. No DDL |
+
+> **`tasks.0002_worker_incarnation` deletes rows.** It is the only destructive operation in
+> this release. Its `RunPython` empties `tasks_workerheartbeat`, because pre-upgrade rows are
+> keyed on the operator's `--worker-id` label and would match a pre-upgrade task's recorded
+> claimant *exactly* — so a row that happened to carry `stopped_at` would cause that task to be
+> failed as `WorkerLost` the instant the migration landed, even if it were still running.
+> Emptying the table sends every pre-upgrade claim down the conservative
+> `SMALLSTACK_TASKS_ORPHAN_SECONDS` path instead. Nothing of value is lost: the table is
+> ephemeral liveness state that the reaper already prunes on a timer, any worker running during
+> a migration is being restarted anyway, and the next heartbeat writes a fresh row. **Stop your
+> workers before migrating** if you want the transition to be boring.
+
+You don't need to change any code. Check the table if one of these applies to you.
+
+| If you… | What changes | What to do |
+|---|---|---|
+| Run `manage.py db_worker` anywhere | It's now SmallStack's `db_worker`, which replaces django-tasks-db's. It takes the same arguments and adds a worker heartbeat plus a reaper for tasks whose worker died | Nothing. To opt out, set `SMALLSTACK_TASKS_HEARTBEAT_ENABLED=False`. |
+| Have your **own** `db_worker` command in an app | Django uses the first app in `INSTALLED_APPS` that defines it | If your app comes before `apps.tasks`, yours wins and you get no heartbeat. Subclass `apps.tasks.management.commands.db_worker.Command` instead. |
+| Replaced or edited `apps/tasks/tasks.py` | Upstream's email tasks now carry `@retry_policy(max_attempts=3, retry_on=(OSError,))` | When you merge, keep the decorators if you want SMTP errors retried. Keep `send_email_task` itself, because the scheduler and approvals import it. |
+| See tasks go `FAILED` with `apps.tasks.exceptions.WorkerLost` | Their worker died mid-run. Before this change they would have stayed `RUNNING` forever | Expected. Add `@retry_policy` to tasks that are safe to repeat if you want them re-run. |
+| Poll a task's first result id to learn its outcome | With retries, a later attempt is a **new** result | Use `apps.tasks.reliability.chain_outcome(result_id)` to follow the chain. |
+| Pass `--worker-id` to `db_worker` | It is now an operator **label**, not the worker's identity. Each process appends its own token, so `DBTaskResult.worker_ids` holds `<label>#<token>` and `WorkerHeartbeat` has one row per process | Nothing. A stable `--worker-id` is now safe and is the recommended way to label a worker — previously it made a restarting worker hide the task its predecessor abandoned. |
+| Parse `DBTaskResult.worker_ids` yourself | Entries are now `<label>#<token>` rather than the bare `--worker-id` | Match on the `WorkerHeartbeat.label` column, or split on the last `#`. |
+| Run `manage.py check` in CI | Four new warnings can fire: `tasks.W001` (another app's `db_worker` shadows ours), `W002`/`W003` (`LOST_AFTER_SECONDS` under three heartbeats), `W004` (`USE_TZ = False` stops the reaper) | None fire on shipped defaults. Each names the misconfiguration and what it costs. |
+| Care whether a task ever runs twice | A worker paused past `SMALLSTACK_TASKS_LOST_AFTER_SECONDS` mid-task is reaped and replaced, then may finish anyway. The late result wins, and the double execution is **recorded** (`TaskAttempt.parent_completed_at`, the run message, a WARNING) rather than prevented | Make such tasks idempotent. This is not new behaviour in the engine — it is newly *visible*. |
+| Alert on ERROR-level log lines | With django-tasks-db 0.13, Django logs every `FAILED` attempt to `django.tasks` at ERROR, including attempts that `@retry_policy` will retry | Alert on a chain's final outcome (the scheduler's failure email, or `chain_outcome(...)`), not on per-attempt ERRORs. |
+| Set `ScheduledJob.max_retries` on a task with no `@retry_policy` | It retries what the task **raises**, but will not re-run an attempt whose worker died | Add `@retry_policy(retry_lost=True)` to the task if repeating it after a worker death is genuinely safe. |
+
+---
+
+## v0.22.0 — the `mcp` SDK is no longer a dependency (check your own imports)
+
+SmallStack **implements the Model Context Protocol itself** — the JSON-RPC
+envelope, `initialize` / `tools/list` / `tools/call` dispatch, and OAuth are
+plain Django in `apps/mcp/views.py`, served by gunicorn like every other route.
+The `mcp` PyPI package was a declared dependency for exactly one thing: a
+singleton `mcp.server.lowlevel.Server` in `apps/mcp/server.py` that nothing
+ever read. It has been removed.
+
+**Nothing about the MCP surface changes.** Your tools, `@tool`, `TOOL_REGISTRY`,
+`current_context()`, `/mcp`, the OAuth flow, `mcp_doctor` and Claude Desktop /
+Connectors all behave exactly as before. `MCP_SERVER_NAME` is still honoured
+(it's reported in the `initialize` response).
+
+| If you… | What happens | What to do |
+|---|---|---|
+| Only use SmallStack's `@tool` / CRUDView `enable_mcp` | Nothing | Nothing. You get a smaller install: **20 packages** drop out, including `pydantic`, `starlette`, `uvicorn`, `sse-starlette`, `httpx2`, `jsonschema`, `pyjwt[crypto]`, `opentelemetry-api`, `anyio` and `cryptography` — several of which are ASGI machinery SmallStack never runs. |
+| `import mcp` anywhere in **your** code | It kept working only because SmallStack installed the SDK for you. After this upgrade a **clean install** no longer has it | Declare it yourself: add `mcp>=2.3` to your own `pyproject.toml` dependencies and re-lock. |
+| Imported `mcp_server` from `apps.mcp.server` | That name is gone | Nothing to migrate — the object was never wired to anything. Delete the import. |
+| Script against `mcp_doctor --json` | The `"mcp package"` row is gone | Drop it from any parsing. The checks that describe the live surface — `Settings`, `Server registry`, `URL conf`, `Tokens`, and the end-to-end self-test — are unchanged. The removed row only verified that its own dependency was importable. |
+
+The catch worth knowing: a stray `import mcp` in your code will keep working in
+any existing virtualenv that still has the package lying around, and fail only
+when someone does a clean install. If you're unsure, check with
+`grep -rn "^import mcp\|^from mcp" your_app/` before deploying.
+
+## v0.21.0 — 2026-09-13 audit fixes (behaviour tightened, no code changes required)
+
+These are security/correctness fixes. Most projects need to do nothing; check the list only if
+you see one of the symptoms.
+
+| Symptom after pulling | Cause | What to do |
+|---|---|---|
+| A REST `GET/PATCH/DELETE /api/<base>/<pk>/` (or bulk endpoint) now 404s | Those endpoints now apply your CRUDView's `get_list_queryset`, like the list endpoint and MCP already did | Nothing, if the row really shouldn't be visible to that user. If `get_list_queryset` holds list-only filtering (e.g. "hide inactive by default"), move that into the list view. |
+| An MCP client gets `staff_required` | Staff-level tools now require the token's **user** to be staff, as REST does | Mark the user staff, or mint the token for a staff user. |
+| A file under `/media/runbook/...` 404s | Runbook files are served only through their access-checked views | Use the runbook's own links. For your own gated uploads, add their folder to `SMALLSTACK_PRIVATE_MEDIA_PREFIXES`. |
+| A webhook endpoint that answers with a redirect now fails | Redirects are no longer followed (SSRF protection) | Point the endpoint at the final URL. |
+| A dataset `?format=csv` export returns 400 | Exports are capped at `SMALLSTACK_DATASET_CSV_MAX_ROWS` (50,000) | Filter or page with `limit`/`offset`, or raise the setting. |
+| Starting a log capture at WARNING/ERROR is refused | Such a window captures nothing beyond the baseline | Pick a lower level (DEBUG/INFO). |
+| Gunicorn access-log lines no longer show query strings | Tokens can ride in query strings | Nothing; revert `access_log_format` in `gunicorn.conf` if you need them. |
+
+If you deploy with your own crontab instead of `scripts/smallstack-cron`, add the three new
+entries from it: the webhook tick (`POST /webhooks/tick/`), `run_retention`, and
+`prune_webhook_receipts`. Run `make migrate` (one new runbook migration).
+
+---
+
+## v0.21.0 — approvals/notifications review (2026-09-25 → 09-26)
+
+Mostly tightening, but **five changes are visible to an operator on the upgrade itself**.
+Read those five before you deploy; the rest of the table is symptom-driven.
+
+Run `make migrate`. Coming from **v0.20.1** — the only previously released version — you apply
+**thirteen** migrations. Four of them touch data you already have:
+`smallstack_notifications.0002_notification_subject_key_and_more` (schema),
+`smallstack_notifications.0003_backfill_approvals_subject_key` (**data** — see hazard 4),
+`scheduler.0003_scheduledjob_auto_retired` (schema), and
+`webhooks.0004_alter_webhookreceiver_signature_header` (schema — see hazard 5).
+
+The other nine create new tables and need no attention: `smallstack_approvals.0001_initial`,
+`smallstack_notifications.0001_initial`, `smallstack_runbook.0011_document_image_server_named`, and
+two each for the three scenario demos that shipped in v0.21.0–v0.21.1 only (see *Scenario demo
+apps* below).
+
+### Scenario demo apps (shipped in v0.21.0–v0.21.1; removed in v0.21.2)
+
+v0.21.0 and v0.21.1 bundled the approvals **test vehicle**: `apps/demo_purchasing`,
+`apps/demo_agentops` and `apps/demo_access`, plus `manage.py seed_approval_scenarios` and
+`manage.py approval_scenario`. **v0.21.2 removes all three apps and their conditional
+registration** — the base template ships framework only; the scenario harness lives in the QA
+workspace where it came from.
+
+If you cloned at v0.21.0/v0.21.1 and migrated, the demo tables and their `django_migrations`
+rows are inert leftovers once you upgrade — drop them or ignore them. If you deleted the
+directories yourself on those versions, v0.21.2 changes nothing for you. Skipping straight from
+v0.20.x to v0.21.2 means the demos never touch your install at all.
+
+### The five upgrade hazards
+
+**1. A scheduled job may be disabled — on `migrate` *or* on any scheduler tick.**
+`sync_code_jobs()` now reconciles in both directions: a `source=CODE` job whose
+`@scheduled` spec is no longer registered is **disabled** (not deleted — run history stays
+readable).
+
+> **Where to look.** `sync_code_jobs()` does not run only during `migrate`. It also runs on
+> the first scheduler tick of every process (`apps/scheduler/services.py`) and from the
+> scheduler admin view — and the tick is the case that matters more, because a *worker* with
+> a partially-failed import is exactly where the safety valves below earn their keep. If a
+> job goes quiet, grep the **worker/tick** logs as well as the deploy log.
+
+You will see a log line like:
+
+```
+scheduler: disabled 'Approvals: expire overdue requests' — no @scheduled spec declares it
+  any more (will re-enable automatically if the spec returns)
+```
+
+*Why it fires:* the spec genuinely vanished — the feature was removed, or a registration
+guard like `SMALLSTACK_APPROVALS_SWEEP_ENABLED=False` turned it off. Before this, such a flag
+worked on a fresh database and did nothing on an existing install.
+
+*What to do:* usually nothing. It is now **reversible**: the row is marked `auto_retired`, so
+putting the spec back re-enables *and* reschedules it on the next sync. A job **you** disabled
+by hand is never re-enabled (it carries no marker) — and now logs
+`… is declared in code but disabled by an operator — leaving it off`, so "why isn't my job
+running" is a one-line diagnosis. If a *partial* autodiscovery failure (an app's `tasks.py`
+raising on import, an app temporarily out of `INSTALLED_APPS`, `migrate` run against a shared
+database with a different settings module) would retire more than half your known code jobs,
+the sync **refuses** and logs `scheduler: refusing to retire N code job(s) …` instead.
+`source=UI` jobs are never touched.
+
+**2. Inbound webhook verifiers: a contract narrowing has been undone.** The argument a
+`@webhook_verifier` receives is now `apps.webhooks.hooks.CaseInsensitiveDict` — a real,
+**mutable** `dict` subclass whose lookups ignore header-name casing.
+
+All the ordinary `dict` mutations work and stay case-insensitive: `headers["x-foo"] = …`,
+`headers.update({"x-foo": …})`, `setdefault`, `pop`, `del`. A differently-cased key replaces
+the existing entry rather than shadowing it, and the original wire spelling is preserved.
+
+*If — and only if — you pulled the intermediate working tree between these two fixes:* that
+state passed Django's immutable `CaseInsensitiveMapping`, so a verifier doing the ordinary
+`headers.pop("X-Smallstack-Signature", "")` raised inside the verifier, was swallowed, and
+returned a bare `401 invalid signature` **on a correct credential**. It was never released, so
+anyone upgrading from a tagged version never saw it; if you worked around it by rewriting your
+verifier not to mutate, that workaround is now unnecessary but harmless.
+
+*In all cases:* a verifier that raises still fails **closed**, but is now logged with a
+traceback (`webhooks: verifier 'x' raised for receiver 'y' — treating the delivery as
+UNVERIFIED`). If you were relying on that silence, expect ERROR lines — they are telling you
+a verifier is broken.
+
+**3. API-token prefixes no longer start with `-`.** `_generate_raw_key()` re-rolls on a
+leading dash (no entropy cost), because ≈1.6 % of prefixes — 1 in 64, the base64url alphabet —
+were being read by argparse as an option flag: `sc token revoke -AbC1234` →
+`error: the following arguments are required: prefix`.
+
+*What to do:* nothing for new tokens. **Existing tokens are not rewritten** — a `prefix` is
+derived from a raw key nobody stores, so it cannot be re-rolled after the fact. If you hold a
+pre-upgrade token whose prefix starts with `-`, revoke it with an explicit end-of-options
+marker:
+
+```
+manage.py sc token revoke -- -AbC1234
+```
+
+Check your exposure with
+`APIToken.objects.filter(prefix__startswith="-").count()`.
+
+**4. The notification backfill changes your unread badge count.**
+`smallstack_notifications.0003` is a **data** migration. It backfills `subject_key` on
+`approvals.*` notifications created before `0002` (deriving the request pk from the row's
+`url`), then **marks read** every unread "Approval needed" bell whose request has already
+reached a terminal state.
+
+> Read that scope precisely: pass 2 filters on the *requests* pass 1 touched, not on the
+> individual rows it rewrote. So an unread bell created **after** `0002` — a second approver on
+> one of those same decided requests — is marked read as well. That is the intended outcome (a
+> decided request's bell is stale whenever it was written), but it is wider than "only rows the
+> backfill rewrote".
+
+*Why:* `resolve()` addresses rows *by* `subject_key`, so before this the stale-bell retirement
+could only ever reach requests filed **after** the upgrade. On the reference install that left
+105 of 105 unread `approvals.requested` rows permanently un-retirable, several of them
+pointing at requests decided weeks earlier.
+
+*What you will observe:* unread counts **drop** — that is the fix, not data loss. Nothing is
+deleted; only `subject_key` and `read_at` are written, and only on
+`kind__startswith="approvals."` rows with a parseable URL. Bells for **still-pending**
+requests are left unread. The migration is idempotent, so it is safe to re-run as a one-off.
+If you need the old unread state for an audit, snapshot the table before migrating.
+
+**5. New webhook receivers expect a different signature header.**
+`WebhookReceiver.signature_header` now defaults to **`X-SmallStack-Signature`** (was
+`X-Signature`), via `webhooks.0004`. The old default never matched what SmallStack's own
+outbound side signs, so a SmallStack↔SmallStack pairing rejected every delivery.
+
+*What the migration does:* changes the **field default only**. Every existing receiver keeps
+its stored value, so nothing you have configured changes behaviour.
+
+*What to watch:* receivers created **after** the upgrade get the new spelling. If a
+third-party sender signs `X-Signature`, set that receiver's `signature_header` explicitly
+(staff UI, or `sc set webhookreceiver <pk> signature_header=X-Signature`). Check with
+`WebhookReceiver.objects.values_list("name", "signature_header")`.
+
+### Everything else — symptom-driven
+
+| Symptom after pulling | Cause | What to do |
+|---|---|---|
+| A bookmarked or logged URL for a **UUID-pk** record now 404s | HTML detail/edit/delete routes are registered with typed converters (`<int:pk>` / `<uuid:pk>` / `<str:pk>`) so a non-matching segment 404s instead of reaching the ORM and raising `ValueError: Field 'id' expected a number` — a 500 for every CRUDView. Django's `uuid` converter accepts only the **canonical** dashed lowercase form, so `…/735E9A94-…/` (uppercase) and `…/735e9a94071b…/` (dashless) now 404 where they used to resolve | Rewrite such links to the canonical form (`str(uuid.UUID(value))`). Integer pks are unaffected — `/4/` and `/04/` both still resolve. Bulk-action `ids` are *not* affected: they are coerced via the model's own pk field, so all three UUID spellings are accepted there. |
+| **An API token stops working the moment you deactivate its user** | `APIToken` now refuses a token whose user is `is_active=False`, on every surface (REST, MCP, feeds, OAuth), and approvals eligibility requires an active user too. Previously an offboarded account's un-revoked token kept reading the queue and **approving/rejecting**, recorded under their name | Nothing — this is the fix, and deactivating a user is now sufficient to cut their access. If you deactivate accounts as a *temporary* state and relied on their automation continuing, mint the token under a service account instead. |
+| `NoReverseMatch` for `notifications:inbox` / an approvals URL after setting a master switch off | `SMALLSTACK_APPROVALS_ENABLED=False` / `SMALLSTACK_NOTIFICATIONS_ENABLED=False` now **un-mount** the app's URLs (the `SMALLSTACK_MCP_ENABLED` precedent), instead of leaving every endpoint live — including the decide POST — while killing only the fan-out | Guard your own `reverse()`/`{% url %}` references with the same switch. SmallStack's own templates and nav already are. |
+| An unfamiliar inactive user named `system` appears in the user list | System-initiated audit entries (expiry sweep, scheduler retirement) need an author. The first such write creates one `is_active=False`, non-staff account named by `SMALLSTACK_AUDIT_SYSTEM_USERNAME` (default `system`) | Nothing. It cannot log in. Rename it with that setting before first use if `system` collides with a real account in your directory. |
+| Filing an approval returns **429** `too_many_pending` | New `SMALLSTACK_APPROVALS_MAX_PENDING_PER_REQUESTER` (default 50) caps one requester's open requests **per kind**, so an agent in a retry loop can't fill the queue | Raise the setting, or have the client decide/cancel its open requests. `0` disables the cap. |
+| No approval emails arrive in production, and the Approvals monitor is down | `SMALLSTACK_APPROVALS_EMAILS_INLINE` defaults to `DEBUG`, so **production requires a `db_worker` draining the `email` queue**. The previous "inline fallback" never actually fired: with the shipped `DatabaseBackend`, `enqueue()` does not raise, so mail queued silently and forever | Run a worker on the `email` queue, or set `SMALLSTACK_APPROVALS_EMAILS_INLINE=true` to send in-request (simple installs), or `SMALLSTACK_APPROVALS_EMAILS_ENABLED=False` if you don't use email. `SMALLSTACK_APPROVALS_EMAIL_BACKLOG_MINUTES` (15) tunes when the monitor complains. |
+| A queue page load expires fewer overdue rows than you expected | Lazy expiry is now capped at `SMALLSTACK_APPROVALS_LAZY_EXPIRE_LIMIT` (25) per request, oldest first, and runs once per request rather than three times per page. One GET with 200 overdue rows previously ran 4,017 queries and fired 200 notifications plus 200 webhook deliveries synchronously | Nothing — the 5-minute sweep drains the rest. Raise the cap if you have no worker and want the page to do more of the work. |
+| An MCP client's error handling stopped matching | Generated tool refusals now return `{"error": {"code", "message"}}` — `invalid_argument`, `not_found`, `not_permitted`, `validation_error`, `unsupported` — instead of a bare sentence, and a rejected create now sets the protocol `isError` flag (it previously returned `{"errors": …}` and read as success) | Branch on `error.code` instead of matching prose. Field-level detail moved to `error.fields`. |
+| A fork that pins its own `MIDDLEWARE` loses notification read-on-arrival | New `apps.notifications.middleware.NotificationReadOnArrivalMiddleware` marks a row read only on a 2xx arrival, so a dead-end click can't silently eat the badge | Add the entry to your `MIDDLEWARE`. |
+| A CRUDView's related-tab or field-preview route now returns 403/404 where it returned 200 | New `CRUDView.check_object_permission(obj, request)` is applied by the base to **all five** single-object surfaces (detail, edit, delete, field preview, related tab) plus REST detail/update/delete, the HTML and REST bulk actions, and the generated MCP tools | Nothing, if the row really shouldn't be reachable by that user — this closed a live cross-user leak. If you enforced ownership by overriding one generated base's `get_object`, move that check into `check_object_permission` so it covers all five. |
+| `?status=pending` on the approvals queue returns fewer rows than before | The filter now selects the **effective** status (`actionable()` — pending minus overdue) so it agrees with the page's own "Pending" stat card, which was disagreeing by hundreds of rows | Nothing. Overdue-but-unswept rows are now found under `?status=expired`. |
+| Your own CRUDView wants a filter whose stored column isn't the value the page reasons about | New `CRUDView.apply_filter(qs, field_name, value, request)` hook, honoured by the HTML list, the REST list and the generated MCP `list_*` tool | Optional. Return a queryset to take over one `filter_fields` entry, or `NotImplemented` for the default. |
+| An MCP `get_*`/`update_*`/`delete_*` call that sent `pk` still works, and `id` now works too | Generated single-object tools accept `id` (the key `serialize()` actually emits) with `pk` as a permanent alias | Nothing. `delete_*` now returns both `id` and `pk`. |
+| An MCP tool declared `requires_access="auth"` now admits callers it used to refuse | The tier ladder was inverted (`readonly < staff < auth`), so `"auth"` — documented as "any authenticated caller" — could be satisfied by no login token at all, and staff were *less* capable than non-staff on it. It is now `readonly < auth < staff` | Nothing, if `"auth"` meant what the docs say. If you were using `"auth"` as a *higher* tier than `"staff"`, change it to `"staff"`. Nothing in the shipped tree declares `"auth"`, so most projects are unaffected. |
+| An endpoint that calls a disabled feature returns 503 instead of 500 | New `apps.smallstack.exceptions.FeatureDisabled`, translated by `api_view` for every endpoint. `ApprovalsDisabled` is one | Nothing — this is the fix. Subclass `FeatureDisabled` in your own feature's exception hierarchy to get the same treatment. |
+| An `@api_view` endpoint that raised `PermissionDenied` now returns a JSON 403 instead of Django's HTML 403 | `api_view` translates it into the standard envelope, alongside the existing `Http404` branch | Nothing. |
+| The Approvals card on `/smallstack/status/overview/` is **down** and it wasn't before | Core-service rows now need the monitor's live `inventory()` **and** its recorded state to be good. Previously a monitor recording FAIL still rendered a green "on", because the base `inventory()` returns `{"ok": True}` | Read the note now shown on the card — it names the action. Common causes: no worker on the `email` queue, the expiry sweep not running, or `SITE_DOMAIN` still at its `localhost:8000` default (see below). `scheduler-tick` had the identical bug and is fixed by the same change. |
+| The Approvals monitor reports `approval emails link to localhost:8000` | Approvals mail is sent from a signal receiver or a task, so it has no request to derive a host from and builds its absolute console link from `SITE_DOMAIN` | **Set `SITE_DOMAIN`** to this install's real host — otherwise the console link in every approval email is dead, which breaks the "non-staff assignees decide via the emailed link" story. Or set `SMALLSTACK_APPROVALS_EMAILS_ENABLED=False` if you don't use the email channel. Skipped under `DEBUG`. |
+| An approval email subject or bell title now reads `(assignee deactivated) …` | Every named assignee on that request is deactivated, so it fell back to broadcasting to all active staff. Previously silent | Re-assign the request. The fallback is deliberate (an approval must not go unseen) but it should not be invisible. |
+| Decision emails reach more people than you expected, including the decider | Documented behaviour, previously documented **backwards** in both directions: the decision email goes to the requester **and the approvers, including the one who decided**. The in-app bell differs by exactly one person — it skips the actor | Nothing. `SMALLSTACK_APPROVALS_EMAILS_ENABLED=False` and per-kind `notify` are unchanged escape hatches. `apps/approvals/emails.py`'s module docstring is the authority. |
+| A non-staff user sees an "Approvals" entry in the sidebar, or finds approvals in global search | The console has been LoginRequired + eligibility-scoped since the previous change, but had no nav entry outside the staff-only ADMIN section, and `search_access` still defaulted to STAFF | Nothing — rows are scoped by the same eligibility scoper every other read surface uses. Staff still see exactly one entry, in ADMIN. |
+| Your own nav item needs a rule `auth_required`/`staff_required` can't express | New `nav.register(visible=<callable(request) -> bool>)`. A predicate that raises hides the item and logs; it never 500s the page | Optional. |
+| A CRUD list's empty state says "There are no … yet. Create the first one." where it used to say "Nothing matches these filters" | The branch now keys off real search/filter params instead of `request.GET.urlencode`, which was truthy for pagination, ordering, the display toggle and the notification-bell marker | Nothing — this is the fix. If you overrode `object_list.html`, note the new `has_active_filters` context flag and the shared `crud/includes/empty_state.html`. |
+| A custom template of yours shows raw `{# … #}` text | Django's `{# #}` is **single-line only**; a multi-line one is emitted verbatim as body text | Use `{% comment %}…{% endcomment %}`. `apps/smallstack/test_template_hygiene.py` now fails the build on any multi-line `{# … #}` anywhere in the tree, so your own templates are covered too. |
+
+---
+
 ## v0.15.0 — CRUDViews require login by default (BREAKING)
 
 **Who is affected:** any CRUDView that relied on the old empty-`mixins` default to be
