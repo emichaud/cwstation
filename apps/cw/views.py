@@ -405,6 +405,28 @@ class ArchitectureView(LoginRequiredMixin, TemplateView):
     template_name = "cw/architecture.html"
 
 
+class BandPlanView(LoginRequiredMixin, TemplateView):
+    """The frequency chart — which segments each license class may key, where
+    the CW watering holes are, and which of it this receiver can actually hear.
+
+    Pure reference: the data lives in `bandplan.py` so the page and the help
+    document can't drift apart, and so the ranges are testable.
+    """
+
+    template_name = "cw/bandplan.html"
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        from . import bandplan
+
+        context = super().get_context_data(**kwargs)
+        context["hf_bands"] = bandplan.HF_BANDS
+        context["vhf_bands"] = bandplan.VHF_BANDS
+        context["license_classes"] = bandplan.LICENSE_CLASSES
+        context["calling"] = bandplan.cw_calling_table()
+        context["tuner_floor_mhz"] = bandplan.TUNER_FLOOR_MHZ
+        return context
+
+
 class _StationCallMixin(_ViewBase):
     """Adds the operator's station defaults to the context — the resolved
     callsign plus the default keying WPM/sidetone — so any page can seed a

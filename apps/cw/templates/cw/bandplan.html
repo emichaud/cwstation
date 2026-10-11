@@ -1,0 +1,308 @@
+{% extends "smallstack/base.html" %}
+{% load static theme_tags %}
+
+{% block title %}Band Chart{% endblock %}
+{% block breadcrumbs %}{% endblock %}
+{% block body_class %}cw-console cw-bandplan{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'cw/cw.css' %}">
+<style>
+  {% comment %}
+    Chart aesthetic, built entirely on palette variables so it stays correct
+    across all five palettes and both themes. No hard-coded colours anywhere —
+    the CW/phone zones are tinted from --primary and --body-quiet-color.
+  {% endcomment %}
+  .bp-wrap { max-width: 1080px; margin: 0 auto; }
+  .bp-lede {
+    font-size: 1.1rem; line-height: 1.6; color: var(--body-quiet-color);
+    max-width: 70ch; margin: 0 0 18px;
+  }
+  .bp-lede b { color: var(--body-fg); }
+
+  .bp-legal {
+    border-left: 3px solid var(--warning-fg); background: var(--accent-band-bg);
+    border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 0 0 28px;
+    font-size: 0.92rem; line-height: 1.55; color: var(--body-fg); max-width: 78ch;
+  }
+
+  .bp-section { margin: 36px 0 0; }
+  .bp-section > h2 {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    font-size: 1.45rem; font-weight: 700; color: var(--body-fg);
+    margin: 0 0 4px; letter-spacing: -0.01em;
+  }
+  .bp-section > p {
+    color: var(--body-quiet-color); line-height: 1.6; max-width: 72ch; margin: 6px 0 18px;
+  }
+
+  /* ── legend ─────────────────────────────────────────────────────────── */
+  .bp-legend { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; margin: 0 0 18px; }
+  .bp-key { display: inline-flex; align-items: center; gap: 7px; font-size: 0.85rem; color: var(--body-quiet-color); }
+  .bp-swatch { width: 22px; height: 12px; border-radius: 3px; border: 1px solid var(--card-border); }
+  .bp-swatch.cw { background: var(--primary); }
+  .bp-swatch.phone { background: color-mix(in srgb, var(--body-quiet-color) 32%, transparent); }
+  .bp-swatch.tick { width: 2px; height: 14px; background: var(--body-fg); border: none; border-radius: 0; }
+
+  /* ── one band block ─────────────────────────────────────────────────── */
+  .bp-band {
+    border: 1px solid var(--card-border); border-radius: 14px; background: var(--card-bg);
+    padding: 16px 18px; margin-bottom: 14px;
+  }
+  .bp-band-head {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px;
+  }
+  .bp-band-name { font-size: 1.15rem; font-weight: 700; color: var(--body-fg); margin: 0; }
+  .bp-band-range {
+    font-family: ui-monospace, Menlo, monospace; font-size: 0.86rem;
+    color: var(--primary); background: var(--accent-band-bg);
+    border: 1px solid var(--card-border); border-radius: 6px; padding: 2px 8px;
+  }
+  .bp-band-note { color: var(--body-quiet-color); font-size: 0.9rem; line-height: 1.55; margin: 6px 0 14px; }
+
+  /* the proportional bar */
+  .bp-bar {
+    position: relative; height: 34px; border-radius: 8px; margin: 18px 0 8px;
+    background: color-mix(in srgb, var(--body-quiet-color) 10%, transparent);
+    border: 1px solid var(--card-border); overflow: hidden;
+  }
+  .bp-zone { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center; }
+  .bp-zone.cw { background: var(--primary); }
+  .bp-zone.phone { background: color-mix(in srgb, var(--body-quiet-color) 32%, transparent); }
+  .bp-zone span {
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    white-space: nowrap; padding: 0 6px;
+  }
+  .bp-zone.both {
+    /* 160 m: one span, both modes. Striped so it doesn't read as CW-only,
+       but kept in the primary family so the label stays legible on it. */
+    background: repeating-linear-gradient(135deg,
+      var(--primary) 0 14px,
+      color-mix(in srgb, var(--primary) 55%, var(--card-bg)) 14px 28px);
+  }
+  .bp-zone.cw span, .bp-zone.both span { color: var(--btn-primary-fg); }
+  .bp-zone.phone span { color: var(--body-fg); }
+
+  .bp-ticks { position: relative; height: 22px; margin-bottom: 10px; }
+  /* left-anchored, not centred: a tick at 5% would otherwise hang its label
+     off the left edge of the card. */
+  .bp-tick { position: absolute; top: 0; }
+  .bp-tick i { display: block; width: 2px; height: 7px; background: var(--body-fg); margin: 0 0 2px; }
+  .bp-tick b {
+    font-size: 0.66rem; font-weight: 700; color: var(--body-quiet-color);
+    text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap;
+  }
+
+  .bp-edges { display: flex; justify-content: space-between; font-family: ui-monospace, Menlo, monospace;
+              font-size: 0.72rem; color: var(--body-quiet-color); margin-top: -4px; }
+
+  /* the per-class table */
+  .bp-scroll { overflow-x: auto; border: 1px solid var(--card-border); border-radius: 10px; margin-top: 12px; }
+  .bp-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  .bp-table th, .bp-table td {
+    text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--card-border); vertical-align: top;
+  }
+  .bp-table th {
+    color: var(--body-quiet-color); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
+    font-weight: 700;
+  }
+  .bp-table tr:last-child td { border-bottom: none; }
+  .bp-table td { font-family: ui-monospace, Menlo, monospace; white-space: nowrap; }
+  .bp-table td:first-child { font-family: inherit; font-weight: 600; color: var(--body-fg); }
+  .bp-none { color: var(--body-quiet-color); font-style: italic; font-family: inherit; }
+
+  .bp-meta { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; font-size: 0.8rem; }
+  .bp-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--card-border); border-radius: 999px; padding: 3px 11px;
+    color: var(--body-quiet-color); background: var(--accent-band-bg);
+  }
+  .bp-chip b { color: var(--body-fg); font-weight: 600; }
+  .bp-chip.warn { color: var(--warning-fg); }
+
+  .bp-channels { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 4px; }
+  .bp-channel {
+    font-family: ui-monospace, Menlo, monospace; font-size: 0.84rem; font-weight: 700;
+    color: var(--primary); background: var(--accent-band-bg);
+    border: 1px solid var(--card-border); border-radius: 8px; padding: 7px 12px;
+  }
+
+  @media (max-width: 640px) {
+    .bp-zone span { display: none; }
+    .bp-band { padding: 14px; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="bp-wrap">
+
+  <h1 style="font-size:1.9rem;font-weight:700;margin:0 0 8px;color:var(--body-fg);">Band Chart</h1>
+  <p class="bp-lede">
+    Where you may key up, by license class — and where the CW operators actually
+    are. <b>US amateur allocations, IARU Region 2.</b> The bars show the
+    Extra-class allocation; the tick marks show where General and Technician
+    privileges begin.
+  </p>
+
+  <p class="bp-legal">
+    <b>Two different kinds of line on this page.</b> Subband edges come from FCC
+    Part&nbsp;97 and are law. Calling frequencies are voluntary band-plan
+    convention — nobody is breaking a rule by working 7.031. This is a bench
+    reference: before you transmit, check the
+    <a href="https://www.arrl.org/band-plan" rel="noopener noreferrer" target="_blank">ARRL band chart</a>
+    and the current FCC rules, which are the authority.
+  </p>
+
+  <div class="bp-legend">
+    <span class="bp-key"><span class="bp-swatch cw"></span> CW &amp; data</span>
+    <span class="bp-key"><span class="bp-swatch phone"></span> Phone &amp; image</span>
+    <span class="bp-key"><span class="bp-swatch tick"></span> Where a lower class starts</span>
+  </div>
+
+  {% comment %} ═══════════════ HF ═══════════════ {% endcomment %}
+  <section class="bp-section">
+    <h2>HF — 160 through 10 metres</h2>
+    <p>
+      The CW bands. Everything below {{ tuner_floor_mhz|floatformat:0 }}&nbsp;MHz is
+      out of reach of a plain RTL-SDR stick — you need direct sampling or an
+      upconverter to hear it. See <a href="{% url 'help:detail' 'sdr-hardware' %}">SDR Hardware</a>.
+    </p>
+
+    {% for band in hf_bands %}
+    <article class="bp-band">
+      <div class="bp-band-head">
+        <h3 class="bp-band-name">{{ band.name }}</h3>
+        <span class="bp-band-range">{{ band.range_label }}</span>
+      </div>
+      <p class="bp-band-note">{{ band.note }}</p>
+
+      {% if band.channels %}
+        <div class="bp-channels">
+          {% for ch in band.channels %}<span class="bp-channel">{{ ch|floatformat:4 }} MHz</span>{% endfor %}
+        </div>
+      {% else %}
+        <div class="bp-bar" role="img"
+             aria-label="{{ band.name }}: {% for z in band.zones %}{{ z.label }} {{ z.width_pct|floatformat:0 }} percent of the band{% if not forloop.last %}, {% endif %}{% endfor %}">
+          {% for z in band.zones %}
+            <div class="bp-zone {{ z.kind }}" style="left:{{ z.left_pct }}%;width:{{ z.width_pct }}%;">
+              <span>{{ z.label }}</span>
+            </div>
+          {% endfor %}
+        </div>
+        <div class="bp-ticks">
+          {% for t in band.entry_ticks %}
+            <span class="bp-tick" style="left:{{ t.left_pct }}%;"><i></i><b>{{ t.licenses }} {{ t.label }}</b></span>
+          {% endfor %}
+        </div>
+        <div class="bp-edges">
+          <span>{{ band.low_mhz|floatformat:band.decimals }}</span>
+          <span>{{ band.high_mhz|floatformat:band.decimals }}</span>
+        </div>
+      {% endif %}
+
+      <div class="bp-scroll">
+        <table class="bp-table">
+          <caption class="sr-only">{{ band.name }} privileges by license class, in MHz</caption>
+          <thead><tr><th scope="col">Class</th><th scope="col">CW &amp; data</th><th scope="col">Phone &amp; image</th></tr></thead>
+          <tbody>
+            {% for row in band.rows %}
+            <tr>
+              <th scope="row" style="font-family:inherit;font-weight:600;color:var(--body-fg);">{{ row.license }}</th>
+              {% if row.none %}
+                <td class="bp-none" colspan="2">{{ row.none }}</td>
+              {% else %}
+                <td>{{ row.cw_data|default:"—" }}</td>
+                <td>{{ row.phone|default:"—" }}</td>
+              {% endif %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="bp-meta">
+        <span class="bp-chip">Max power <b>{{ band.power }}</b></span>
+        {% if band.calling %}
+          <span class="bp-chip">CW watering holes
+            <b>{% for c in band.calling %}{{ c.mhz }} {{ c.label }}{% if not forloop.last %} · {% endif %}{% endfor %}</b>
+          </span>
+        {% endif %}
+        {% if band.needs_upconverter %}
+          <span class="bp-chip warn">Needs an upconverter to receive here</span>
+        {% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </section>
+
+  {% comment %} ═══════════════ VHF / UHF ═══════════════ {% endcomment %}
+  <section class="bp-section">
+    <h2>VHF &amp; UHF — 6 m and up</h2>
+    <p>
+      Full privileges for every class including Technician. A bare RTL-SDR stick
+      hears all of this, which is why the
+      <a href="{% url 'cw-survey' %}">Antenna Survey</a> leans on these bands.
+    </p>
+
+    <div class="bp-scroll">
+      <table class="bp-table">
+        <caption class="sr-only">VHF and UHF bands available to all license classes</caption>
+        <thead>
+          <tr><th scope="col">Band</th><th scope="col">Range</th><th scope="col">CW calling</th><th scope="col">Notes</th></tr>
+        </thead>
+        <tbody>
+          {% for band in vhf_bands %}
+          <tr>
+            <th scope="row" style="font-family:inherit;font-weight:600;color:var(--body-fg);">{{ band.name }}</th>
+            <td>{{ band.range_label }}</td>
+            <td>{% for c in band.calling %}{{ c.mhz }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</td>
+            <td style="font-family:inherit;white-space:normal;color:var(--body-quiet-color);">{{ band.note }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {% comment %} ═══════════════ CALLING FREQUENCIES ═══════════════ {% endcomment %}
+  <section class="bp-section">
+    <h2>Where the CW operators are</h2>
+    <p>
+      Convention, not regulation — but this is where to point the dial. Tune a
+      few kHz either side: these are gathering points, not channels.
+    </p>
+
+    <div class="bp-scroll">
+      <table class="bp-table">
+        <caption class="sr-only">CW calling frequencies by band</caption>
+        <thead>
+          <tr><th scope="col">Frequency</th><th scope="col">Band</th><th scope="col">Group</th></tr>
+        </thead>
+        <tbody>
+          {% for c in calling %}
+          <tr>
+            <td>{{ c.mhz }} MHz</td>
+            <td style="font-family:inherit;">{{ c.band }}</td>
+            <td style="font-family:inherit;">{{ c.label }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="bp-meta" style="margin-top:16px;">
+      <span class="bp-chip"><b>QRP</b> low power, 5 W or less</span>
+      <span class="bp-chip"><b>SKCC</b> Straight Key Century Club — mechanical keys only</span>
+      <span class="bp-chip"><b>FISTS</b> the CW club: “accuracy transcends speed”</span>
+    </div>
+  </section>
+
+  <p class="bp-lede" style="margin-top:32px;font-size:0.95rem;">
+    The full write-up — how to read a band chart, what each class gets, and how
+    propagation picks the band for you — is in
+    <a href="{% url 'help:detail' 'band-chart' %}">the Band Chart document</a>.
+  </p>
+
+</div>
+{% endblock %}

@@ -49,6 +49,10 @@ sections:
         title: "Morse Code Reference"
         description: "Every letter, number, punctuation mark, and prosign the station speaks"
         icon: "book"
+      - slug: band-chart
+        title: "Band Chart"
+        description: "Where each license class may transmit, and where the CW operators are"
+        icon: "bar-chart-2"
 
 # SmallStack's framework reference docs are bundled in apps/help/smallstack/.
 # They are tucked away for CW Station: SMALLSTACK_DOCS_ENABLED defaults to False
