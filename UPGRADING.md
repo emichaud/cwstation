@@ -9,7 +9,7 @@ listed, no downstream migration is required.
 
 ---
 
-## Unreleased — task reliability: lost-task reaper + retries
+## v0.23.0 — task reliability: lost-task reaper + retries
 
 Run `make migrate`. It applies **five** migrations.
 
