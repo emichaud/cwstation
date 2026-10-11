@@ -357,7 +357,7 @@ requires-dist = [
     { name = "django-filter", specifier = ">=25.2" },
     { name = "django-htmx", specifier = ">=1.19" },
     { name = "django-stubs", marker = "extra == 'dev'", specifier = ">=5.1" },
-    { name = "django-tasks-db", specifier = ">=0.2" },
+    { name = "django-tasks-db", specifier = ">=0.13,<0.14" },
     { name = "gunicorn", specifier = ">=21.0" },
     { name = "markdown", specifier = ">=3.5" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
