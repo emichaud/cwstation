@@ -51,11 +51,14 @@ from __future__ import annotations
 
 import logging
 import os
+from argparse import ArgumentTypeError
 from typing import Any
 
 from django.conf import settings
+from django.core.management.base import CommandError
 from django.utils.autoreload import DJANGO_AUTORELOAD_ENV
 from django_tasks_db.management.commands.db_worker import Command as UpstreamCommand
+from django_tasks_db.management.commands.db_worker import validate_worker_id
 
 from apps.tasks.heartbeat import HeartbeatThread, mark_stopped, new_incarnation, register_worker, safe_reap
 
@@ -98,7 +101,19 @@ class Command(UpstreamCommand):
         # hand *that* to upstream: upstream's DBTaskResult.claim() appends
         # whatever worker id it was given to worker_ids, so the reaper's
         # task → claimant join becomes exact without patching upstream.
-        label: str = options["worker_id"]
+        #
+        # Validated here, not just by argparse. Upstream attaches
+        # validate_worker_id as the flag's `type=`, which argparse applies to
+        # command-line strings only — `call_command(..., worker_id=...)` skips
+        # it entirely. That is how the unit suite and the test harness start
+        # workers, so the validated path is the one humans use and the unvalidated
+        # path is the one tests use: no test could ever fail on an over-long id.
+        # Reuse upstream's own function so there is one rule, surfaced as a
+        # CommandError rather than an argparse error raised from handle().
+        try:
+            label: str = validate_worker_id(str(options["worker_id"]))
+        except ArgumentTypeError as exc:
+            raise CommandError(f"--worker-id: {exc}") from exc
         worker_id = new_incarnation(label)
         options["worker_id"] = worker_id
 

@@ -34,7 +34,16 @@ class WorkerHeartbeat(models.Model):
     construction.
     """
 
-    worker_id = models.CharField(max_length=80, unique=True, help_text="label#token — matches worker_ids[-1].")
+    # Width is deliberately generous, not fitted. The arithmetic today is a
+    # 64-char label ceiling (upstream's validate_worker_id) + "#" + a 12-char
+    # token = 77, which fitted 80 with three characters spare — a margin that
+    # only holds until someone widens the token or upstream relaxes its limit.
+    # Overflow is engine-dependent in the dangerous direction: Postgres raises,
+    # but MySQL in non-strict mode truncates silently, and a *truncated worker
+    # identity collides* — two processes sharing one row, which is exactly the
+    # W1/W2 duplicate-execution class this column exists to prevent. A failed
+    # start is loud; a silent collision is not, so don't bet on the margin.
+    worker_id = models.CharField(max_length=128, unique=True, help_text="label#token — matches worker_ids[-1].")
     label = models.CharField(max_length=64, blank=True, db_index=True, help_text="The operator's --worker-id.")
     hostname = models.CharField(max_length=255, blank=True)
     pid = models.PositiveIntegerField(null=True, blank=True)
