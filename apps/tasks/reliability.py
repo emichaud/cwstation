@@ -341,15 +341,33 @@ def _mark_superseded(
     Returns ``None`` when another path already recorded this one — the UPDATE is
     conditional on ``parent_completed_at`` still being NULL, so the signal
     receiver and the sweep can both run without double-counting.
+
+    **Only a ``cause=lost`` child qualifies**, which is the same predicate
+    :func:`detect_late_completions` uses. A child row means "something retried
+    this attempt"; only a *reap* also means "and we declared the attempt dead
+    while it might still have been running", which is the premise of a late
+    completion. Retrying because the task raised (``failed``), or because a human
+    asked (``manual``), carries no such claim — the attempt had already reported
+    its own outcome.
+
+    Without the filter, any second delivery of one finished task to the receiver
+    reads its own freshly-enqueued retry as proof of a late completion, and
+    **cancels a legitimate retry** (``READY -> FAILED/RetrySuperseded``,
+    ``retry_cancelled=True``) on top of recording a double execution that never
+    happened. The spurious marker is the visible half; the lost work is the
+    defect. ``Cause.MANUAL`` is already in the model, so a manual-retry feature
+    would reach this without any second delivery at all: a human retrying what
+    looks stuck is the same race the reaper runs.
+
+    ``interrupted`` is excluded with ``failed`` and ``manual`` on purpose: that
+    cause comes from the worker recording ``SystemExit``/``KeyboardInterrupt`` as
+    it exits, and a process on its way out does not come back to complete.
     """
-    child = (
-        TaskAttempt.objects.filter(parent_id=parent_id, parent_completed_at__isnull=True)
-        .values_list("result_id", flat=True)
-        .first()
-    )
+    reaped_child = {"parent_id": parent_id, "parent_completed_at__isnull": True, "cause": TaskAttempt.Cause.LOST}
+    child = TaskAttempt.objects.filter(**reaped_child).values_list("result_id", flat=True).first()
     if child is None:
         return None
-    marked = TaskAttempt.objects.filter(parent_id=parent_id, parent_completed_at__isnull=True).update(
+    marked = TaskAttempt.objects.filter(**reaped_child).update(
         parent_completed_at=completed_at, parent_status=str(status)[:16]
     )
     if not marked:

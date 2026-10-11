@@ -10,6 +10,7 @@ the same batch run picks it up.
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from unittest import mock
 
@@ -319,6 +320,67 @@ class TestFailedAttemptLogSeverity:
         rec = next(r for r in caplog.records if "Task id=" in r.getMessage())
         assert rec.levelname == "ERROR", "the opt-out must restore Django's stock severity"
 
+    @staticmethod
+    def _one_record(fn, sender, task_result, caplog, *, raising=None):
+        """The single django.tasks record `fn` emits for this task."""
+        caplog.clear()
+        with caplog.at_level("INFO", logger="django.tasks"):
+            if raising is None:
+                fn(sender=sender, task_result=task_result)
+            else:
+                try:
+                    raise raising
+                except type(raising):
+                    fn(sender=sender, task_result=task_result)
+        recs = [r for r in caplog.records if r.name == "django.tasks"]
+        assert len(recs) == 1, recs
+        r = recs[0]
+        return (r.levelno, r.getMessage(), r.args, r.exc_info[0] if r.exc_info else None)
+
+    @pytest.mark.parametrize(
+        ("label", "sender_factory"),
+        [
+            ("DatabaseBackend, finally failed", lambda: DatabaseBackend),
+            ("ImmediateBackend (global blast radius)", lambda: ImmediateBackend),
+        ],
+    )
+    def test_our_record_is_equivalent_to_django_s_when_no_retry_is_pending(
+        self, caplog, label, sender_factory
+    ):
+        """Condition 1: only the retry-pending case may differ.
+
+        Taking over Django's receiver is a **global** mutation — it changes the
+        record for every backend, not just DatabaseBackend. So for a task with no
+        retry pending, ours must be indistinguishable from Django's in level,
+        message, args and exception type. Anything else leaks project-wide.
+        """
+        from django.tasks.signals import log_task_finished
+
+        row = _failed_row(no_policy)  # no policy => no retry => final failure
+        assert maybe_retry(row.id) is None
+        result = self._result(row)
+        sender = sender_factory()
+        boom = OSError("boom")
+
+        theirs = self._one_record(log_task_finished, sender, result, caplog, raising=boom)
+        ours = self._one_record(signals.log_task_outcome, sender, result, caplog, raising=boom)
+
+        assert ours == theirs, f"{label}: diverged from Django's record\n  ours={ours}\n  theirs={theirs}"
+        assert ours[0] == logging.ERROR
+
+    def test_our_record_is_equivalent_to_django_s_on_success(self, caplog):
+        from django.tasks.signals import log_task_finished
+
+        row = _failed_row(flaky)
+        DBTaskResult.objects.filter(id=row.id).update(status="SUCCESSFUL")
+        result = mock.Mock(
+            status=TaskResultStatus.SUCCESSFUL, id=row.id, task=mock.Mock(module_path=row.task_path)
+        )
+        theirs = self._one_record(log_task_finished, DatabaseBackend, result, caplog)
+        ours = self._one_record(signals.log_task_outcome, DatabaseBackend, result, caplog)
+        assert ours == theirs
+        assert ours[0] == logging.INFO
+
     def test_a_successful_task_still_logs_info(self, caplog):
         row = _failed_row(flaky)
         DBTaskResult.objects.filter(id=row.id).update(status="SUCCESSFUL")
@@ -588,6 +650,60 @@ class TestLateCompletion:
         assert late.retry_cancelled is False
         assert DBTaskResult.objects.get(id=child.result_id).status == "RUNNING"
         # ...and it is still recorded as a double execution.
+        child.refresh_from_db()
+        assert child.parent_completed_at is not None
+
+    def test_only_a_reaped_child_counts_as_evidence_of_a_late_completion(self):
+        """R5a: a `failed`-cause retry is not a supersession, and must survive.
+
+        A child row means "something retried this attempt". Only a *reap* also
+        means "we declared it dead while it might still have been running",
+        which is the premise of a late completion. Without the `cause=lost`
+        filter, any second report of one finished task reads its own fresh retry
+        as proof of a late completion and **cancels a legitimate retry** — work
+        loss, with the spurious marker merely the visible half.
+        """
+        parent = _failed_row(flaky)
+        retry_id = maybe_retry(parent.id)  # ordinary path => cause=failed
+        child = TaskAttempt.objects.get(parent_id=parent.id)
+        assert child.cause == TaskAttempt.Cause.FAILED
+
+        # The same finished attempt gets reported a second time.
+        self._completes_late(parent)
+        assert reliability.record_late_completion(parent.id) is None
+
+        child.refresh_from_db()
+        assert child.parent_completed_at is None, "a normal retry was recorded as a supersession"
+        assert child.retry_cancelled is False
+        assert DBTaskResult.objects.get(id=retry_id).status == "READY", "a legitimate retry was cancelled"
+
+    def test_a_manual_retry_is_not_evidence_of_a_late_completion_either(self):
+        """`Cause.MANUAL` is already in the model: a human retrying what looks
+        stuck runs the same race the reaper does, and must not be mistaken for a
+        supersession the moment the original finishes."""
+        parent = _failed_row(flaky)
+        retry = _failed_row(flaky)
+        DBTaskResult.objects.filter(id=retry.id).update(status="READY")
+        TaskAttempt.objects.create(
+            result_id=retry.id,
+            root_id=parent.id,
+            parent_id=parent.id,
+            attempt=2,
+            cause=TaskAttempt.Cause.MANUAL,
+        )
+        self._completes_late(parent)
+
+        assert reliability.record_late_completion(parent.id) is None
+        assert reliability.detect_late_completions() == []  # the sweep already agreed
+        assert DBTaskResult.objects.get(id=retry.id).status == "READY"
+        assert TaskAttempt.objects.get(parent_id=parent.id).parent_completed_at is None
+
+    def test_a_reaped_child_still_counts(self):
+        """The inverse: the predicate must not have been narrowed into uselessness."""
+        parent, child = self._reaped_and_retried()
+        assert child.cause == TaskAttempt.Cause.LOST
+        self._completes_late(parent)
+        assert reliability.record_late_completion(parent.id) is not None
         child.refresh_from_db()
         assert child.parent_completed_at is not None
 
