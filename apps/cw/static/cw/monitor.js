@@ -38,7 +38,16 @@ function initCWMonitor(opts) {
     names = Object.keys(sessions);
     if (!names.length) return null;
   }
-  const LIVE_LAG = 0.3; // seconds behind the newest data the playhead sits
+  // Live mode: the playhead trails the newest envelope sample by this much.
+  // It MUST trail, not lead: the decoder only reports a key run once the mark
+  // has ended, and batches ship every 0.25 s, so a run reaches the browser
+  // ~(mark length + 0.3 s) after it began. With the playhead pinned ahead of
+  // the data edge every run arrived already "in the past" and the sidetone
+  // never scheduled anything (silent live tape). 1 s covers a dah at ~7 wpm
+  // plus transport; the tape draws 0.9 s to the right of NOW, so the newest
+  // data still lands on screen.
+  const LIVE_LAG = 1.0;
+  let liveEdge = 0; // newest data time seen on the live feed (envelope or char)
 
   const reduce = matchMedia("(prefers-reduced-motion:reduce)").matches;
   const WINDOW = 3.2, PLAYHEAD = 0.72; // seconds visible; playhead position
@@ -186,8 +195,14 @@ function initCWMonitor(opts) {
       const start = now + Math.max(0, (a - t) / rate);
       const end = now + (b - t) / rate;
       if (end - start < 0.012) continue;
-      g.setValueAtTime(0, start);
-      g.linearRampToValueAtTime(SIDETONE_LEVEL, start + 0.005); // click-free edges
+      if (a < t) {
+        // already mid-mark (live batches re-sync every 0.25 s): hold the
+        // level instead of dipping to 0 and ramping back up — no click
+        g.setValueAtTime(SIDETONE_LEVEL, start);
+      } else {
+        g.setValueAtTime(0, start);
+        g.linearRampToValueAtTime(SIDETONE_LEVEL, start + 0.005); // click-free edges
+      }
       g.setValueAtTime(SIDETONE_LEVEL, end - 0.005);
       g.linearRampToValueAtTime(0, end);
     }
@@ -458,7 +473,7 @@ function initCWMonitor(opts) {
     if (live) {
       // Follow the incoming data: never pass the edge, and jump forward if
       // we fell far behind (backgrounded tab).
-      const edge = Math.max(0, dur - LIVE_LAG);
+      const edge = Math.max(0, liveEdge - LIVE_LAG);
       if (t > edge || edge - t > 3) t = edge;
       render();
       requestAnimationFrame(loop);
@@ -537,7 +552,8 @@ function initCWMonitor(opts) {
     // text-only taps (fldigi) carry no envelope — follow char time instead
     const envEdge = S.env_t.length ? S.env_t[S.env_t.length - 1] : 0;
     const charEdge = S.chars.length ? S.chars[S.chars.length - 1].t1 : 0;
-    dur = Math.max(envEdge, charEdge) + 0.6;
+    liveEdge = Math.max(envEdge, charEdge);
+    dur = liveEdge + 0.6;
     if (playing && audioOn) audioSync();
     if (!playing) render();
   }
